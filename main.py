@@ -15,11 +15,9 @@ from aiogram.types import FSInputFile, CallbackQuery
 import aiocron
 import math
 import random
-
-
 import weekly_awards
 import sticker_manager
-
+# тестовый комент на сайте гитхаба
 
 TOKEN = "7566137789:AAFk7sUaT4qFTV5xGzgO1Lh44hzr4bRU8hQ"
 STATS_FILE = "stats.json"
