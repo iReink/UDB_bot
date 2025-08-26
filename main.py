@@ -19,7 +19,7 @@ import weekly_awards
 import sticker_manager
 
 
-TOKEN = "7566137789:AAG-vNkVypDZaj46G6ER-uNFF1AJ1Zub0sQ"
+TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
 STATS_FILE = "stats.json"
 MAKOVKA_FILE_ID = "CAACAgIAAyEFAASjKavKAAOcaJ95ivqdgkA5gstkAbRt25CCRLAAAkN5AAJTNbFKdWJ4ufamt9I2BA"
 
