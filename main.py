@@ -425,31 +425,10 @@ dp: Dispatcher  # твой диспетчер
 
 
 # ловим обновления сообщений с реакциями
-# Реакция конкретного пользователя
-@dp.update(F.message_reaction_updated)
-async def handle_user_reaction(update: types.MessageReactionUpdated):
-    chat_title = update.chat.title or "личный чат"
-    user_name = update.user.full_name if update.user else "анонимный"
-    message_id = update.message_id
-    old = ", ".join(update.old_reaction) if update.old_reaction else "нет"
-    new = ", ".join(update.new_reaction) if update.new_reaction else "нет"
+@dp.update()
+async def log_all_updates(update: types.Update):
+    logging.info(f"Получен апдейт: {update}")
 
-    logging.info(
-        f"В чате '{chat_title}' пользователь {user_name} обновил реакцию на сообщение {message_id}: "
-        f"старые [{old}], новые [{new}]"
-    )
-
-
-# Обновление количества реакций (анонимные)
-@dp.update(F.message_reaction_count_updated)
-async def handle_reaction_count(update: types.MessageReactionCountUpdated):
-    chat_title = update.chat.title or "личный чат"
-    message_id = update.message_id
-    reactions_text = ", ".join(f"{r.type}: {r.count}" for r in update.reactions)
-
-    logging.info(
-        f"В чате '{chat_title}' сообщение {message_id} получило реакции: {reactions_text}"
-    )
 
 
 @dp.message()
