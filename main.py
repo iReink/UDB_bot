@@ -247,7 +247,7 @@ async def daily_punish_task():
 async def daily_reward_task():
     while True:
         now = datetime.now()
-        reward_time = now.replace(hour=23, minute=55, second=0, microsecond=0)
+        reward_time = now.replace(hour=21, minute=55, second=0, microsecond=0)
 
         # Если текущее время уже позже 23:55, переносим на завтра
         if now >= reward_time:
@@ -419,11 +419,35 @@ async def send_stat(message: types.Message):
     chat_id = message.chat.id
     await message.answer(get_weekly_chat_stats(chat_id))
 
-@dp.message(Command("debugusers"))
-async def debug_users(message: types.Message):
-    chat_id = message.chat.id
-    users = get_chat_users(chat_id)
-    await message.reply(f"Пользователи для {chat_id}:\n{[dict(u) for u in users]}")
+#тестовая функция для отлова реакций
+
+dp: Dispatcher  # твой экземпляр диспетчера
+
+
+@dp.message_updated(F.reactions != None)
+async def handle_reaction_update(message: types.Message):
+    """
+    Ловим каждое обновление сообщений с реакциями.
+    Выводим в лог красивую фразу на русском.
+    """
+    chat_name = message.chat.title or str(message.chat.id)
+    msg_author = message.from_user.full_name if message.from_user else "Неизвестный"
+
+    # message.reactions — это список MessageReaction
+    for reaction in message.reactions:
+        # reaction — объект MessageReaction
+        emoji = reaction.emoji
+        count = reaction.count
+        # Тот, кто ставил реакцию, к сожалению, в API напрямую не приходит
+        # Мы знаем только общее количество реакций
+        logging.info(
+            f"В чате '{chat_name}' пользователь '{msg_author}' получил реакцию '{emoji}'. "
+            f"Всего реакций на этом сообщении: {count}."
+        )
+
+
+
+
 
 
 @dp.message()
