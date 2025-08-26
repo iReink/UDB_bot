@@ -3,7 +3,7 @@ import sqlite3
 import os
 from datetime import datetime, timedelta
 
-DB_FILE = "chat_stats.db"
+DB_FILE = "stats.db"
 JSON_FILE = "stats.json"
 
 def create_tables(conn):
