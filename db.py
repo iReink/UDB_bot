@@ -2,9 +2,10 @@ import sqlite3
 from contextlib import closing
 from typing import List, Dict, Optional
 from datetime import date, timedelta
+import os
 
-DB_FILE = "stats.db"
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "stats.db")
 
 def get_connection():
     """Создаёт подключение к БД"""

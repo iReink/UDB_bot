@@ -894,6 +894,43 @@ weekly_awards.add_sits = add_sits
 sticker_manager.seed_known_chats_from_db()
 
 
+from db import get_connection
+
+
+
+with get_connection() as conn:
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS messages_reactions (
+            chat_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            message_text TEXT,
+            reactions_count INTEGER DEFAULT 0,
+            date TEXT,
+            PRIMARY KEY (chat_id, message_id)
+        )
+    """)
+    conn.commit()
+
+with get_connection() as conn:
+    cur = conn.cursor()
+    # Добавляем колонку react_given
+    cur.execute("ALTER TABLE daily_stats ADD COLUMN react_given INTEGER DEFAULT 0")
+    # Добавляем колонку react_taken
+    cur.execute("ALTER TABLE daily_stats ADD COLUMN react_taken INTEGER DEFAULT 0")
+    conn.commit()
+
+with get_connection() as conn:
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE total_stats ADD COLUMN react_given INTEGER DEFAULT 0")
+    cur.execute("ALTER TABLE total_stats ADD COLUMN react_taken INTEGER DEFAULT 0")
+    conn.commit()
+
+
+
+
+
 async def main():
     asyncio.create_task(daily_reward_task())  # награждение в 23:55
     asyncio.create_task(weekly_awards.weekly_awards_task())  # еженедельные награды
