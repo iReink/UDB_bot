@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import os
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 
 DB_FILE = "chat_stats.db"
 JSON_FILE = "stats.json"
@@ -34,8 +34,8 @@ def create_tables(conn):
             chars INTEGER DEFAULT 0,
             stickers INTEGER DEFAULT 0,
             coffee INTEGER DEFAULT 0,
-            CONSTRAINT unique_user_date UNIQUE(user_id, chat_id, date),
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
+            FOREIGN KEY(user_id) REFERENCES users(user_id),
+            UNIQUE(user_id, chat_id, date)
         )
     """)
 
@@ -65,8 +65,7 @@ def migrate_from_json(conn, json_file):
         stats = json.load(f)
 
     cur = conn.cursor()
-
-    today = date.today()
+    today = datetime.now().date()
 
     for chat_id_str, users in stats.items():
         chat_id = int(chat_id_str)
@@ -76,7 +75,7 @@ def migrate_from_json(conn, json_file):
             sits = int(data.get("sits", 0))
             punished = int(data.get("punished", 0))
 
-            # Добавляем или обновляем пользователя
+            # Вставляем или обновляем пользователя
             cur.execute("""
                 INSERT INTO users (user_id, chat_id, name, sits, punished, sex)
                 VALUES (?, ?, ?, ?, ?, NULL)
@@ -86,16 +85,16 @@ def migrate_from_json(conn, json_file):
                     punished=excluded.punished
             """, (user_id, chat_id, name, sits, punished))
 
-            # Daily статистика (последние 7 дней)
+            # Вставляем daily статистику
             daily_list = data.get("daily", [])
-            for i, day_data in enumerate(daily_list):
-                # i = 0 → сегодня, i=1 → вчера и т.д.
-                day_date = today - timedelta(days=(len(daily_list)-1 - i))
-                date_str = day_date.isoformat()
+            for i, day_data in enumerate(reversed(daily_list)):
+                # Последний элемент — сегодня, предыдущие — прошлые дни
+                date = today - timedelta(days=i)
+                date_str = date.isoformat()
                 cur.execute("""
                     INSERT INTO daily_stats (user_id, chat_id, date, messages, words, chars, stickers, coffee)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(unique_user_date) DO UPDATE SET
+                    ON CONFLICT(user_id, chat_id, date) DO UPDATE SET
                         messages=excluded.messages,
                         words=excluded.words,
                         chars=excluded.chars,
@@ -112,7 +111,7 @@ def migrate_from_json(conn, json_file):
                     int(day_data.get("coffee", 0)),
                 ))
 
-            # Total статистика
+            # Вставляем или обновляем total_stats
             total = data.get("total", {})
             cur.execute("""
                 INSERT INTO total_stats (user_id, chat_id, messages, words, chars, stickers, coffee)
