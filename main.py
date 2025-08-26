@@ -421,8 +421,6 @@ async def send_stat(message: types.Message):
 
 #тестовая функция для отлова реакций
 
-dp: Dispatcher  # твой диспетчер
-
 
 # ловим обновления сообщений с реакциями
 @dp.update()
@@ -797,7 +795,15 @@ async def main():
     asyncio.create_task(sticker_manager.silence_checker_task(bot))
     asyncio.create_task(daily_punish_task())  # Ежедневное наказание за кофе
 
-    await dp.start_polling(bot)
+    await dp.start_polling(
+        bot,
+        allowed_updates=[
+            types.UpdateType.MESSAGE,
+            types.UpdateType.MESSAGE_REACTION_UPDATED,
+            types.UpdateType.MESSAGE_REACTION_COUNT_UPDATED,
+            # можно добавить все другие, если нужно
+        ]
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
