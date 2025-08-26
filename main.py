@@ -567,7 +567,7 @@ async def action_drink_coffee(callback: CallbackQuery, item: dict):
 
     # 0) Проверяем время (пить после 22:00 нельзя)
     now = datetime.now()
-    if now.hour >= 20:
+    if 20 <= now.hour < 22:
         await callback.answer(f"После 22:00 фильтр больше не наливают, {user_name} ☕️❌", show_alert=True)
         return
 
