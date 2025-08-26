@@ -31,7 +31,8 @@ from db import (
     get_all_chats,
     get_user_sex
 )
-from reactions import router as reactions_router
+
+from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
 
 
 
@@ -87,8 +88,6 @@ logging.basicConfig(
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Подключаем роутер с реакциями
-dp.include_router(reactions_router)
 
 def ensure_user(chat_id: int, user_id: int, user_name: str):
     """
@@ -422,6 +421,20 @@ from aiogram.filters import Command
 async def send_stat(message: types.Message):
     chat_id = message.chat.id
     await message.answer(get_weekly_chat_stats(chat_id))
+
+# Когда пользователь добавляет/удаляет реакцию
+@dp.event(F.update.message_reaction)
+async def reaction_updated(event: MessageReactionUpdated):
+    logging.info(f"Пользователь {event.user.id} "
+        f"поменял реакции на сообщение {event.message_id}: {event.new_reaction}")
+
+
+# Когда Telegram обновляет счётчик реакций на сообщение
+@dp.event(F.update.message_reaction_count)
+async def reaction_count_updated(event: MessageReactionCountUpdated):
+    logging.info(
+        f"У сообщения {event.message_id} теперь такие реакции: {event.reactions}"
+    )
 
 
 @dp.message()
