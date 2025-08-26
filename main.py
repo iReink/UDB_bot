@@ -421,30 +421,24 @@ async def send_stat(message: types.Message):
 
 #тестовая функция для отлова реакций
 
-dp: Dispatcher  # твой экземпляр диспетчера
+dp: Dispatcher  # твой диспетчер
 
 
-@dp.message_updated(F.reactions != None)
+@dp.message(F.reactions)
 async def handle_reaction_update(message: types.Message):
     """
-    Ловим каждое обновление сообщений с реакциями.
-    Выводим в лог красивую фразу на русском.
+    Ловим сообщения с реакциями.
     """
     chat_name = message.chat.title or str(message.chat.id)
     msg_author = message.from_user.full_name if message.from_user else "Неизвестный"
 
-    # message.reactions — это список MessageReaction
     for reaction in message.reactions:
-        # reaction — объект MessageReaction
         emoji = reaction.emoji
         count = reaction.count
-        # Тот, кто ставил реакцию, к сожалению, в API напрямую не приходит
-        # Мы знаем только общее количество реакций
         logging.info(
             f"В чате '{chat_name}' пользователь '{msg_author}' получил реакцию '{emoji}'. "
             f"Всего реакций на этом сообщении: {count}."
         )
-
 
 
 
