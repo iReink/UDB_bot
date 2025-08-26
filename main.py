@@ -423,6 +423,7 @@ async def send_stat(message: types.Message):
     await message.answer(get_weekly_chat_stats(chat_id))
 
 
+from aiogram.types import Message
 @dp.message(commands=["regenerate"])
 async def regenerate_usernames(message: Message):
     """Обновляет имена пользователей в таблице users по их user_id"""
