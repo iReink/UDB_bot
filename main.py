@@ -27,7 +27,9 @@ from db import (
     increment_total_stats,
     get_user,
     add_or_update_user,
-    get_last_7_daily_stats
+    get_last_7_daily_stats,
+    get_all_chats,
+    get_user_sex
 )
 
 
@@ -57,7 +59,10 @@ SHOP_ITEMS = {
     "filtr0": {
         "name": "☕️ Выпить кофе",
         "price": 0,
-        "buy_text": "{user_name} сладко попил фильтра и улыбнулся ☕️☕️☕️",
+        "buy_text": {
+            "m": "{user_name} сладко попил фильтра и улыбнулся ☕️☕️☕️",
+            "f": "{user_name} сладко попила фильтра и улыбнулась ☕️☕️☕️"
+        },
         "action": "drink_coffee"
     },
     "sticker1000": {
@@ -204,7 +209,7 @@ async def daily_punish_task():
 
             # Получаем сегодняшнюю daily-статистику
             today_str = datetime.now().strftime("%Y-%m-%d")
-            daily = get_daily_stats(user_id, today_str)
+            daily = get_daily_stats(user_id, chat_id, today_str)
             if not daily:
                 continue
 
@@ -227,7 +232,7 @@ async def daily_punish_task():
                 conn.commit()
 
             # Отправка отчета в чат
-            name = get_user(user_id)["name"] or str(user_id)
+            name = get_user(user_id, chat_id)["name"] or str(user_id)
             try:
                 await bot.send_message(chat_id,
                     f"Применены штрафы за чрезмерное потребление кофе:\n"
@@ -257,7 +262,6 @@ async def daily_reward_task():
 
 # ---------- Хэндлеры ----------
 
-
 @dp.message(Command("weeklytop"))
 async def weekly_top(message: types.Message):
     chat_id = message.chat.id
@@ -271,7 +275,8 @@ async def weekly_top(message: types.Message):
     for user_row in users:
         user = dict(user_row)  # sqlite3.Row -> dict
         uid = int(user["user_id"])
-        daily = get_last_7_daily_stats(uid, days=7)
+        # Передаём chat_id
+        daily = get_last_7_daily_stats(uid, chat_id, days=7)
         week_msgs = sum(d["messages"] for d in daily)
         name = user.get("name") or "Unknown"
         punished = int(user.get("punished") or 0)
@@ -288,7 +293,6 @@ async def weekly_top(message: types.Message):
 
 
 
-
 @dp.message(Command("totaltop"))
 async def total_top(message: types.Message):
     chat_id = message.chat.id
@@ -300,16 +304,18 @@ async def total_top(message: types.Message):
     totals = []
     for user in users:
         uid = user["user_id"]
-        total = get_total_stats(uid)
-        total_msgs = total["messages"] if total else 0
-        totals.append((total_msgs, uid, user.get("name", "Unknown"), user.get("punished", 0)))
+        total = get_total_stats(uid, chat_id)
+        total_msgs = int(total["messages"]) if total else 0
+        name = user["name"] or "Unknown"
+        punished = int(user["punished"] or 0)
+        totals.append((total_msgs, uid, name, punished))
 
     totals.sort(reverse=True, key=lambda x: x[0])
+
     text = "📊 Топ-10 за всё время:\n"
     for i, (count, uid, name, punished) in enumerate(totals[:10], 1):
-        if punished:
-            name = f"{name} ☠️"
-        text += f"{i}. {name} — {count} сообщений\n"
+        display_name = f"{name} ☠️" if punished else name
+        text += f"{i}. {display_name} — {count} сообщений\n"
 
     await message.reply(text)
 
@@ -339,7 +345,7 @@ async def flood_stats(message: types.Message):
     for urow in users:
         u = dict(urow)
         uid = int(u["user_id"])
-        daily = get_last_7_daily_stats(uid, days=7)
+        daily = get_last_7_daily_stats(uid, chat_id, days=7)
         week_msgs = sum(d["messages"] for d in daily)
         week_totals.append((week_msgs, uid))
 
@@ -351,7 +357,7 @@ async def flood_stats(message: types.Message):
     total_list = []
     for urow in users:
         uid = int(urow["user_id"])
-        total = get_total_stats(uid)
+        total = get_total_stats(uid, chat_id)
         total_msgs = int(total["messages"] or 0) if total else 0
         total_list.append((total_msgs, uid))
     total_list.sort(reverse=True, key=lambda x: x[0])
@@ -359,14 +365,14 @@ async def flood_stats(message: types.Message):
     total_msgs = next((t for t, uid in total_list if uid == user_id), 0)
 
     # Пользовательские данные
-    user_row = get_user(user_id)
+    user_row = get_user(user_id, chat_id)
     user = dict(user_row) if user_row else {}
     name = user.get("name") or message.from_user.full_name
     if int(user.get("punished", 0) or 0):
         name = f"{name} ☠️"
 
     # Кофе берем из total_stats
-    total_stats = get_total_stats(user_id)
+    total_stats = get_total_stats(user_id, chat_id)
     total_coffee = int(total_stats["coffee"] or 0) if total_stats else 0
 
     # Баланс sits
@@ -412,6 +418,12 @@ from aiogram.filters import Command
 async def send_stat(message: types.Message):
     chat_id = message.chat.id
     await message.answer(get_weekly_chat_stats(chat_id))
+
+@dp.message(Command("debugusers"))
+async def debug_users(message: types.Message):
+    chat_id = message.chat.id
+    users = get_chat_users(chat_id)
+    await message.reply(f"Пользователи для {chat_id}:\n{[dict(u) for u in users]}")
 
 
 @dp.message()
@@ -469,7 +481,7 @@ def add_sits(chat_id: int, user_id: int, amount: int):
 #получение баланса сита
 def get_sits(chat_id: int, user_id: int) -> int:
     from db import get_user
-    user = get_user(user_id)
+    user = get_user(user_id, chat_id)
     if user and user["chat_id"] == chat_id:
         return user["sits"] or 0
     return 0
@@ -481,7 +493,7 @@ def spend_sits(chat_id: int, user_id: int, amount: int) -> tuple[bool, int]:
     Пытается списать amount сит.
     Возвращает (успех: bool, новый_или_текущий_баланс: int).
     """
-    user = get_user(user_id)
+    user = get_user(user_id, chat_id)
     if user and user["chat_id"] == chat_id:
         current = user["sits"] or 0
         if current >= amount:
@@ -553,7 +565,7 @@ async def action_drink_coffee(callback: CallbackQuery, item: dict):
     user_id = callback.from_user.id
     user_name = callback.from_user.full_name or callback.from_user.username or str(user_id)
 
-    # 0) Проверяем время (пить после 20:00 нельзя)
+    # 0) Проверяем время (пить после 22:00 нельзя)
     now = datetime.now()
     if now.hour >= 20:
         await callback.answer(f"После 22:00 фильтр больше не наливают, {user_name} ☕️❌", show_alert=True)
@@ -561,14 +573,17 @@ async def action_drink_coffee(callback: CallbackQuery, item: dict):
 
     # 1) Получаем сегодняшнюю статистику
     today_str = now.strftime("%Y-%m-%d")
-    daily = get_daily_stats(user_id, today_str)
+    daily = get_daily_stats(user_id, chat_id, today_str)
     n = daily["coffee"] if daily else 0
 
     # 2) Проверяем, есть ли штраф
-    user = get_user(user_id)
+    user = get_user(user_id, chat_id)
     if user and user["punished"] == 1:
         await callback.answer(f"Дно уже прорвано, тебе хватит, {user_name}", show_alert=True)
         return
+
+    # Определяем пол пользователя
+    sex = get_user_sex(user_id, chat_id)  # 'male' / 'female' / None
 
     # 3) Увеличиваем счетчики кофе
     increment_daily_stats(user_id, chat_id, today_str, coffee=1)
@@ -576,7 +591,19 @@ async def action_drink_coffee(callback: CallbackQuery, item: dict):
     n += 1
 
     # 4) Формируем текст покупки
-    buy_text = item.get("buy_text", "{user_name} купил вещь").format(user_name=user_name)
+    # buy_text может быть строкой или словарём {"m": "...", "f": "..."}
+    buy_text_template = item.get("buy_text")
+
+    if isinstance(buy_text_template, dict):
+        if sex == "f":
+            base_text = buy_text_template.get("f") or buy_text_template.get("m")
+        else:
+            base_text = buy_text_template.get("m") or buy_text_template.get("f")
+    else:
+        base_text = buy_text_template or "{user_name} купил вещь"
+
+    buy_text = base_text.format(user_name=user_name)
+
     if n >= 3:
         buy_text += " ...в животе начинает бурчать"
 
@@ -588,14 +615,17 @@ async def action_drink_coffee(callback: CallbackQuery, item: dict):
     # 5) Рассчитываем шанс штрафа (с третьей кружки)
     punished_now = False
     if n > 2:
-        chance = 1 - math.exp(-0.8 * (n - 2))
+        chance = 1 - math.exp(-0.5 * (n - 2))
         punished_now = random.random() < chance
 
     if punished_now:
         add_or_update_user(user_id, chat_id, user_name, punished=1)
-        await callback.message.answer(
-            f"💀 Дно прорвано! До конца дня {user_name} получает штраф на снижение числа сообщений вдвое"
-        )
+        if sex == "f":
+            msg = f"💀 Дно прорвано! До конца дня {user_name} получает штраф — её сообщения будут считаться наполовину"
+        else:
+            msg = f"💀 Дно прорвано! До конца дня {user_name} получает штраф — его сообщения будут считаться наполовину"
+
+        await callback.message.answer(msg)
         logging.info(f"{user_name} получил флаг punished (кофе {n}) в чате {chat_id}")
         await callback.answer()
         return
@@ -603,12 +633,16 @@ async def action_drink_coffee(callback: CallbackQuery, item: dict):
     # 6) Если кофе 4+ и нет штрафа — даём 1 сит
     if n >= 4:
         add_sits(chat_id, user_id, 1)
-        new_bal = get_user(user_id)["sits"]
-        await callback.message.answer(
-            f"{user_name} преисполнился от выпитого фильтра и получил 1 сит. Остаток: {new_bal} сит"
-        )
+        new_bal = get_user(user_id, chat_id)["sits"]
+        if sex == "f":
+            msg = f"{user_name} преисполнилась от выпитого фильтра и получила 1 сит. Остаток: {new_bal} сит"
+        else:
+            msg = f"{user_name} преисполнился от выпитого фильтра и получил 1 сит. Остаток: {new_bal} сит"
+
+        await callback.message.answer(msg)
 
     await callback.answer()
+
 
 
 async def action_send_spider(callback: CallbackQuery, item: dict):
@@ -689,31 +723,34 @@ async def reward_daily_top(bot: Bot):
     """
     from datetime import date
     today_str = date.today().isoformat()
+    from db import get_chat_users, get_daily_stats, get_user, add_or_update_user
 
-    # Получаем все чаты из БД
-    conn = None
-    try:
-        users_data = get_chat_users()  # возвращает Dict[chat_id, List[user_id]]
-    except Exception as e:
-        logging.exception(f"Ошибка при получении пользователей чатов: {e}")
-        return
+    # Получаем список всех чатов
+    # Здесь нужно явно перечислить chat_id ваших чатов или хранить их в БД
+    chat_ids = get_all_chats() # get_all_chats() — функция, возвращающая все чаты
 
-    for chat_id, user_ids in users_data.items():
+    for chat_id in chat_ids:
+        users = get_chat_users(chat_id)  # list[sqlite3.Row] пользователей чата
+        if not users:
+            continue
+
         user_counts = []
-        for uid in user_ids:
-            from db import get_daily_stats, get_user
-            daily = get_daily_stats(uid, today_str)
-            user = get_user(uid)
-            if not daily or not user:
+        for user_row in users:
+            uid = int(user_row["user_id"])
+            user = get_user(uid, chat_id)
+            daily = get_daily_stats(uid, chat_id, today_str)
+            if not user or not daily:
                 continue
-            messages = daily.get("messages", 0)
+
+            messages = daily["messages"] if daily else 0
             if messages > 0:
-                user_counts.append((uid, messages, user["name"]))
+                name = user["name"] or str(uid)
+                user_counts.append((uid, messages, name))
 
         if not user_counts:
             continue
 
-        # Сортируем по сообщениям за сегодня
+        # Сортируем по сообщениям за сегодня и берём топ-3
         user_counts.sort(key=lambda x: x[1], reverse=True)
         top3 = user_counts[:3]
         rewards = [2, 1, 1]
@@ -721,7 +758,8 @@ async def reward_daily_top(bot: Bot):
         text_lines = ["За ежедневный вклад во флуд в чяте награждаются:"]
         for i, (uid, count, name) in enumerate(top3):
             amount = rewards[i]
-            add_sits(chat_id, uid, amount)
+            # Добавляем ситы
+            add_or_update_user(uid, chat_id, user_row["name"], sits=amount)
             text_lines.append(f"{i + 1} место — {name} — {amount} сит")
 
         # Отправка сообщения в чат
@@ -729,6 +767,13 @@ async def reward_daily_top(bot: Bot):
             await bot.send_message(chat_id, "\n".join(text_lines))
         except Exception as e:
             logging.error(f"Не удалось отправить сообщение в чат {chat_id}: {e}")
+
+
+
+
+
+
+
 
 
 # ---------- Запуск ----------

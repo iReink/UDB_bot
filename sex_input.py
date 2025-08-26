@@ -1,6 +1,6 @@
 import sqlite3
 
-DB_FILE = "chat_stats.db"
+DB_FILE = "stats.db"
 
 
 def ask_sex_for_users(conn):

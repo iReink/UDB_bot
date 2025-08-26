@@ -260,11 +260,11 @@
       "name": "Вадим Баранов",
       "daily": [
         {
-          "messages": 0,
-          "words": 0,
-          "chars": 0,
+          "messages": 1,
+          "words": 1,
+          "chars": 3,
           "stickers": 0,
-          "coffee": 0
+          "coffee": 1
         },
         {
           "messages": 0,
@@ -310,13 +310,13 @@
         }
       ],
       "total": {
-        "messages": 19,
-        "words": 61,
-        "chars": 442,
+        "messages": 20,
+        "words": 62,
+        "chars": 445,
         "stickers": 6,
-        "coffee": 7
+        "coffee": 8
       },
-      "sits": 84,
+      "sits": 83,
       "punished": 0
     },
     "749027951": {
@@ -388,10 +388,10 @@
       "name": "Виталий🥏",
       "daily": [
         {
-          "messages": 14,
-          "words": 47,
-          "chars": 241,
-          "stickers": 0,
+          "messages": 26,
+          "words": 94,
+          "chars": 520,
+          "stickers": 3,
           "coffee": 4
         },
         {
@@ -438,10 +438,10 @@
         }
       ],
       "total": {
-        "messages": 405,
-        "words": 1459,
-        "chars": 7874,
-        "stickers": 34,
+        "messages": 417,
+        "words": 1506,
+        "chars": 8153,
+        "stickers": 37,
         "coffee": 28
       },
       "punished": 1
@@ -513,11 +513,11 @@
       "name": "Вадим Баранов",
       "daily": [
         {
-          "messages": 6,
-          "words": 70,
-          "chars": 393,
-          "stickers": 0,
-          "coffee": 1
+          "messages": 73,
+          "words": 555,
+          "chars": 3306,
+          "stickers": 1,
+          "coffee": 2
         },
         {
           "messages": 117,
@@ -563,11 +563,11 @@
         }
       ],
       "total": {
-        "messages": 1575,
-        "words": 12762,
-        "chars": 75425,
-        "stickers": 28,
-        "coffee": 21
+        "messages": 1642,
+        "words": 13247,
+        "chars": 78338,
+        "stickers": 29,
+        "coffee": 22
       },
       "sits": 14,
       "punished": 0
@@ -576,11 +576,11 @@
       "name": "Виталий Хемуль",
       "daily": [
         {
-          "messages": 116,
-          "words": 667,
-          "chars": 3760,
-          "stickers": 1,
-          "coffee": 2
+          "messages": 265,
+          "words": 1195,
+          "chars": 6822,
+          "stickers": 11,
+          "coffee": 3
         },
         {
           "messages": 699,
@@ -626,14 +626,14 @@
         }
       ],
       "total": {
-        "messages": 3080,
-        "words": 11048,
-        "chars": 59858,
-        "stickers": 241,
-        "coffee": 29
+        "messages": 3229,
+        "words": 11576,
+        "chars": 62920,
+        "stickers": 251,
+        "coffee": 30
       },
-      "sits": 19,
-      "punished": 0
+      "sits": 18,
+      "punished": 1
     },
     "517679272": {
       "name": "Ренат",
@@ -764,9 +764,9 @@
       "name": "Анна Романенко",
       "daily": [
         {
-          "messages": 5,
-          "words": 38,
-          "chars": 191,
+          "messages": 9,
+          "words": 62,
+          "chars": 341,
           "stickers": 0,
           "coffee": 0
         },
@@ -814,9 +814,9 @@
         }
       ],
       "total": {
-        "messages": 784,
-        "words": 3683,
-        "chars": 19872,
+        "messages": 788,
+        "words": 3707,
+        "chars": 20022,
         "stickers": 36,
         "coffee": 1
       },
@@ -827,11 +827,11 @@
       "name": "Александр Кузнецов",
       "daily": [
         {
-          "messages": 50,
-          "words": 185,
-          "chars": 1037,
-          "stickers": 2,
-          "coffee": 3
+          "messages": 135,
+          "words": 558,
+          "chars": 3068,
+          "stickers": 3,
+          "coffee": 4
         },
         {
           "messages": 159,
@@ -877,14 +877,14 @@
         }
       ],
       "total": {
-        "messages": 1578,
-        "words": 7074,
-        "chars": 39471,
-        "stickers": 357,
-        "coffee": 40
+        "messages": 1663,
+        "words": 7447,
+        "chars": 41502,
+        "stickers": 358,
+        "coffee": 41
       },
       "sits": 12,
-      "punished": 0
+      "punished": 1
     },
     "471154132": {
       "name": "Tass",
@@ -952,11 +952,11 @@
       "name": "lisa saygak",
       "daily": [
         {
-          "messages": 0,
-          "words": 0,
-          "chars": 0,
+          "messages": 57,
+          "words": 152,
+          "chars": 820,
           "stickers": 0,
-          "coffee": 0
+          "coffee": 1
         },
         {
           "messages": 164,
@@ -1002,11 +1002,11 @@
         }
       ],
       "total": {
-        "messages": 1237,
-        "words": 5077,
-        "chars": 27885,
+        "messages": 1294,
+        "words": 5229,
+        "chars": 28705,
         "stickers": 341,
-        "coffee": 9
+        "coffee": 10
       },
       "punished": 0,
       "sits": 5
@@ -1015,11 +1015,11 @@
       "name": "Roman Burashnov",
       "daily": [
         {
-          "messages": 8,
-          "words": 25,
-          "chars": 122,
-          "stickers": 1,
-          "coffee": 0
+          "messages": 15,
+          "words": 59,
+          "chars": 352,
+          "stickers": 2,
+          "coffee": 1
         },
         {
           "messages": 33,
@@ -1065,11 +1065,11 @@
         }
       ],
       "total": {
-        "messages": 153,
-        "words": 560,
-        "chars": 3034,
-        "stickers": 33,
-        "coffee": 5
+        "messages": 160,
+        "words": 594,
+        "chars": 3264,
+        "stickers": 34,
+        "coffee": 6
       },
       "punished": 0
     },
@@ -1077,10 +1077,10 @@
       "name": "Катя Сычева",
       "daily": [
         {
-          "messages": 18,
-          "words": 218,
-          "chars": 1471,
-          "stickers": 0,
+          "messages": 53,
+          "words": 404,
+          "chars": 2526,
+          "stickers": 1,
           "coffee": 0
         },
         {
@@ -1127,10 +1127,10 @@
         }
       ],
       "total": {
-        "messages": 1540,
-        "words": 8099,
-        "chars": 46190,
-        "stickers": 73,
+        "messages": 1575,
+        "words": 8285,
+        "chars": 47245,
+        "stickers": 74,
         "coffee": 12
       },
       "punished": 0,
@@ -1140,11 +1140,11 @@
       "name": "Эльдар",
       "daily": [
         {
-          "messages": 0,
-          "words": 0,
-          "chars": 0,
-          "stickers": 0,
-          "coffee": 0
+          "messages": 22,
+          "words": 169,
+          "chars": 1033,
+          "stickers": 1,
+          "coffee": 1
         },
         {
           "messages": 209,
@@ -1190,11 +1190,11 @@
         }
       ],
       "total": {
-        "messages": 1135,
-        "words": 7367,
-        "chars": 40467,
-        "stickers": 18,
-        "coffee": 10
+        "messages": 1157,
+        "words": 7536,
+        "chars": 41500,
+        "stickers": 19,
+        "coffee": 11
       },
       "punished": 0,
       "sits": 6
@@ -1203,9 +1203,9 @@
       "name": "Роберт Ахмадуллин",
       "daily": [
         {
-          "messages": 3,
-          "words": 15,
-          "chars": 105,
+          "messages": 5,
+          "words": 29,
+          "chars": 195,
           "stickers": 0,
           "coffee": 0
         },
@@ -1253,9 +1253,9 @@
         }
       ],
       "total": {
-        "messages": 22,
-        "words": 115,
-        "chars": 685,
+        "messages": 24,
+        "words": 129,
+        "chars": 775,
         "stickers": 0,
         "coffee": 0
       },
@@ -1266,9 +1266,9 @@
       "name": "Christina Giedion",
       "daily": [
         {
-          "messages": 26,
-          "words": 177,
-          "chars": 1043,
+          "messages": 27,
+          "words": 179,
+          "chars": 1057,
           "stickers": 1,
           "coffee": 0
         },
@@ -1316,9 +1316,9 @@
         }
       ],
       "total": {
-        "messages": 245,
-        "words": 1170,
-        "chars": 6659,
+        "messages": 246,
+        "words": 1172,
+        "chars": 6673,
         "stickers": 6,
         "coffee": 2
       },
@@ -1328,10 +1328,10 @@
       "name": "Софья Кочнева",
       "daily": [
         {
-          "messages": 9,
-          "words": 65,
-          "chars": 439,
-          "stickers": 0,
+          "messages": 12,
+          "words": 74,
+          "chars": 511,
+          "stickers": 1,
           "coffee": 0
         },
         {
@@ -1378,10 +1378,10 @@
         }
       ],
       "total": {
-        "messages": 450,
-        "words": 2343,
-        "chars": 13925,
-        "stickers": 127,
+        "messages": 453,
+        "words": 2352,
+        "chars": 13997,
+        "stickers": 128,
         "coffee": 0
       },
       "punished": 0
@@ -1763,9 +1763,9 @@
       "name": "Анатолий Пивоваров",
       "daily": [
         {
-          "messages": 0,
-          "words": 0,
-          "chars": 0,
+          "messages": 7,
+          "words": 29,
+          "chars": 179,
           "stickers": 0,
           "coffee": 0
         },
@@ -1813,9 +1813,9 @@
         }
       ],
       "total": {
-        "messages": 154,
-        "words": 768,
-        "chars": 4383,
+        "messages": 161,
+        "words": 797,
+        "chars": 4562,
         "stickers": 1,
         "coffee": 0
       },
@@ -2013,9 +2013,9 @@
       "name": "Максим Симонов",
       "daily": [
         {
-          "messages": 0,
-          "words": 0,
-          "chars": 0,
+          "messages": 4,
+          "words": 53,
+          "chars": 296,
           "stickers": 0,
           "coffee": 0
         },
@@ -2063,9 +2063,9 @@
         }
       ],
       "total": {
-        "messages": 199,
-        "words": 1616,
-        "chars": 10157,
+        "messages": 203,
+        "words": 1669,
+        "chars": 10453,
         "stickers": 0,
         "coffee": 0
       },
@@ -2075,11 +2075,11 @@
       "name": "Vika",
       "daily": [
         {
-          "messages": 17,
-          "words": 78,
-          "chars": 482,
+          "messages": 31,
+          "words": 173,
+          "chars": 1020,
           "stickers": 0,
-          "coffee": 0
+          "coffee": 1
         },
         {
           "messages": 135,
@@ -2125,11 +2125,11 @@
         }
       ],
       "total": {
-        "messages": 873,
-        "words": 6691,
-        "chars": 39900,
+        "messages": 887,
+        "words": 6786,
+        "chars": 40438,
         "stickers": 38,
-        "coffee": 12
+        "coffee": 13
       },
       "punished": 0,
       "sits": 7
@@ -2138,9 +2138,9 @@
       "name": "Александр Сергеев",
       "daily": [
         {
-          "messages": 1,
-          "words": 2,
-          "chars": 10,
+          "messages": 16,
+          "words": 118,
+          "chars": 649,
           "stickers": 1,
           "coffee": 0
         },
@@ -2188,9 +2188,9 @@
         }
       ],
       "total": {
-        "messages": 131,
-        "words": 703,
-        "chars": 4094,
+        "messages": 146,
+        "words": 819,
+        "chars": 4733,
         "stickers": 5,
         "coffee": 4
       },
@@ -2263,9 +2263,9 @@
       "name": "Ваха Костандян",
       "daily": [
         {
-          "messages": 0,
-          "words": 0,
-          "chars": 0,
+          "messages": 3,
+          "words": 11,
+          "chars": 52,
           "stickers": 0,
           "coffee": 0
         },
@@ -2313,9 +2313,9 @@
         }
       ],
       "total": {
-        "messages": 64,
-        "words": 392,
-        "chars": 2147,
+        "messages": 67,
+        "words": 403,
+        "chars": 2199,
         "stickers": 18,
         "coffee": 0
       },
@@ -2325,10 +2325,10 @@
       "name": "❖ Polina Popova",
       "daily": [
         {
-          "messages": 19,
-          "words": 101,
-          "chars": 604,
-          "stickers": 0,
+          "messages": 39,
+          "words": 194,
+          "chars": 1106,
+          "stickers": 1,
           "coffee": 0
         },
         {
@@ -2375,10 +2375,10 @@
         }
       ],
       "total": {
-        "messages": 807,
-        "words": 4406,
-        "chars": 24134,
-        "stickers": 1,
+        "messages": 827,
+        "words": 4499,
+        "chars": 24636,
+        "stickers": 2,
         "coffee": 0
       },
       "punished": 0,
@@ -2762,10 +2762,10 @@
       "name": "✨",
       "daily": [
         {
-          "messages": 0,
-          "words": 0,
-          "chars": 0,
-          "stickers": 0,
+          "messages": 32,
+          "words": 53,
+          "chars": 301,
+          "stickers": 3,
           "coffee": 0
         },
         {
@@ -2812,10 +2812,10 @@
         }
       ],
       "total": {
-        "messages": 21,
-        "words": 43,
-        "chars": 294,
-        "stickers": 2,
+        "messages": 53,
+        "words": 96,
+        "chars": 595,
+        "stickers": 5,
         "coffee": 0
       },
       "punished": 0

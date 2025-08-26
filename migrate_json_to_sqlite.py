@@ -8,15 +8,21 @@ JSON_FILE = "stats.json"
 
 def create_tables(conn):
     cur = conn.cursor()
+
+    # Таблица пользователей — составной PK (user_id + chat_id)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL,
         chat_id INTEGER NOT NULL,
         name TEXT,
         sits INTEGER DEFAULT 0,
         punished INTEGER DEFAULT 0,
-        sex TEXT DEFAULT NULL
-    )""")
+        sex TEXT DEFAULT NULL,
+        PRIMARY KEY (user_id, chat_id)
+    )
+    """)
+
+    # Таблица ежедневной статистики — уникальный ключ user+chat+date
     cur.execute("""
     CREATE TABLE IF NOT EXISTS daily_stats (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,18 +35,25 @@ def create_tables(conn):
         stickers INTEGER DEFAULT 0,
         coffee INTEGER DEFAULT 0,
         UNIQUE(user_id, chat_id, date)
-    )""")
+    )
+    """)
+
+    # Таблица общей статистики — составной PK (user_id + chat_id)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS total_stats (
-        user_id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL,
         chat_id INTEGER NOT NULL,
         messages INTEGER DEFAULT 0,
         words INTEGER DEFAULT 0,
         chars INTEGER DEFAULT 0,
         stickers INTEGER DEFAULT 0,
-        coffee INTEGER DEFAULT 0
-    )""")
+        coffee INTEGER DEFAULT 0,
+        PRIMARY KEY (user_id, chat_id)
+    )
+    """)
+
     conn.commit()
+
 
 def migrate_from_json(conn, json_file):
     if not os.path.exists(json_file):
@@ -61,17 +74,17 @@ def migrate_from_json(conn, json_file):
             sits = int(data.get("sits", 0))
             punished = int(data.get("punished", 0))
 
-            # вставка/обновление пользователя
+            # Вставка/обновление пользователя
             cur.execute("""
             INSERT INTO users (user_id, chat_id, name, sits, punished, sex)
             VALUES (?, ?, ?, ?, ?, NULL)
-            ON CONFLICT(user_id) DO UPDATE SET
+            ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 name=excluded.name,
                 sits=excluded.sits,
                 punished=excluded.punished
             """, (user_id, chat_id, name, sits, punished))
 
-            # daily stats
+            # Вставка daily stats
             daily_list = data.get("daily", [])
             for i, day_data in enumerate(reversed(daily_list)):
                 date = today - timedelta(days=i)
@@ -96,12 +109,12 @@ def migrate_from_json(conn, json_file):
                     int(day_data.get("coffee", 0)),
                 ))
 
-            # total stats
+            # Вставка total stats
             total = data.get("total", {})
             cur.execute("""
             INSERT INTO total_stats (user_id, chat_id, messages, words, chars, stickers, coffee)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
+            ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 messages=excluded.messages,
                 words=excluded.words,
                 chars=excluded.chars,
@@ -119,12 +132,14 @@ def migrate_from_json(conn, json_file):
 
     conn.commit()
 
+
 def main():
     conn = sqlite3.connect(DB_FILE)
     create_tables(conn)
     migrate_from_json(conn, JSON_FILE)
     conn.close()
     print("✅ Миграция завершена")
+
 
 if __name__ == "__main__":
     main()
