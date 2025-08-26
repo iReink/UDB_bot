@@ -710,7 +710,7 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
             return
 
         user = get_user(user_id, chat_id)
-        if user and user.get("punished") == 1:
+        if user and user["punished"] == 1:
             await callback.answer(f"Дно уже прорвано, на сегодня тебе хватит, {user_name}", show_alert=True)
             return
 
