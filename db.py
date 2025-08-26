@@ -1,6 +1,7 @@
 import sqlite3
 from contextlib import closing
 from typing import List, Dict, Optional
+from datetime import date, timedelta
 
 DB_FILE = "stats.db"
 
@@ -155,3 +156,50 @@ def increment_total_stats(user_id, chat_id, messages=0, words=0, chars=0, sticke
                 coffee = total_stats.coffee + excluded.coffee
         """, (user_id, chat_id, messages, words, chars, stickers, coffee))
         conn.commit()
+
+def get_last_7_daily_stats(user_id: int, days: int = 7) -> list[dict]:
+    """
+    Возвращает список словарей с daily-статистикой за последние `days` дней
+    для указанного user_id. Список упорядочен от сегодняшней даты к старым.
+    Если для какой-то даты записи нет — возвращается запись с нулями.
+    Формат элемента: {'date': 'YYYY-MM-DD', 'messages': int, 'words': int, 'chars': int, 'stickers': int, 'coffee': int}
+    """
+    today = date.today()
+    # составляем список дат: [today, today-1, ..., today-(days-1)]
+    dates = [(today - timedelta(days=i)).isoformat() for i in range(days)]
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        # получаем все записи за диапазон дат (оптимально одним запросом)
+        cur.execute("""
+            SELECT date, messages, words, chars, stickers, coffee
+            FROM daily_stats
+            WHERE user_id = ? AND date BETWEEN ? AND ?
+        """, (user_id, dates[-1], dates[0]))  # oldest .. newest
+        rows = cur.fetchall()
+
+    # индексируем по дате для быстрого доступа
+    rows_by_date = {row["date"]: row for row in rows}
+
+    result = []
+    for d in dates:
+        if d in rows_by_date:
+            r = rows_by_date[d]
+            result.append({
+                "date": r["date"],
+                "messages": int(r["messages"] or 0),
+                "words": int(r["words"] or 0),
+                "chars": int(r["chars"] or 0),
+                "stickers": int(r["stickers"] or 0),
+                "coffee": int(r["coffee"] or 0)
+            })
+        else:
+            result.append({
+                "date": d,
+                "messages": 0,
+                "words": 0,
+                "chars": 0,
+                "stickers": 0,
+                "coffee": 0
+            })
+    return result

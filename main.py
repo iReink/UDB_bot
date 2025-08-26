@@ -27,6 +27,7 @@ from db import (
     increment_total_stats,
     get_user,
     add_or_update_user,
+    get_last_7_daily_stats
 )
 
 
@@ -260,32 +261,32 @@ async def daily_reward_task():
 @dp.message(Command("weeklytop"))
 async def weekly_top(message: types.Message):
     chat_id = message.chat.id
-    users = get_chat_users(chat_id)
+
+    users = get_chat_users(chat_id)  # ожидается: list[sqlite3.Row] пользователей в этом чате
     if not users:
         await message.reply("Пока нет статистики.")
         return
 
     totals = []
-    today = datetime.now().date()
-    last_7_days = [(today - timedelta(days=i)).isoformat() for i in range(7)]
-
-    for user in users:
-        uid = user["user_id"]
-        week_msgs = 0
-        for day in last_7_days:
-            d = get_daily_stats(uid, day)
-            if d:
-                week_msgs += d["messages"]
-        totals.append((week_msgs, uid, user.get("name", "Unknown"), user.get("punished", 0)))
+    for user_row in users:
+        user = dict(user_row)  # sqlite3.Row -> dict
+        uid = int(user["user_id"])
+        daily = get_last_7_daily_stats(uid, days=7)
+        week_msgs = sum(d["messages"] for d in daily)
+        name = user.get("name") or "Unknown"
+        punished = int(user.get("punished") or 0)
+        totals.append((week_msgs, uid, name, punished))
 
     totals.sort(reverse=True, key=lambda x: x[0])
+
     text = "🏆 Топ-10 за неделю:\n"
     for i, (count, uid, name, punished) in enumerate(totals[:10], 1):
-        if punished:
-            name = f"{name} ☠️"
-        text += f"{i}. {name} — {count} сообщений\n"
+        display_name = f"{name} ☠️" if punished else name
+        text += f"{i}. {display_name} — {count} сообщений\n"
 
     await message.reply(text)
+
+
 
 
 @dp.message(Command("totaltop"))
@@ -322,59 +323,66 @@ async def flood_stats(message: types.Message):
     user_id = message.from_user.id
 
     users = get_chat_users(chat_id)
-    if not users or not any(u["user_id"] == user_id for u in users):
+    if not users:
         await message.reply("Пока нет статистики по тебе.")
         return
 
-    today = date.today()
-    last_7_days = [(today - timedelta(days=i)).isoformat() for i in range(7)]
+    # Проверяем, что пользователь есть в списке чата
+    if not any(int(u["user_id"]) == user_id for u in users):
+        await message.reply("Пока нет статистики по тебе.")
+        return
 
-    # Суммы сообщений за неделю
+    # дни для недели
+    today = date.today()
+    # получаем недельную статистику для каждого пользователя
     week_totals = []
-    for user in users:
-        uid = user["user_id"]
-        week_msgs = 0
-        for d in last_7_days:
-            daily = get_daily_stats(uid, d)
-            if daily:
-                week_msgs += daily["messages"]
+    for urow in users:
+        u = dict(urow)
+        uid = int(u["user_id"])
+        daily = get_last_7_daily_stats(uid, days=7)
+        week_msgs = sum(d["messages"] for d in daily)
         week_totals.append((week_msgs, uid))
 
     week_totals.sort(reverse=True, key=lambda x: x[0])
-    week_position = next((i+1 for i, (_, uid) in enumerate(week_totals) if uid == user_id), None)
+    week_position = next((i + 1 for i, (_, uid) in enumerate(week_totals) if uid == user_id), None)
     week_msgs = next((w for w, uid in week_totals if uid == user_id), 0)
 
-    # Общая статистика
-    total_totals = []
-    for user in users:
-        uid = user["user_id"]
+    # общее топ-ранжирование
+    total_list = []
+    for urow in users:
+        uid = int(urow["user_id"])
         total = get_total_stats(uid)
-        total_msgs = total["messages"] if total else 0
-        total_totals.append((total_msgs, uid))
+        total_msgs = int(total["messages"] or 0) if total else 0
+        total_list.append((total_msgs, uid))
+    total_list.sort(reverse=True, key=lambda x: x[0])
+    total_position = next((i + 1 for i, (_, uid) in enumerate(total_list) if uid == user_id), None)
+    total_msgs = next((t for t, uid in total_list if uid == user_id), 0)
 
-    total_totals.sort(reverse=True, key=lambda x: x[0])
-    total_position = next((i+1 for i, (_, uid) in enumerate(total_totals) if uid == user_id), None)
-    total_msgs = next((t for t, uid in total_totals if uid == user_id), 0)
-
-    user = get_user(user_id)
-    name = user["name"] if user else message.from_user.full_name
-    if user and user.get("punished"):
+    # Пользовательские данные
+    user_row = get_user(user_id)
+    user = dict(user_row) if user_row else {}
+    name = user.get("name") or message.from_user.full_name
+    if int(user.get("punished", 0) or 0):
         name = f"{name} ☠️"
+
+    # Кофе берем из total_stats
+    total_stats = get_total_stats(user_id)
+    total_coffee = int(total_stats["coffee"] or 0) if total_stats else 0
+
+    # Баланс sits
+    sits_balance = int(user.get("sits") or 0)
 
     text = (
         f"📈 Личная статистика для {name}:\n"
         f"За неделю: {week_msgs} сообщений (место #{week_position})\n"
         f"Всего: {total_msgs} сообщений (место #{total_position})"
     )
-
-    # Кофе и баланс сита
-    if user:
-        text += f"\n☕️ Всего кофе: {user.get('coffee', 0)}"
-        sits_balance = user.get("sits", 0)
-        if sits_balance > 0:
-            text += f"\n💦 Баланс сита: {sits_balance}"
+    text += f"\n☕️ Всего кофе: {total_coffee}"
+    if sits_balance > 0:
+        text += f"\n💦 Баланс сита: {sits_balance}"
 
     await message.reply(text)
+
 
 
 
