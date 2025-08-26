@@ -31,6 +31,8 @@ from db import (
     get_all_chats,
     get_user_sex
 )
+from reactions import router as reactions_router
+
 
 
 
@@ -85,7 +87,8 @@ logging.basicConfig(
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-
+# Подключаем роутер с реакциями
+dp.include_router(reactions_router)
 
 def ensure_user(chat_id: int, user_id: int, user_name: str):
     """
@@ -420,21 +423,6 @@ async def send_stat(message: types.Message):
     chat_id = message.chat.id
     await message.answer(get_weekly_chat_stats(chat_id))
 
-#тестовая функция для отлова реакций
-
-
-@dp.message()
-async def handle_message(message: types.Message):
-    if message.reactions:
-        chat_name = message.chat.title or f"Личный чат {message.chat.id}"
-        author_name = message.from_user.full_name if message.from_user else "неизвестно"
-        reactions_info = ", ".join([f"'{r.type}': {r.count}" for r in message.reactions])
-        total_reactions = sum(r.count for r in message.reactions)
-
-        logging.info(
-            f"В чате '{chat_name}' сообщение от {author_name} получило реакции: {reactions_info}. "
-            f"Общее число реакций: {total_reactions}"
-        )
 
 @dp.message()
 async def handle_message(message: types.Message):
