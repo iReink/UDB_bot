@@ -885,6 +885,22 @@ weekly_awards.add_sits = add_sits
 # Сообщим менеджеру «тихих» стикеров о уже известных чатах
 sticker_manager.seed_known_chats_from_db()
 
+from db import get_connection
+
+with get_connection() as conn:
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS messages_reactions (
+            chat_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            message_text TEXT,
+            reactions_count INTEGER DEFAULT 0,
+            date TEXT,
+            PRIMARY KEY (chat_id, message_id)
+        )
+    """)
+    conn.commit()
 
 
 async def main():
