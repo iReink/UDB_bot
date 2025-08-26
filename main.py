@@ -422,18 +422,35 @@ async def send_stat(message: types.Message):
     chat_id = message.chat.id
     await message.answer(get_weekly_chat_stats(chat_id))
 
-# Когда пользователь добавляет/удаляет реакцию
+# ------------------------------
+# Когда конкретный пользователь изменяет реакцию
+# ------------------------------
 @dp.message_reaction()
 async def on_reaction(event: MessageReactionUpdated):
-    logging.info(f"Пользователь {event.user.id} "
-        f"поменял реакции на сообщение {event.message_id}: {event.new_reaction}")
+    chat_title = event.chat.title or "личный чат"
+    user_name = event.user.full_name if event.user else "неизвестный"
+    msg_id = event.message_id
+    old = [r.type for r in event.old_reaction] if event.old_reaction else []
+    new = [r.type for r in event.new_reaction] if event.new_reaction else []
 
+    logging.info(
+        f"В чате '{chat_title}' пользователь {user_name} "
+        f"поменял реакции на сообщение {msg_id}: {new} (старые: {old})"
+    )
 
-# Когда Telegram обновляет общий счётчик реакций
+# ------------------------------
+# Когда обновляется общий счётчик реакций
+# ------------------------------
 @dp.message_reaction_count()
 async def on_reaction_count(event: MessageReactionCountUpdated):
+    chat_title = event.chat.title or "личный чат"
+    msg_id = event.message_id
+    reactions_text = ", ".join(f"{r.type}: {r.count}" for r in event.reactions)
+    total = sum(r.count for r in event.reactions)
+
     logging.info(
-        f"У сообщения {event.message_id} теперь такие реакции: {event.reactions}"
+        f"В чате '{chat_title}' сообщение {msg_id} теперь имеет реакции: {reactions_text}. "
+        f"Общее количество: {total}"
     )
 
 
