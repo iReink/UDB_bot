@@ -33,6 +33,7 @@ from db import (
 )
 
 
+
 TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
 STATS_FILE = "stats.json"
 MAKOVKA_FILE_ID = "CAACAgIAAyEFAASjKavKAAOcaJ95ivqdgkA5gstkAbRt25CCRLAAAkN5AAJTNbFKdWJ4ufamt9I2BA"
@@ -798,12 +799,12 @@ async def main():
     await dp.start_polling(
         bot,
         allowed_updates=[
-            types.UpdateType.MESSAGE,
-            types.UpdateType.MESSAGE_REACTION_UPDATED,
-            types.UpdateType.MESSAGE_REACTION_COUNT_UPDATED,
-            # можно добавить все другие, если нужно
+            "message",
+            "message_reaction_updated",
+            "message_reaction_count_updated",
         ]
     )
+
 
 if __name__ == "__main__":
     asyncio.run(main())
