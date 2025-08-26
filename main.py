@@ -423,31 +423,18 @@ async def send_stat(message: types.Message):
 #тестовая функция для отлова реакций
 
 
-# --- обычная реакция от пользователя ---
-@dp.message_reaction_updated()
-async def handle_reaction_updated(update: types.MessageReactionUpdated):
-    chat_name = update.chat.title or f"Личный чат {update.chat.id}"
-    actor_name = update.user.full_name if update.user else "аноним"
-    msg_author_name = "неизвестно"  # Telegram API не даёт автора сообщения здесь
-    new_reactions = ", ".join([r.type for r in update.new_reaction])
-    old_reactions = ", ".join([r.type for r in update.old_reaction])
+@dp.message()
+async def handle_message(message: types.Message):
+    if message.reactions:
+        chat_name = message.chat.title or f"Личный чат {message.chat.id}"
+        author_name = message.from_user.full_name if message.from_user else "неизвестно"
+        reactions_info = ", ".join([f"'{r.type}': {r.count}" for r in message.reactions])
+        total_reactions = sum(r.count for r in message.reactions)
 
-    logging.info(
-        f"В чате '{chat_name}' {actor_name} изменил реакцию на сообщение {msg_author_name}: "
-        f"старые: [{old_reactions}], новые: [{new_reactions}]"
-    )
-
-# --- анонимные реакции ---
-@dp.message_reaction_count_updated()
-async def handle_reaction_count(update: types.MessageReactionCountUpdated):
-    chat_name = update.chat.title or f"Личный чат {update.chat.id}"
-    reactions_info = ", ".join([f"{r.type} ({r.count})" for r in update.reactions])
-    total_count = sum(r.count for r in update.reactions)
-
-    logging.info(
-        f"В чате '{chat_name}' сообщение {update.message_id} получило реакции: {reactions_info}. "
-        f"Общее число реакций: {total_count}"
-    )
+        logging.info(
+            f"В чате '{chat_name}' сообщение от {author_name} получило реакции: {reactions_info}. "
+            f"Общее число реакций: {total_reactions}"
+        )
 
 @dp.message()
 async def handle_message(message: types.Message):
@@ -817,11 +804,7 @@ async def main():
 
     await dp.start_polling(
         bot,
-        allowed_updates=[
-            "message",
-            "message_reaction_updated",
-            "message_reaction_count_updated",
-        ]
+        allowed_updates=["message", "message_reaction_updated", "message_reaction_count_updated"]
     )
 
 
