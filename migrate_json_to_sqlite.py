@@ -88,7 +88,7 @@ def migrate_from_json(conn, json_file):
             # Вставляем daily статистику
             daily_list = data.get("daily", [])
             for i, day_data in enumerate(reversed(daily_list)):
-                # Последний элемент — сегодня, предыдущие — прошлые дни
+                # Последний элемент json — сегодня, предыдущие — прошлые дни
                 date = today - timedelta(days=i)
                 date_str = date.isoformat()
                 cur.execute("""
