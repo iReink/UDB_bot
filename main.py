@@ -579,7 +579,7 @@ async def action_drink_coffee(callback: CallbackQuery, item: dict):
     # 2) Проверяем, есть ли штраф
     user = get_user(user_id, chat_id)
     if user and user["punished"] == 1:
-        await callback.answer(f"Дно уже прорвано, тебе хватит, {user_name}", show_alert=True)
+        await callback.answer(f"Дно уже прорвано, на сегодня тебе хватит, {user_name}", show_alert=True)
         return
 
     # Определяем пол пользователя
