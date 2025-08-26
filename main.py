@@ -804,7 +804,7 @@ async def main():
 
     await dp.start_polling(
         bot,
-        allowed_updates=["message", "message_reaction_updated", "message_reaction_count_updated"]
+        allowed_updates=["message", "message_reaction", "message_reaction_count"]
     )
 
 
