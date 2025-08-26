@@ -2,6 +2,9 @@
 import asyncio
 from datetime import datetime, timedelta
 import logging
+import sqlite3
+import db
+
 
 bot = None       # сюда пробрасывается экземпляр бота из main.py
 stats = None     # сюда пробрасывается глобальный словарь статистики
@@ -19,7 +22,7 @@ async def weekly_awards_task():
         days_ahead = 6 - now.weekday()  # weekday(): Пн=0, Вс=6
         if days_ahead < 0:
             days_ahead += 7
-        award_time = (now + timedelta(days=days_ahead)).replace(hour=23, minute=0, second=0, microsecond=0)
+        award_time = (now + timedelta(days=days_ahead)).replace(hour=21, minute=0, second=0, microsecond=0)
         if award_time <= now:
             award_time += timedelta(days=7)
 
@@ -31,26 +34,67 @@ async def weekly_awards_task():
 
 
 async def process_weekly_awards():
-    """Подведение итогов недели по всем чатам."""
-    for chat_id, users in stats.items():
-        try:
-            await award_weekly_top(chat_id, users)
-            await award_stickerbomber(chat_id, users)
-            await award_flooder(chat_id, users)
-            await award_dushnila(chat_id, users)
-            await award_skomrnyashka(chat_id, users)
-        except Exception as e:
-            logging.exception(f"[weekly_awards] Ошибка при награждении в чате {chat_id}: {e}")
+    """Подведение итогов недели по всем чатам с данными из SQLite."""
+    DB_FILE = "stats.db"  # путь к базе
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        # Получаем список всех chat_id
+        cur.execute("SELECT DISTINCT chat_id FROM users")
+        chat_ids = [row["chat_id"] for row in cur.fetchall()]
+
+        for chat_id in chat_ids:
+            try:
+                # Получаем статистику за последние 7 дней для всех пользователей чата
+                cur.execute("""
+                    SELECT u.user_id, u.name, u.sits, u.punished,
+                           SUM(d.messages) as messages,
+                           SUM(d.words) as words,
+                           SUM(d.chars) as chars,
+                           SUM(d.stickers) as stickers,
+                           SUM(d.coffee) as coffee
+                    FROM users u
+                    JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+                    WHERE u.chat_id = ?
+                      AND date(d.date) >= date('now', '-6 days')
+                    GROUP BY u.user_id
+                """, (chat_id,))
+                users_rows = cur.fetchall()
+
+                # Формируем словарь, как раньше
+                users = {}
+                for row in users_rows:
+                    users[row["user_id"]] = {
+                        "name": row["name"],
+                        "sits": row["sits"],
+                        "punished": row["punished"],
+                        "messages": row["messages"],
+                        "words": row["words"],
+                        "chars": row["chars"],
+                        "stickers": row["stickers"],
+                        "coffee": row["coffee"]
+                    }
+
+                # Вызываем функции награждения
+                await award_weekly_top(chat_id, users)
+                await award_stickerbomber(chat_id, users)
+                await award_flooder(chat_id, users)
+                await award_dushnila(chat_id, users)
+                await award_skomrnyashka(chat_id, users)
+
+            except Exception as e:
+                logging.exception(f"[weekly_awards] Ошибка при награждении в чате {chat_id}: {e}")
+
+    finally:
+        conn.close()
 
 
 async def award_weekly_top(chat_id, users):
-    """Топ-10 флудеров недели + награждение."""
-    totals = []
-    for uid, data in users.items():
-        week_msgs = sum(day["messages"] for day in data["daily"])
-        if week_msgs > 0:
-            totals.append((week_msgs, uid, data["name"]))
-
+    """Топ-10 флудеров недели + награждение (данные уже из БД)."""
+    # users — словарь {user_id: {name, sits, punished, messages, words, chars, stickers, coffee}}
+    totals = [(data["messages"], uid, data["name"]) for uid, data in users.items() if data["messages"] > 0]
     totals.sort(reverse=True, key=lambda x: x[0])
     top10 = totals[:10]
 
@@ -66,94 +110,155 @@ async def award_weekly_top(chat_id, users):
     await bot.send_message(chat_id, "\n".join(lines))
 
 
+
+from db import get_user_sex
+
 async def award_stickerbomber(chat_id, users):
-    """Стикербомбер недели — больше всего стикеров за неделю."""
-    candidates = []
-    for uid, data in users.items():
-        week_stickers = sum(day["stickers"] for day in data["daily"])
-        if week_stickers > 0:
-            candidates.append((week_stickers, uid, data["name"]))
+    """Стикербомбер недели — больше всего стикеров за неделю (учитываем пол)."""
+    candidates = [(data["stickers"], uid, data["name"]) for uid, data in users.items() if data["stickers"] > 0]
 
     if not candidates:
         return
 
     candidates.sort(reverse=True, key=lambda x: x[0])
-    winner = candidates[0]
-    add_sits(chat_id, winner[1], ACHIEVEMENT_REWARD)
+    winner_stickers, winner_id, winner_name = candidates[0]
+    add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
 
-    text = f"🎯 Стикербомбер недели — {winner[2]} ({winner[0]} стикеров)! +{ACHIEVEMENT_REWARD} сит"
+    sex = get_user_sex(winner_id, chat_id)
+    title = "Стикербомбер" if sex == "m" else "Стикербомберка" if sex == "f" else "Стикербомбер(?)"
+
+    text = f"🎯 {title} недели — {winner_name} ({winner_stickers} стикеров)! +{ACHIEVEMENT_REWARD} сит"
     await bot.send_message(chat_id, text)
 
 
-async def award_flooder(chat_id, users):
+
+
+from db import get_user_sex, DB_FILE
+import sqlite3
+
+async def award_flooder(chat_id):
     """Флудер недели — среди топ-10 по сообщениям, наименьшее соотношение chars/messages."""
-    totals = []
-    for uid, data in users.items():
-        week_msgs = sum(day["messages"] for day in data["daily"])
-        if week_msgs > 0:
-            totals.append((week_msgs, uid, data["name"]))
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        # Получаем данные за последние 7 дней для всех пользователей чата
+        cur.execute("""
+            SELECT u.user_id, u.name,
+                   SUM(d.messages) as week_msgs,
+                   SUM(d.chars) as week_chars
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND d.date >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING week_msgs > 0
+            ORDER BY week_msgs DESC
+            LIMIT 10
+        """, (chat_id,))
+        top10 = cur.fetchall()
 
-    totals.sort(reverse=True, key=lambda x: x[0])
-    top10 = totals[:10]
-    if not top10:
-        return
+        if not top10:
+            return
 
-    ratios = []
-    for msgs, uid, name in top10:
-        week_chars = sum(day["chars"] for day in users[uid]["daily"])
-        ratio = week_chars / msgs if msgs else float("inf")
-        ratios.append((ratio, uid, name))
+        # Вычисляем соотношение chars/messages
+        ratios = [(week_chars / week_msgs, user_id, name) for user_id, name, week_msgs, week_chars in top10]
+        ratios.sort(key=lambda x: x[0])  # минимальное соотношение
+        ratio, winner_id, winner_name = ratios[0]
 
-    ratios.sort(key=lambda x: x[0])  # минимальное соотношение
-    winner = ratios[0]
-    add_sits(chat_id, winner[1], ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
 
-    text = f"💬 Флудер недели — {winner[2]} (ср. длина {winner[0]:.1f} симв./сообщ.)! +{ACHIEVEMENT_REWARD} сит"
-    await bot.send_message(chat_id, text)
+        sex = get_user_sex(winner_id, chat_id)
+        title = "Флудер" if sex == "m" else "Флудерка" if sex == "f" else "Флудер(?)"
+
+        text = f"💬 {title} недели — {winner_name} (ср. длина {ratio:.1f} симв./сообщ.)! +{ACHIEVEMENT_REWARD} сит"
+        await bot.send_message(chat_id, text)
+
+    finally:
+        conn.close()
 
 
-async def award_dushnila(chat_id, users):
+
+from db import get_user_sex, DB_FILE
+import sqlite3
+
+async def award_dushnila(chat_id):
     """Душнила недели — среди топ-15 по сообщениям, наибольшее соотношение chars/messages."""
-    totals = []
-    for uid, data in users.items():
-        week_msgs = sum(day["messages"] for day in data["daily"])
-        if week_msgs > 0:
-            totals.append((week_msgs, uid, data["name"]))
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        # Получаем данные за последние 7 дней для всех пользователей чата
+        cur.execute("""
+            SELECT u.user_id, u.name,
+                   SUM(d.messages) as week_msgs,
+                   SUM(d.chars) as week_chars
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND d.date >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING week_msgs > 0
+            ORDER BY week_msgs DESC
+            LIMIT 15
+        """, (chat_id,))
+        top15 = cur.fetchall()
 
-    totals.sort(reverse=True, key=lambda x: x[0])
-    top15 = totals[:15]
-    if not top15:
-        return
+        if not top15:
+            return
 
-    ratios = []
-    for msgs, uid, name in top15:
-        week_chars = sum(day["chars"] for day in users[uid]["daily"])
-        ratio = week_chars / msgs if msgs else 0
-        ratios.append((ratio, uid, name))
+        # Вычисляем соотношение chars/messages
+        ratios = [(week_chars / week_msgs, user_id, name) for user_id, name, week_msgs, week_chars in top15]
+        ratios.sort(reverse=True, key=lambda x: x[0])  # максимальное соотношение
+        ratio, winner_id, winner_name = ratios[0]
 
-    ratios.sort(reverse=True, key=lambda x: x[0])  # максимальное соотношение
-    winner = ratios[0]
-    add_sits(chat_id, winner[1], ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
 
-    text = f"📜 Душнила недели — {winner[2]} (ср. длина {winner[0]:.1f} симв./сообщ.)! +{ACHIEVEMENT_REWARD} сит"
-    await bot.send_message(chat_id, text)
+        sex = get_user_sex(winner_id, chat_id)
+        title = "Душнила" if sex == "m" else "Душнила" if sex == "f" else "Душнила(?)"
+
+        text = f"📜 {title} недели — {winner_name} (ср. длина {ratio:.1f} симв./сообщ.)! +{ACHIEVEMENT_REWARD} сит"
+        await bot.send_message(chat_id, text)
+
+    finally:
+        conn.close()
 
 
-async def award_skomrnyashka(chat_id, users):
+
+from db import get_user_sex, DB_FILE
+import sqlite3
+
+async def award_skomrnyashka(chat_id):
     """Скромняшка недели — наименьшее число сообщений среди тех, у кого >= 5 сообщений."""
-    candidates = []
-    for uid, data in users.items():
-        week_msgs = sum(day["messages"] for day in data["daily"])
-        if week_msgs >= 5:
-            candidates.append((week_msgs, uid, data["name"]))
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        # Получаем суммарные сообщения за последние 7 дней для всех пользователей чата
+        cur.execute("""
+            SELECT u.user_id, u.name, SUM(d.messages) as week_msgs
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND d.date >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING week_msgs >= 5
+        """, (chat_id,))
+        candidates = cur.fetchall()
 
-    if not candidates:
-        return
+        if not candidates:
+            return
 
-    candidates.sort(key=lambda x: x[0])  # минимальное количество сообщений
-    winner = candidates[0]
-    add_sits(chat_id, winner[1], ACHIEVEMENT_REWARD)
+        # Находим пользователя с минимальным количеством сообщений
+        candidates.sort(key=lambda x: x[2])  # x[2] = week_msgs
+        winner_id, winner_name, week_msgs = candidates[0]
 
-    text = f"🙈 Скромняшка недели — {winner[2]} ({winner[0]} сообщений)! +{ACHIEVEMENT_REWARD} сит"
-    await bot.send_message(chat_id, text)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+
+        sex = get_user_sex(winner_id, chat_id)
+        title = "Скромняшка" if sex == "f" else "Скромняшек" if sex == "m" else "Скромняшка(?)"
+
+        text = f"🙈 {title} недели — {winner_name} ({week_msgs} сообщений)! +{ACHIEVEMENT_REWARD} сит"
+        await bot.send_message(chat_id, text)
+
+    finally:
+        conn.close()
+
 
