@@ -423,15 +423,15 @@ async def send_stat(message: types.Message):
     await message.answer(get_weekly_chat_stats(chat_id))
 
 # Когда пользователь добавляет/удаляет реакцию
-@dp.event(F.update.message_reaction)
-async def reaction_updated(event: MessageReactionUpdated):
+@dp.message_reaction()
+async def on_reaction(event: MessageReactionUpdated):
     logging.info(f"Пользователь {event.user.id} "
         f"поменял реакции на сообщение {event.message_id}: {event.new_reaction}")
 
 
-# Когда Telegram обновляет счётчик реакций на сообщение
-@dp.event(F.update.message_reaction_count)
-async def reaction_count_updated(event: MessageReactionCountUpdated):
+# Когда Telegram обновляет общий счётчик реакций
+@dp.message_reaction_count()
+async def on_reaction_count(event: MessageReactionCountUpdated):
     logging.info(
         f"У сообщения {event.message_id} теперь такие реакции: {event.reactions}"
     )
