@@ -422,6 +422,48 @@ async def send_stat(message: types.Message):
     chat_id = message.chat.id
     await message.answer(get_weekly_chat_stats(chat_id))
 
+
+@dp.message(Command("regenerate"))
+async def regenerate_usernames(message: types.Message):
+    await message.answer("Начинаю обновление имён пользователей...")
+    updated = 0
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        # Получаем все уникальные пары user_id и chat_id
+        cur.execute("""
+            SELECT DISTINCT user_id, chat_id FROM (
+                SELECT user_id, chat_id FROM daily_stats
+                UNION
+                SELECT user_id, chat_id FROM total_stats
+                UNION
+                SELECT user_id, chat_id FROM messages_reactions
+            )
+        """)
+        rows = cur.fetchall()
+
+        for row in rows:
+            user_id, chat_id = row["user_id"], row["chat_id"]
+            try:
+                user = await bot.get_chat_member(chat_id, user_id)
+                full_name = user.user.full_name
+            except Exception as e:
+                logging.warning(f"Не удалось получить пользователя {user_id} в чате {chat_id}: {e}")
+                continue
+
+            # Обновляем имя во всех таблицах
+            cur.execute("UPDATE daily_stats SET user_name=? WHERE user_id=? AND chat_id=?", (full_name, user_id, chat_id))
+            cur.execute("UPDATE total_stats SET user_name=? WHERE user_id=? AND chat_id=?", (full_name, user_id, chat_id))
+            cur.execute("UPDATE messages_reactions SET user_name=? WHERE user_id=? AND chat_id=?", (full_name, user_id, chat_id))
+            updated += 1
+
+        conn.commit()
+
+    await message.answer(f"Обновлено имён пользователей: {updated}")
+
+
+
 # ------------------------------
 # Когда новое сообщение
 # ------------------------------

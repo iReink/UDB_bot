@@ -10,7 +10,6 @@ DB_FILE = os.path.join(BASE_DIR, "stats.db")
 
 def get_connection():
     """Создаёт подключение к БД"""
-    logging.info(f">>> Открываем БД: {os.path.abspath(DB_FILE)}")
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row  # строки будут как словари
     return conn
