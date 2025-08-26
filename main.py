@@ -423,57 +423,24 @@ async def send_stat(message: types.Message):
     await message.answer(get_weekly_chat_stats(chat_id))
 
 # ------------------------------
-# Когда конкретный пользователь изменяет реакцию
+# Когда новое сообщение
 # ------------------------------
-@dp.message_reaction()
-async def on_reaction(event: MessageReactionUpdated):
-    chat_title = event.chat.title or "личный чат"
-    user_name = event.user.full_name if event.user else "неизвестный"
-    msg_id = event.message_id
-    old = [r.type for r in event.old_reaction] if event.old_reaction else []
-    new = [r.type for r in event.new_reaction] if event.new_reaction else []
-
-    logging.info(
-        f"В чате '{chat_title}' пользователь {user_name} "
-        f"поменял реакции на сообщение {msg_id}: {new} (старые: {old})"
-    )
-
-# ------------------------------
-# Когда обновляется общий счётчик реакций
-# ------------------------------
-@dp.message_reaction_count()
-async def on_reaction_count(event: MessageReactionCountUpdated):
-    chat_title = event.chat.title or "личный чат"
-    msg_id = event.message_id
-    reactions_text = ", ".join(f"{r.type}: {r.count}" for r in event.reactions)
-    total = sum(r.count for r in event.reactions)
-
-    logging.info(
-        f"В чате '{chat_title}' сообщение {msg_id} теперь имеет реакции: {reactions_text}. "
-        f"Общее количество: {total}"
-    )
-
-
 @dp.message()
 async def handle_message(message: types.Message):
-    # 0) всегда отмечаем активность (включая команды и любые типы сообщений)
     try:
         sticker_manager.note_activity(message.chat.id, message.date)
     except Exception:
         logging.exception("note_activity failed")
 
-    # игнорируем команды
     if message.text and message.text.startswith("/"):
         return
 
-    # Игнорируем полностью пустые сообщения без медиа
     if not (message.text or message.sticker or message.photo or message.video or message.voice or message.animation):
         return
 
-    # Получаем название чата, если это группа/супергруппа
     chat_name = message.chat.title if message.chat.type in ["group", "supergroup"] else message.chat.id
 
-    # Передаем сообщение в update_stats
+    # Передаём в старую статистику
     update_stats(
         chat_id=message.chat.id,
         user_id=message.from_user.id,
@@ -481,6 +448,113 @@ async def handle_message(message: types.Message):
         message=message,
         chat_name=chat_name
     )
+
+    # ---- Добавляем сообщение в базу для реакций ----
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT OR IGNORE INTO messages_reactions
+            (chat_id, message_id, user_id, message_text, reactions_count, date)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            message.chat.id,
+            message.message_id,
+            message.from_user.id,
+            message.text or "",
+            0,
+            message.date.isoformat()
+        ))
+        conn.commit()
+
+
+# ------------------------------
+# Когда пользователь изменяет свои реакции
+# ------------------------------
+@dp.message_reaction()
+async def on_reaction(event: MessageReactionUpdated):
+    chat_id = event.chat.id
+    msg_id = event.message_id
+    user_id = event.user.id if event.user else None
+
+    old = [r.type for r in event.old_reaction] if event.old_reaction else []
+    new = [r.type for r in event.new_reaction] if event.new_reaction else []
+
+    logging.info(
+        f"В чате '{event.chat.title or 'личный чат'}' пользователь {event.user.full_name if event.user else 'неизвестный'} "
+        f"поменял реакции на сообщение {msg_id}: {new} (старые: {old})"
+    )
+
+    if not user_id:
+        return  # анонимные реакции игнорируем
+
+    delta_given = len(new) - len(old)   # сколько реакций поставлено или снято
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        # Получаем автора сообщения
+        cur.execute("SELECT user_id, reactions_count FROM messages_reactions WHERE chat_id=? AND message_id=?",
+                    (chat_id, msg_id))
+        row = cur.fetchone()
+        if not row:
+            logging.warning(f"Сообщение {msg_id} не найдено в базе")
+            return
+        author_id, current_count = row
+
+        # --- Обновляем счётчики ---
+        # 1) Сообщение
+        new_count = current_count + delta_given
+        cur.execute("UPDATE messages_reactions SET reactions_count=? WHERE chat_id=? AND message_id=?",
+                    (new_count, chat_id, msg_id))
+
+        # 2) Отправленные реакции у того, кто ставит реакцию
+        cur.execute("""
+            INSERT INTO daily_stats (chat_id, user_id, react_given)
+            VALUES (?, ?, ?)
+            ON CONFLICT(chat_id, user_id, date) DO UPDATE SET react_given = react_given + ?
+        """, (chat_id, user_id, delta_given, delta_given))
+        cur.execute("""
+            INSERT INTO total_stats (chat_id, user_id, react_given)
+            VALUES (?, ?, ?)
+            ON CONFLICT(chat_id, user_id) DO UPDATE SET react_given = react_given + ?
+        """, (chat_id, user_id, delta_given, delta_given))
+
+        # 3) Полученные реакции у автора
+        cur.execute("""
+            INSERT INTO daily_stats (chat_id, user_id, react_taken)
+            VALUES (?, ?, ?)
+            ON CONFLICT(chat_id, user_id, date) DO UPDATE SET react_taken = react_taken + ?
+        """, (chat_id, author_id, delta_given, delta_given))
+        cur.execute("""
+            INSERT INTO total_stats (chat_id, user_id, react_taken)
+            VALUES (?, ?, ?)
+            ON CONFLICT(chat_id, user_id) DO UPDATE SET react_taken = react_taken + ?
+        """, (chat_id, author_id, delta_given, delta_given))
+
+        conn.commit()
+
+
+# ------------------------------
+# Когда обновляется общий счётчик реакций (например, анонимные)
+# ------------------------------
+@dp.message_reaction_count()
+async def on_reaction_count(event: MessageReactionCountUpdated):
+    chat_id = event.chat.id
+    msg_id = event.message_id
+    total = sum(r.count for r in event.reactions)
+    reactions_text = ", ".join(f"{r.type}: {r.count}" for r in event.reactions)
+
+    logging.info(
+        f"В чате '{event.chat.title or 'личный чат'}' сообщение {msg_id} теперь имеет реакции: {reactions_text}. "
+        f"Общее количество: {total}"
+    )
+
+    # Обновляем reactions_count в таблице сообщений
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE messages_reactions SET reactions_count=? WHERE chat_id=? AND message_id=?",
+                    (total, chat_id, msg_id))
+        conn.commit()
 
 #склонение сита
 def sit_word(n: int) -> str:
