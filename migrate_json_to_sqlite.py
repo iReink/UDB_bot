@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import os
-from datetime import datetime, timedelta
+from datetime import date, timedelta
 
 DB_FILE = "chat_stats.db"
 JSON_FILE = "stats.json"
@@ -34,7 +34,7 @@ def create_tables(conn):
             chars INTEGER DEFAULT 0,
             stickers INTEGER DEFAULT 0,
             coffee INTEGER DEFAULT 0,
-            UNIQUE(user_id, chat_id, date),
+            CONSTRAINT unique_user_date UNIQUE(user_id, chat_id, date),
             FOREIGN KEY(user_id) REFERENCES users(user_id)
         )
     """)
@@ -65,11 +65,13 @@ def migrate_from_json(conn, json_file):
         stats = json.load(f)
 
     cur = conn.cursor()
-    today = datetime.today()
 
-    for chat_id, users in stats.items():
-        for uid, data in users.items():
-            user_id = int(uid)
+    today = date.today()
+
+    for chat_id_str, users in stats.items():
+        chat_id = int(chat_id_str)
+        for uid_str, data in users.items():
+            user_id = int(uid_str)
             name = data.get("name", "")
             sits = int(data.get("sits", 0))
             punished = int(data.get("punished", 0))
@@ -84,16 +86,16 @@ def migrate_from_json(conn, json_file):
                     punished=excluded.punished
             """, (user_id, chat_id, name, sits, punished))
 
-            # Сохраняем daily_stats с реальными датами
+            # Daily статистика (последние 7 дней)
             daily_list = data.get("daily", [])
-            # последние 7 дней включая сегодня
-            for i, day_data in enumerate(reversed(daily_list)):
-                date_obj = today - timedelta(days=i)
-                date_str = date_obj.strftime("%Y-%m-%d")
+            for i, day_data in enumerate(daily_list):
+                # i = 0 → сегодня, i=1 → вчера и т.д.
+                day_date = today - timedelta(days=(len(daily_list)-1 - i))
+                date_str = day_date.isoformat()
                 cur.execute("""
                     INSERT INTO daily_stats (user_id, chat_id, date, messages, words, chars, stickers, coffee)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(user_id, chat_id, date) DO UPDATE SET
+                    ON CONFLICT(unique_user_date) DO UPDATE SET
                         messages=excluded.messages,
                         words=excluded.words,
                         chars=excluded.chars,
@@ -110,7 +112,7 @@ def migrate_from_json(conn, json_file):
                     int(day_data.get("coffee", 0)),
                 ))
 
-            # Сохраняем total_stats
+            # Total статистика
             total = data.get("total", {})
             cur.execute("""
                 INSERT INTO total_stats (user_id, chat_id, messages, words, chars, stickers, coffee)
