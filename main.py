@@ -425,24 +425,30 @@ dp: Dispatcher  # твой диспетчер
 
 
 # ловим обновления сообщений с реакциями
-@dp.update(F.message.reactions != None)
-async def handle_reactions(update: types.Update):
-    message = update.message
-    if not message:
-        return
-
-    chat_title = message.chat.title or "личный чат"
-    author_name = message.from_user.full_name if message.from_user else "неизвестный"
-
-    reactions_info = message.reactions  # список объектов MessageReaction
-    total_reactions = sum(r.count for r in reactions_info)
-
-    # Telegram API не отдаёт конкретных пользователей, ставивших реакцию
-    reactions_text = ", ".join(f"'{r.type}': {r.count}" for r in reactions_info)
+# Реакция конкретного пользователя
+@dp.update(F.message_reaction_updated)
+async def handle_user_reaction(update: types.MessageReactionUpdated):
+    chat_title = update.chat.title or "личный чат"
+    user_name = update.user.full_name if update.user else "анонимный"
+    message_id = update.message_id
+    old = ", ".join(update.old_reaction) if update.old_reaction else "нет"
+    new = ", ".join(update.new_reaction) if update.new_reaction else "нет"
 
     logging.info(
-        f"В чате '{chat_title}' сообщение от {author_name} получило реакции {reactions_text}. "
-        f"Общее число реакций: {total_reactions}"
+        f"В чате '{chat_title}' пользователь {user_name} обновил реакцию на сообщение {message_id}: "
+        f"старые [{old}], новые [{new}]"
+    )
+
+
+# Обновление количества реакций (анонимные)
+@dp.update(F.message_reaction_count_updated)
+async def handle_reaction_count(update: types.MessageReactionCountUpdated):
+    chat_title = update.chat.title or "личный чат"
+    message_id = update.message_id
+    reactions_text = ", ".join(f"{r.type}: {r.count}" for r in update.reactions)
+
+    logging.info(
+        f"В чате '{chat_title}' сообщение {message_id} получило реакции: {reactions_text}"
     )
 
 
