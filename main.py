@@ -423,45 +423,27 @@ async def send_stat(message: types.Message):
     await message.answer(get_weekly_chat_stats(chat_id))
 
 
+from aiogram.filters import Command
 from aiogram.types import Message
-@dp.message(commands=["regenerate"])
-async def regenerate_usernames(message: Message):
-    """Обновляет имена пользователей в таблице users по их user_id"""
-    await message.answer("Начинаю обновление имен пользователей...")
 
+@dp.message(Command("regenerate"))
+async def regenerate_usernames(message: Message):
     with get_connection() as conn:
         cur = conn.cursor()
-        # Получаем всех user_id из таблицы users
-        cur.execute("SELECT user_id FROM users")
-        user_ids = [row["user_id"] for row in cur.fetchall()]
-
-    updated_count = 0
-    failed_count = 0
-
-    for user_id in user_ids:
-        try:
-            # Получаем актуальный объект пользователя через Telegram
-            user = await bot.get_chat(user_id)
-            full_name = user.full_name  # комбинация first_name + last_name
-        except Exception as e:
-            logging.warning(f"Не удалось получить пользователя {user_id}: {e}")
-            failed_count += 1
-            continue
-
-        # Обновляем имя в таблице users
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE users SET name=? WHERE user_id=?",
-                (full_name, user_id)
-            )
-            conn.commit()
-            updated_count += 1
-
-    await message.answer(
-        f"Обновление завершено. Успешно: {updated_count}, не удалось: {failed_count}"
-    )
-
+        # Пробегаем по всем юзерам в таблице users
+        cur.execute("SELECT user_id, chat_id FROM users")
+        rows = cur.fetchall()
+        for row in rows:
+            user_id, chat_id = row
+            try:
+                member = await bot.get_chat_member(chat_id, user_id)
+                full_name = member.user.full_name
+                # Обновляем имя в таблице users
+                cur.execute("UPDATE users SET name=? WHERE user_id=? AND chat_id=?", (full_name, user_id, chat_id))
+            except Exception:
+                logging.warning(f"Не удалось получить пользователя {user_id} в чате {chat_id}")
+        conn.commit()
+    await message.answer("Имена пользователей обновлены.")
 
 
 # ------------------------------
