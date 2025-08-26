@@ -467,6 +467,8 @@ async def handle_message(message: types.Message):
         conn.commit()
 
 
+from datetime import date
+
 # ------------------------------
 # Когда пользователь изменяет свои реакции
 # ------------------------------
@@ -488,13 +490,16 @@ async def on_reaction(event: MessageReactionUpdated):
         return  # анонимные реакции игнорируем
 
     delta_given = len(new) - len(old)   # сколько реакций поставлено или снято
+    today = date.today()
 
     with get_connection() as conn:
         cur = conn.cursor()
 
         # Получаем автора сообщения
-        cur.execute("SELECT user_id, reactions_count FROM messages_reactions WHERE chat_id=? AND message_id=?",
-                    (chat_id, msg_id))
+        cur.execute(
+            "SELECT user_id, reactions_count FROM messages_reactions WHERE chat_id=? AND message_id=?",
+            (chat_id, msg_id)
+        )
         row = cur.fetchone()
         if not row:
             logging.warning(f"Сообщение {msg_id} не найдено в базе")
@@ -504,15 +509,17 @@ async def on_reaction(event: MessageReactionUpdated):
         # --- Обновляем счётчики ---
         # 1) Сообщение
         new_count = current_count + delta_given
-        cur.execute("UPDATE messages_reactions SET reactions_count=? WHERE chat_id=? AND message_id=?",
-                    (new_count, chat_id, msg_id))
+        cur.execute(
+            "UPDATE messages_reactions SET reactions_count=? WHERE chat_id=? AND message_id=?",
+            (new_count, chat_id, msg_id)
+        )
 
         # 2) Отправленные реакции у того, кто ставит реакцию
         cur.execute("""
-            INSERT INTO daily_stats (chat_id, user_id, react_given)
-            VALUES (?, ?, ?)
+            INSERT INTO daily_stats (chat_id, user_id, date, react_given)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(chat_id, user_id, date) DO UPDATE SET react_given = react_given + ?
-        """, (chat_id, user_id, delta_given, delta_given))
+        """, (chat_id, user_id, today, delta_given, delta_given))
         cur.execute("""
             INSERT INTO total_stats (chat_id, user_id, react_given)
             VALUES (?, ?, ?)
@@ -521,10 +528,10 @@ async def on_reaction(event: MessageReactionUpdated):
 
         # 3) Полученные реакции у автора
         cur.execute("""
-            INSERT INTO daily_stats (chat_id, user_id, react_taken)
-            VALUES (?, ?, ?)
+            INSERT INTO daily_stats (chat_id, user_id, date, react_taken)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(chat_id, user_id, date) DO UPDATE SET react_taken = react_taken + ?
-        """, (chat_id, author_id, delta_given, delta_given))
+        """, (chat_id, author_id, today, delta_given, delta_given))
         cur.execute("""
             INSERT INTO total_stats (chat_id, user_id, react_taken)
             VALUES (?, ?, ?)
@@ -532,6 +539,7 @@ async def on_reaction(event: MessageReactionUpdated):
         """, (chat_id, author_id, delta_given, delta_given))
 
         conn.commit()
+
 
 
 # ------------------------------
