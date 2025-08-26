@@ -899,7 +899,7 @@ async def main():
 
     await dp.start_polling(
         bot,
-        allowed_updates=["message", "message_reaction", "message_reaction_count"]
+        allowed_updates=["message", "callback_query", "message_reaction", "message_reaction_count"]
     )
 
 
