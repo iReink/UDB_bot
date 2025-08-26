@@ -651,13 +651,13 @@ def build_shop_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+# ---------- Обработка нажатия кнопок магазина ----------
 @dp.callback_query(F.data.startswith("shop:buy:"))
 async def handle_shop_buy(callback: types.CallbackQuery):
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
     user_name = callback.from_user.full_name
 
-    # Получаем ключ товара
     item_key = callback.data.split(":")[-1]
     item = SHOP_ITEMS.get(item_key)
 
@@ -665,187 +665,158 @@ async def handle_shop_buy(callback: types.CallbackQuery):
         await callback.answer("❌ Товар не найден", show_alert=True)
         return
 
-    # Если у товара задано действие — делегируем
     action = item.get("action")
-    if action == "send_spider":
-        await action_send_spider(callback, item)
-        return
-    if action == "drink_coffee":
-        await action_drink_coffee(callback, item);
-        return
+    try:
+        if action == "send_spider":
+            await action_send_spider(callback, item)
+            return
+        if action == "drink_coffee":
+            await action_drink_coffee(callback, item)
+            return
 
-    price = item["price"]
-    ok, new_balance = spend_sits(chat_id, user_id, price)
+        price = item["price"]
+        ok, new_balance = spend_sits(chat_id, user_id, price)
 
-    if ok:
-        # Сообщение при успешной покупке
-        buy_text = item["buy_text"].format(user_name=user_name)
-        await callback.message.edit_text(f"{buy_text}\nОстаток: {new_balance} сит")
-        logging.info(f"{user_name} купил '{item['name']}' за {price} сит в чате {chat_id}. Остаток: {new_balance}")
-        await callback.answer()
-    else:
-        await callback.answer(f"❌ Недостаточно сит. Твой баланс: {new_balance}", show_alert=True)
+        if ok:
+            buy_text = item["buy_text"].format(user_name=user_name)
+            try:
+                await callback.message.edit_text(f"{buy_text}\nОстаток: {new_balance} сит")
+            except Exception as e:
+                logging.debug(f"Не удалось отредактировать сообщение магазина: {e}")
+            logging.info(f"{user_name} купил '{item['name']}' за {price} сит в чате {chat_id}. Остаток: {new_balance}")
+            await callback.answer()
+        else:
+            await callback.answer(f"❌ Недостаточно сит. Твой баланс: {new_balance}", show_alert=True)
+    except Exception as e:
+        logging.exception(f"Ошибка при покупке товара: {e}")
+        await callback.answer("❌ Произошла ошибка при покупке.", show_alert=True)
 
 
-async def action_drink_coffee(callback: CallbackQuery, item: dict):
-    """
-    Обработка покупки/выпивания кофе:
-    - учитываем ежедневный и общий счетчик кофе;
-    - рассчитываем шанс штрафа;
-    - при n>=4 и без штрафа — начисляем 1 сит.
-    """
+# ---------- Покупка/выпивание кофе ----------
+async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
-    user_name = callback.from_user.full_name or callback.from_user.username or str(user_id)
+    user_name = callback.from_user.full_name or str(user_id)
 
-    # 0) Проверяем время (пить после 22:00 нельзя)
     now = datetime.now()
-    if 20 <= now.hour < 22:
-        await callback.answer(f"После 22:00 фильтр больше не наливают, {user_name} ☕️❌", show_alert=True)
-        return
-
-    # 1) Получаем сегодняшнюю статистику
     today_str = now.strftime("%Y-%m-%d")
     daily = get_daily_stats(user_id, chat_id, today_str)
     n = daily["coffee"] if daily else 0
 
-    # 2) Проверяем, есть ли штраф
-    user = get_user(user_id, chat_id)
-    if user and user["punished"] == 1:
-        await callback.answer(f"Дно уже прорвано, на сегодня тебе хватит, {user_name}", show_alert=True)
-        return
-
-    # Определяем пол пользователя
-    sex = get_user_sex(user_id, chat_id)  # 'male' / 'female' / None
-
-    # 3) Увеличиваем счетчики кофе
-    increment_daily_stats(user_id, chat_id, today_str, coffee=1)
-    increment_total_stats(user_id, chat_id, coffee=1)
-    n += 1
-
-    # 4) Формируем текст покупки
-    # buy_text может быть строкой или словарём {"m": "...", "f": "..."}
-    buy_text_template = item.get("buy_text")
-
-    if isinstance(buy_text_template, dict):
-        if sex == "f":
-            base_text = buy_text_template.get("f") or buy_text_template.get("m")
-        else:
-            base_text = buy_text_template.get("m") or buy_text_template.get("f")
-    else:
-        base_text = buy_text_template or "{user_name} купил вещь"
-
-    buy_text = base_text.format(user_name=user_name)
-
-    if n >= 3:
-        buy_text += " ...в животе начинает бурчать"
-
     try:
-        await callback.message.edit_text(buy_text)
-    except Exception as e:
-        logging.debug(f"Не удалось отредактировать сообщение магазина: {e}")
+        # 0) Проверка времени
+        if 20 <= now.hour < 22:
+            await callback.answer(f"После 22:00 фильтр больше не наливают, {user_name} ☕️❌", show_alert=True)
+            return
 
-    # 5) Рассчитываем шанс штрафа (с третьей кружки)
-    punished_now = False
-    if n > 2:
-        chance = 1 - math.exp(-0.5 * (n - 2))
-        punished_now = random.random() < chance
+        user = get_user(user_id, chat_id)
+        if user and user.get("punished") == 1:
+            await callback.answer(f"Дно уже прорвано, на сегодня тебе хватит, {user_name}", show_alert=True)
+            return
 
-    if punished_now:
-        add_or_update_user(user_id, chat_id, user_name, punished=1)
-        if sex == "f":
-            msg = f"💀 Дно прорвано! До конца дня {user_name} получает штраф — её сообщения будут считаться наполовину"
+        sex = get_user_sex(user_id, chat_id)
+
+        increment_daily_stats(user_id, chat_id, today_str, coffee=1)
+        increment_total_stats(user_id, chat_id, coffee=1)
+        n += 1
+
+        buy_text_template = item.get("buy_text")
+        if isinstance(buy_text_template, dict):
+            base_text = buy_text_template.get("f") if sex == "f" else buy_text_template.get("m")
         else:
-            msg = f"💀 Дно прорвано! До конца дня {user_name} получает штраф — его сообщения будут считаться наполовину"
+            base_text = buy_text_template or "{user_name} купил вещь"
 
-        await callback.message.answer(msg)
-        logging.info(f"{user_name} получил флаг punished (кофе {n}) в чате {chat_id}")
-        await callback.answer()
+        buy_text = base_text.format(user_name=user_name)
+        if n >= 3:
+            buy_text += " ...в животе начинает бурчать"
+
+        try:
+            await callback.message.edit_text(buy_text)
+        except Exception as e:
+            logging.debug(f"Не удалось отредактировать сообщение магазина: {e}")
+
+        # Шанс штрафа
+        punished_now = False
+        if n > 2:
+            chance = 1 - math.exp(-0.5 * (n - 2))
+            punished_now = random.random() < chance
+
+        if punished_now:
+            add_or_update_user(user_id, chat_id, user_name, punished=1)
+            msg = f"💀 Дно прорвано! До конца дня {user_name} получает штраф — его сообщения будут считаться наполовину"
+            await callback.message.answer(msg)
+            logging.info(f"{user_name} получил флаг punished (кофе {n}) в чате {chat_id}")
+            await callback.answer()
+            return
+
+        if n >= 4:
+            add_sits(chat_id, user_id, 1)
+            new_bal = get_user(user_id, chat_id)["sits"]
+            msg = f"{user_name} получил 1 сит за фильтр. Остаток: {new_bal} сит"
+            await callback.message.answer(msg)
+
+    except Exception as e:
+        logging.exception(f"Ошибка при действии drink_coffee: {e}")
+        await callback.answer("❌ Произошла ошибка при покупке кофе.", show_alert=True)
         return
 
-    # 6) Если кофе 4+ и нет штрафа — даём 1 сит
-    if n >= 4:
-        add_sits(chat_id, user_id, 1)
-        new_bal = get_user(user_id, chat_id)["sits"]
-        if sex == "f":
-            msg = f"{user_name} преисполнилась от выпитого фильтра и получила 1 сит. Остаток: {new_bal} сит"
-        else:
-            msg = f"{user_name} преисполнился от выпитого фильтра и получил 1 сит. Остаток: {new_bal} сит"
-
-        await callback.message.answer(msg)
-
+    # ✅ гарантируем callback.answer() для всех остальных случаев
     await callback.answer()
 
 
-
-async def action_send_spider(callback: CallbackQuery, item: dict):
-    """
-    Универсальное действие для отправки паука.
-    callback  - CallbackQuery от нажатия кнопки.
-    item      - запись из SHOP_ITEMS (должна содержать price и file).
-    """
+# ---------- Отправка паука ----------
+async def action_send_spider(callback: types.CallbackQuery, item: dict):
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
-    user_name = callback.from_user.full_name or callback.from_user.username or str(user_id)
-    user_username = (callback.from_user.username or "").lower()
-    user_name_lc = user_name.strip().lower()
-
+    user_name = callback.from_user.full_name or str(user_id)
     price = int(item.get("price", 0))
-    is_tass = (user_name_lc == "tass") or (user_username == "tass")
-
-    # 1) Попытка списать ситы (если не бесплатный)
+    is_tass = (user_name.strip().lower() == "tass") or ((callback.from_user.username or "").lower() == "tass")
     new_balance = None
-    if not is_tass and price > 0:
-        ok, new_balance = spend_sits(chat_id, user_id, price)
-        if not ok:
-            # недостаточно — показываем alert и не выполняем покупку
-            await callback.answer(f"❌ Недостаточно сит. Твой баланс: {new_balance}", show_alert=True)
-            return
 
-    # 2) Подготовка пути к файлу
-    file_path = item.get("file", "images/spider.jpg")
-    if not os.path.isabs(file_path):
-        file_path = os.path.join(os.path.dirname(__file__), file_path)
-
-    # 3) Подготовка подписи
-    caption = item.get("buy_text", "{user_name} купил вещь").format(user_name=user_name)
-    if is_tass:
-        caption = f"Tass, для тебя этот товар всегда бесплатно\n{caption}"
-
-    # 4) Попытка отправить файл; при провале — вернуть деньги (если уже списали)
     try:
+        if not is_tass and price > 0:
+            ok, new_balance = spend_sits(chat_id, user_id, price)
+            if not ok:
+                await callback.answer(f"❌ Недостаточно сит. Твой баланс: {get_sits(chat_id, user_id)}", show_alert=True)
+                return
+
+        file_path = item.get("file", "images/spider.jpg")
+        if not os.path.isabs(file_path):
+            file_path = os.path.join(os.path.dirname(__file__), file_path)
+
+        caption = item.get("buy_text", "{user_name} купил вещь").format(user_name=user_name)
+        if is_tass:
+            caption = f"Tass, для тебя этот товар всегда бесплатно\n{caption}"
+
         photo = FSInputFile(file_path)
         await callback.message.answer_photo(photo, caption=caption)
+
+        if new_balance is None:
+            new_balance = get_sits(chat_id, user_id)
+
+        confirmation = f"✅ {user_name}, вы купили паука за {price} {sit_word(price)}. Остаток: {new_balance} сит"
+        if is_tass:
+            confirmation = f"🎁 {user_name}, для тебя этот товар был бесплатным — паук в чате!"
+
+        try:
+            await callback.message.edit_text(confirmation)
+        except Exception as e:
+            logging.debug(f"Не удалось отредактировать сообщение магазина: {e}")
+
     except FileNotFoundError:
         logging.exception(f"Файл товара не найден: {file_path}")
         if not is_tass and price > 0:
-            add_sits(chat_id, user_id, price)  # возврат средств
+            add_sits(chat_id, user_id, price)
         await callback.answer("❌ Ошибка: файл товара не найден на сервере.", show_alert=True)
         return
     except Exception as e:
         logging.exception(f"Ошибка при отправке паука: {e}")
         if not is_tass and price > 0:
-            add_sits(chat_id, user_id, price)  # возврат средств
+            add_sits(chat_id, user_id, price)
         await callback.answer("❌ Произошла ошибка при отправке товара.", show_alert=True)
         return
 
-    # 5) Успешная отправка — подготовка текста подтверждения и редактирование меню
-    if new_balance is None:
-        # если бесплатный или price==0, получаем актуальный баланс
-        new_balance = get_sits(chat_id, user_id)
-
-    if is_tass:
-        confirmation = f"🎁 {user_name}, для тебя этот товар был бесплатным — паук в чате!"
-    else:
-        confirmation = f"✅ {user_name}, вы купили паука за {price} {sit_word(price)}. Остаток: {new_balance} сит"
-
-    try:
-        # Редактируем исходное сообщение с магазином (это уберёт кнопки)
-        await callback.message.edit_text(confirmation)
-    except Exception as e:
-        logging.debug(f"Не удалось отредактировать сообщение магазина: {e}")
-
-    # убираем "часики" у пользователя
+    # ✅ гарантируем callback.answer()
     await callback.answer()
 
 
