@@ -424,11 +424,17 @@ async def send_stat(message: types.Message):
 dp: Dispatcher  # твой диспетчер
 
 
-@dp.message(F.reactions != None)
-async def handle_reactions(message: types.Message):
+# ловим обновления сообщений с реакциями
+@dp.update(F.message.reactions != None)
+async def handle_reactions(update: types.Update):
+    message = update.message
+    if not message:
+        return
+
     chat_title = message.chat.title or "личный чат"
     author_name = message.from_user.full_name if message.from_user else "неизвестный"
-    reactions_info = message.reactions  # список реакций на сообщение
+
+    reactions_info = message.reactions  # список объектов MessageReaction
     total_reactions = sum(r.count for r in reactions_info)
 
     # Telegram API не отдаёт конкретных пользователей, ставивших реакцию
@@ -438,7 +444,6 @@ async def handle_reactions(message: types.Message):
         f"В чате '{chat_title}' сообщение от {author_name} получило реакции {reactions_text}. "
         f"Общее число реакций: {total_reactions}"
     )
-
 
 
 @dp.message()
