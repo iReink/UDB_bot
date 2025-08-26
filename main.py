@@ -424,23 +424,20 @@ async def send_stat(message: types.Message):
 dp: Dispatcher  # твой диспетчер
 
 
-@dp.message(F.reactions)
-async def handle_reaction_update(message: types.Message):
-    """
-    Ловим сообщения с реакциями.
-    """
-    chat_name = message.chat.title or str(message.chat.id)
-    msg_author = message.from_user.full_name if message.from_user else "Неизвестный"
+@dp.message(F.reactions != None)
+async def handle_reactions(message: types.Message):
+    chat_title = message.chat.title or "личный чат"
+    author_name = message.from_user.full_name if message.from_user else "неизвестный"
+    reactions_info = message.reactions  # список реакций на сообщение
+    total_reactions = sum(r.count for r in reactions_info)
 
-    for reaction in message.reactions:
-        emoji = reaction.emoji
-        count = reaction.count
-        logging.info(
-            f"В чате '{chat_name}' пользователь '{msg_author}' получил реакцию '{emoji}'. "
-            f"Всего реакций на этом сообщении: {count}."
-        )
+    # Telegram API не отдаёт конкретных пользователей, ставивших реакцию
+    reactions_text = ", ".join(f"'{r.type}': {r.count}" for r in reactions_info)
 
-
+    logging.info(
+        f"В чате '{chat_title}' сообщение от {author_name} получило реакции {reactions_text}. "
+        f"Общее число реакций: {total_reactions}"
+    )
 
 
 
