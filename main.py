@@ -426,7 +426,7 @@ async def send_stat(message: types.Message):
 
 @dp.message()
 async def handle_message(message: types.Message):
-    # 0) всегда отмечаем активность (включая команды и любые типы сообщений)
+    # 0) отмечаем активность
     try:
         sticker_manager.note_activity(message.chat.id, message.date)
     except Exception:
@@ -436,11 +436,11 @@ async def handle_message(message: types.Message):
     if message.text and message.text.startswith("/"):
         return
 
-    # Игнорируем полностью пустые сообщения без медиа
+    # игнорируем полностью пустые сообщения без медиа
     if not (message.text or message.sticker or message.photo or message.video or message.voice or message.animation):
         return
 
-    # Получаем название чата, если это группа/супергруппа
+    # Получаем название чата
     chat_name = message.chat.title if message.chat.type in ["group", "supergroup"] else message.chat.id
 
     # Передаем сообщение в update_stats
@@ -451,6 +451,27 @@ async def handle_message(message: types.Message):
         message=message,
         chat_name=chat_name
     )
+
+    # --- Новый блок: ждем 20 секунд и получаем реакции ---
+    await asyncio.sleep(20)
+
+    try:
+        # получаем обновленный объект сообщения с реакциями
+        bot: Bot = message.bot  # aiogram 3.x, ссылка на бота
+        updated_msg = await bot.get_message(chat_id=message.chat.id, message_id=message.message_id)
+
+        total_reactions = 0
+        reactions_text = ""
+        if hasattr(updated_msg, "reactions") and updated_msg.reactions:
+            total_reactions = sum(r.count for r in updated_msg.reactions)
+            reactions_text = ", ".join(f"{r.type}: {r.count}" for r in updated_msg.reactions)
+
+        logging.info(
+            f"Сообщение от {message.from_user.full_name} в чате '{chat_name}' "
+            f"получило реакции: {reactions_text}. Общее число реакций: {total_reactions}"
+        )
+    except Exception as e:
+        logging.exception(f"Не удалось получить реакции для сообщения {message.message_id}: {e}")
 
 
 #склонение сита
