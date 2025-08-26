@@ -423,44 +423,43 @@ async def send_stat(message: types.Message):
     await message.answer(get_weekly_chat_stats(chat_id))
 
 
-@dp.message(Command("regenerate"))
-async def regenerate_usernames(message: types.Message):
-    await message.answer("Начинаю обновление имён пользователей...")
-    updated = 0
+@dp.message(commands=["regenerate"])
+async def regenerate_usernames(message: Message):
+    """Обновляет имена пользователей в таблице users по их user_id"""
+    await message.answer("Начинаю обновление имен пользователей...")
 
     with get_connection() as conn:
         cur = conn.cursor()
+        # Получаем всех user_id из таблицы users
+        cur.execute("SELECT user_id FROM users")
+        user_ids = [row["user_id"] for row in cur.fetchall()]
 
-        # Получаем все уникальные пары user_id и chat_id
-        cur.execute("""
-            SELECT DISTINCT user_id, chat_id FROM (
-                SELECT user_id, chat_id FROM daily_stats
-                UNION
-                SELECT user_id, chat_id FROM total_stats
-                UNION
-                SELECT user_id, chat_id FROM messages_reactions
+    updated_count = 0
+    failed_count = 0
+
+    for user_id in user_ids:
+        try:
+            # Получаем актуальный объект пользователя через Telegram
+            user = await bot.get_chat(user_id)
+            full_name = user.full_name  # комбинация first_name + last_name
+        except Exception as e:
+            logging.warning(f"Не удалось получить пользователя {user_id}: {e}")
+            failed_count += 1
+            continue
+
+        # Обновляем имя в таблице users
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE users SET name=? WHERE user_id=?",
+                (full_name, user_id)
             )
-        """)
-        rows = cur.fetchall()
+            conn.commit()
+            updated_count += 1
 
-        for row in rows:
-            user_id, chat_id = row["user_id"], row["chat_id"]
-            try:
-                user = await bot.get_chat_member(chat_id, user_id)
-                full_name = user.user.full_name
-            except Exception as e:
-                logging.warning(f"Не удалось получить пользователя {user_id} в чате {chat_id}: {e}")
-                continue
-
-            # Обновляем имя во всех таблицах
-            cur.execute("UPDATE daily_stats SET user_name=? WHERE user_id=? AND chat_id=?", (full_name, user_id, chat_id))
-            cur.execute("UPDATE total_stats SET user_name=? WHERE user_id=? AND chat_id=?", (full_name, user_id, chat_id))
-            cur.execute("UPDATE messages_reactions SET user_name=? WHERE user_id=? AND chat_id=?", (full_name, user_id, chat_id))
-            updated += 1
-
-        conn.commit()
-
-    await message.answer(f"Обновлено имён пользователей: {updated}")
+    await message.answer(
+        f"Обновление завершено. Успешно: {updated_count}, не удалось: {failed_count}"
+    )
 
 
 
