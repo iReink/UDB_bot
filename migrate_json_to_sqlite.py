@@ -1,137 +1,140 @@
 import json
 import sqlite3
 import os
-from datetime import datetime
 
-DB_FILE = "stats.db"
+DB_FILE = "chat_stats.db"
 JSON_FILE = "stats.json"
 
 
-def init_db(conn):
+def create_tables(conn):
     cur = conn.cursor()
 
-    # users
+    # Таблица пользователей
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        chat_id   TEXT,
-        user_id   TEXT,
-        name      TEXT,
-        sits      INTEGER DEFAULT 0,
-        punished  INTEGER DEFAULT 0,
-        PRIMARY KEY (chat_id, user_id)
-    )
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            chat_id INTEGER NOT NULL,
+            name TEXT,
+            sits INTEGER DEFAULT 0,
+            punished INTEGER DEFAULT 0,
+            sex TEXT DEFAULT NULL
+        )
     """)
 
-    # daily stats
+    # Таблица статистики по дням
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS daily_stats (
-        chat_id   TEXT,
-        user_id   TEXT,
-        date      TEXT,
-        messages  INTEGER DEFAULT 0,
-        words     INTEGER DEFAULT 0,
-        chars     INTEGER DEFAULT 0,
-        stickers  INTEGER DEFAULT 0,
-        coffee    INTEGER DEFAULT 0,
-        PRIMARY KEY (chat_id, user_id, date)
-    )
+        CREATE TABLE IF NOT EXISTS daily_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            messages INTEGER DEFAULT 0,
+            words INTEGER DEFAULT 0,
+            chars INTEGER DEFAULT 0,
+            stickers INTEGER DEFAULT 0,
+            coffee INTEGER DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
     """)
 
-    # total stats
+    # Таблица суммарной статистики
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS total_stats (
-        chat_id   TEXT,
-        user_id   TEXT,
-        messages  INTEGER DEFAULT 0,
-        words     INTEGER DEFAULT 0,
-        chars     INTEGER DEFAULT 0,
-        stickers  INTEGER DEFAULT 0,
-        coffee    INTEGER DEFAULT 0,
-        PRIMARY KEY (chat_id, user_id)
-    )
+        CREATE TABLE IF NOT EXISTS total_stats (
+            user_id INTEGER PRIMARY KEY,
+            chat_id INTEGER NOT NULL,
+            messages INTEGER DEFAULT 0,
+            words INTEGER DEFAULT 0,
+            chars INTEGER DEFAULT 0,
+            stickers INTEGER DEFAULT 0,
+            coffee INTEGER DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
     """)
 
     conn.commit()
 
 
-def migrate():
-    if not os.path.exists(JSON_FILE):
-        print(f"❌ Не найден {JSON_FILE}")
+def migrate_from_json(conn, json_file):
+    if not os.path.exists(json_file):
+        print(f"Файл {json_file} не найден")
         return
 
-    with open(JSON_FILE, "r", encoding="utf-8") as f:
+    with open(json_file, "r", encoding="utf-8") as f:
         stats = json.load(f)
 
-    conn = sqlite3.connect(DB_FILE)
-    init_db(conn)
     cur = conn.cursor()
 
     for chat_id, users in stats.items():
-        for user_id, data in users.items():
-            name = data.get("name", str(user_id))
-            punished = int(data.get("punished", 0))
+        for uid, data in users.items():
+            user_id = int(uid)
+            name = data.get("name", "")
             sits = int(data.get("sits", 0))
+            punished = int(data.get("punished", 0))
 
-            # вставляем/обновляем user
+            # Добавляем или обновляем пользователя
             cur.execute("""
-                INSERT INTO users (chat_id, user_id, name, sits, punished)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                INSERT INTO users (user_id, chat_id, name, sits, punished, sex)
+                VALUES (?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(user_id) DO UPDATE SET
                     name=excluded.name,
                     sits=excluded.sits,
                     punished=excluded.punished
-            """, (chat_id, user_id, name, sits, punished))
+            """, (user_id, chat_id, name, sits, punished))
 
-            # total
-            total = data.get("total", {})
-            cur.execute("""
-                INSERT INTO total_stats (chat_id, user_id, messages, words, chars, stickers, coffee)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(chat_id, user_id) DO UPDATE SET
-                    messages=excluded.messages,
-                    words=excluded.words,
-                    chars=excluded.chars,
-                    stickers=excluded.stickers,
-                    coffee=excluded.coffee
-            """, (
-                chat_id, user_id,
-                int(total.get("messages", 0)),
-                int(total.get("words", 0)),
-                int(total.get("chars", 0)),
-                int(total.get("stickers", 0)),
-                int(total.get("coffee", 0))
-            ))
-
-            # daily
-            daily = data.get("daily", [])
-            for idx, day_data in enumerate(daily):
-                # если в json-е нет даты, используем "смещение" от сегодняшнего дня
-                date = day_data.get("date")
-                if not date:
-                    date = (datetime.now().date()).isoformat()
-
+            # Сохраняем daily
+            for i, day_data in enumerate(data.get("daily", [])):
+                date = f"day_{i}"  # здесь можно заменить на реальные даты, если они есть
                 cur.execute("""
-                    INSERT INTO daily_stats (chat_id, user_id, date, messages, words, chars, stickers, coffee)
+                    INSERT INTO daily_stats (user_id, chat_id, date, messages, words, chars, stickers, coffee)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(chat_id, user_id, date) DO UPDATE SET
+                    ON CONFLICT(user_id, date) DO UPDATE SET
                         messages=excluded.messages,
                         words=excluded.words,
                         chars=excluded.chars,
                         stickers=excluded.stickers,
                         coffee=excluded.coffee
                 """, (
-                    chat_id, user_id, date,
+                    user_id,
+                    chat_id,
+                    date,
                     int(day_data.get("messages", 0)),
                     int(day_data.get("words", 0)),
                     int(day_data.get("chars", 0)),
                     int(day_data.get("stickers", 0)),
-                    int(day_data.get("coffee", 0))
+                    int(day_data.get("coffee", 0)),
                 ))
 
+            # Сохраняем total
+            total = data.get("total", {})
+            cur.execute("""
+                INSERT INTO total_stats (user_id, chat_id, messages, words, chars, stickers, coffee)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    messages=excluded.messages,
+                    words=excluded.words,
+                    chars=excluded.chars,
+                    stickers=excluded.stickers,
+                    coffee=excluded.coffee
+            """, (
+                user_id,
+                chat_id,
+                int(total.get("messages", 0)),
+                int(total.get("words", 0)),
+                int(total.get("chars", 0)),
+                int(total.get("stickers", 0)),
+                int(total.get("coffee", 0)),
+            ))
+
     conn.commit()
+
+
+def main():
+    conn = sqlite3.connect(DB_FILE)
+    create_tables(conn)
+    migrate_from_json(conn, JSON_FILE)
     conn.close()
-    print("✅ Миграция завершена успешно.")
+    print("✅ Миграция завершена")
 
 
 if __name__ == "__main__":
-    migrate()
+    main()
