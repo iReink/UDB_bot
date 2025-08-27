@@ -1038,11 +1038,6 @@ async def reward_daily_top(bot: Bot):
 weekly_awards.bot = bot
 weekly_awards.add_sits = add_sits
 
-# Сообщим менеджеру «тихих» стикеров о уже известных чатах
-sticker_manager.seed_known_chats_from_db()
-
-
-
 
 async def main():
     asyncio.create_task(daily_reward_task())  # награждение в 23:55
