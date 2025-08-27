@@ -449,14 +449,15 @@ async def regenerate_usernames(message: Message):
 # --- Меню лайков ---
 def build_likes_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton("Топ залайканых за неделю", callback_data="likes:weekly_top")],
-        [InlineKeyboardButton("Топ залайканых за всё время", callback_data="likes:alltime_top")],
-        [InlineKeyboardButton("Топ добряков недели", callback_data="likes:weekly_givers")],
-        [InlineKeyboardButton("Топ добряков за всё время", callback_data="likes:alltime_givers")],
-        [InlineKeyboardButton("Топ-5 сообщений недели", callback_data="likes:weekly_msgs")],
-        [InlineKeyboardButton("Топ-5 сообщений за всё время", callback_data="likes:alltime_msgs")],
-        [InlineKeyboardButton("Статистика чата", callback_data="likes:chat_stats")],
+        [InlineKeyboardButton(text="Топ залайканых за неделю", callback_data="likes:weekly_top")],
+        [InlineKeyboardButton(text="Топ залайканых за всё время", callback_data="likes:alltime_top")],
+        [InlineKeyboardButton(text="Топ добряков недели", callback_data="likes:weekly_givers")],
+        [InlineKeyboardButton(text="Топ добряков за всё время", callback_data="likes:alltime_givers")],
+        [InlineKeyboardButton(text="Топ-5 сообщений недели", callback_data="likes:weekly_msgs")],
+        [InlineKeyboardButton(text="Топ-5 сообщений за всё время", callback_data="likes:alltime_msgs")],
+        [InlineKeyboardButton(text="Статистика чата", callback_data="likes:chat_stats")],
     ]
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
