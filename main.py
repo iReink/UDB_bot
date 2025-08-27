@@ -528,9 +528,11 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
         elif data == "likes:alltime_givers":
             cur.execute("""
-                SELECT name, react_given FROM total_stats
-                WHERE chat_id = ?
-                ORDER BY react_given DESC
+                SELECT u.name, t.react_taken
+                FROM total_stats t
+                JOIN users u ON u.user_id = t.user_id AND u.chat_id = t.chat_id
+                WHERE t.chat_id = ?
+                ORDER BY t.react_taken DESC
                 LIMIT 10
             """, (chat_id,))
             rows = cur.fetchall()
