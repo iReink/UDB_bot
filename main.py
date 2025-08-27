@@ -32,6 +32,7 @@ from db import (
     get_user_sex
 )
 from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
+from sticker_manager import silence_checker_task, bot as sm_bot
 
 
 
@@ -85,6 +86,7 @@ logging.basicConfig(
 
 
 bot = Bot(token=TOKEN)
+sm_bot = bot
 dp = Dispatcher()
 
 
@@ -1045,8 +1047,8 @@ sticker_manager.seed_known_chats_from_db()
 async def main():
     asyncio.create_task(daily_reward_task())  # награждение в 23:55
     asyncio.create_task(weekly_awards.weekly_awards_task())  # еженедельные награды
-    asyncio.create_task(sticker_manager.silence_checker_task(bot))
     asyncio.create_task(daily_punish_task())  # Ежедневное наказание за кофе
+    asyncio.create_task(silence_checker_task())
 
     await dp.start_polling(
         bot,
