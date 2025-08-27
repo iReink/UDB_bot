@@ -26,6 +26,8 @@ def get_user(user_id: int, chat_id: int) -> Optional[sqlite3.Row]:
         return cur.fetchone()
 
 
+
+
 def get_chat_users(chat_id: int) -> List[sqlite3.Row]:
     """Возвращает всех пользователей чата."""
     with closing(get_connection()) as conn:
@@ -58,6 +60,23 @@ def add_or_update_user(user_id: int, chat_id: int, name: str,
                 punished = COALESCE(excluded.punished, users.punished),
                 sex = COALESCE(users.sex, excluded.sex)
         """, (user_id, chat_id, name, sits, punished, sex))
+        conn.commit()
+
+def add_or_update_user_achievement(user_id: int, chat_id: int, achievement_key: str):
+    """
+    Добавляет запись о полученной пользователем ачивке в таблицу user_achievements.
+    Если такая ачивка уже есть — игнорируем.
+    """
+    from contextlib import closing
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        # Создаём запись, если её ещё нет
+        cur.execute("""
+            INSERT OR IGNORE INTO user_achievements
+            (user_id, chat_id, achievement_key, date)
+            VALUES (?, ?, ?, DATE('now'))
+        """, (user_id, chat_id, achievement_key))
         conn.commit()
 
 

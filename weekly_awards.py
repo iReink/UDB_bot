@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import logging
 import sqlite3
 import db
+from db import add_or_update_user_achievement
 
 
 bot = None       # сюда пробрасывается экземпляр бота из main.py
@@ -111,22 +112,31 @@ async def award_weekly_top(chat_id, users):
 
 
 
-from db import get_user_sex
-
 async def award_stickerbomber(chat_id, users):
     """Стикербомбер недели — больше всего стикеров за неделю (учитываем пол)."""
+
+
+    # Выбираем кандидатов с количеством стикеров > 0
     candidates = [(data["stickers"], uid, data["name"]) for uid, data in users.items() if data["stickers"] > 0]
 
     if not candidates:
         return
 
+    # Сортируем по количеству стикеров и выбираем победителя
     candidates.sort(reverse=True, key=lambda x: x[0])
     winner_stickers, winner_id, winner_name = candidates[0]
+
+    # Начисляем ситы
     add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
 
+    # Определяем пол победителя
     sex = get_user_sex(winner_id, chat_id)
     title = "Стикербомбер" if sex == "m" else "Стикербомберка" if sex == "f" else "Стикербомбер(?)"
 
+    # Добавляем запись о полученной ачивке в таблицу user_achievements
+    add_or_update_user_achievement(winner_id, chat_id, "sticker_bomber")
+
+    # Формируем и отправляем сообщение
     text = f"🎯 {title} недели — {winner_name} ({winner_stickers} стикеров)! +{ACHIEVEMENT_REWARD} сит"
     await bot.send_message(chat_id, text)
 
@@ -136,7 +146,7 @@ async def award_stickerbomber(chat_id, users):
 from db import get_user_sex, DB_FILE
 import sqlite3
 
-async def award_flooder(chat_id):
+async def award_flooder(chat_id: int):
     """Флудер недели — среди топ-10 по сообщениям, наименьшее соотношение chars/messages."""
     conn = sqlite3.connect(DB_FILE)
     try:
@@ -165,23 +175,46 @@ async def award_flooder(chat_id):
         ratios.sort(key=lambda x: x[0])  # минимальное соотношение
         ratio, winner_id, winner_name = ratios[0]
 
+        # Начисляем сит
         add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
 
+        # Получаем пол пользователя
         sex = get_user_sex(winner_id, chat_id)
-        title = "Флудер" if sex == "m" else "Флудерка" if sex == "f" else "Флудер(?)"
 
+        # Достаём названия ачивки из БД
+        cur.execute("""
+            SELECT name_m, name_f FROM achievements WHERE key = 'fluder'
+        """)
+        row = cur.fetchone()
+        if row:
+            name_m, name_f = row
+        else:
+            name_m, name_f = "Флудер", "Флудерка"
+
+        if sex == "m":
+            title = name_m
+        elif sex == "f":
+            title = name_f
+        else:
+            title = f"{name_m}(?)"
+
+        # Отправка сообщения в чат
         text = f"💬 {title} недели — {winner_name} (ср. длина {ratio:.1f} симв./сообщ.)! +{ACHIEVEMENT_REWARD} сит"
         await bot.send_message(chat_id, text)
+
+        # Добавление записи в user_achievements
+        add_or_update_user_achievement(winner_id, chat_id, "fluder")
 
     finally:
         conn.close()
 
 
 
+
 from db import get_user_sex, DB_FILE
 import sqlite3
 
-async def award_dushnila(chat_id):
+async def award_dushnila(chat_id: int):
     """Душнила недели — среди топ-15 по сообщениям, наибольшее соотношение chars/messages."""
     conn = sqlite3.connect(DB_FILE)
     try:
@@ -210,13 +243,35 @@ async def award_dushnila(chat_id):
         ratios.sort(reverse=True, key=lambda x: x[0])  # максимальное соотношение
         ratio, winner_id, winner_name = ratios[0]
 
+        # Начисляем сит
         add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
 
+        # Получаем пол пользователя
         sex = get_user_sex(winner_id, chat_id)
-        title = "Душнила" if sex == "m" else "Душнила" if sex == "f" else "Душнила(?)"
 
+        # Достаём названия ачивки из БД
+        cur.execute("""
+            SELECT name_m, name_f FROM achievements WHERE key = 'dushnila'
+        """)
+        row = cur.fetchone()
+        if row:
+            name_m, name_f = row
+        else:
+            name_m, name_f = "Душнила", "Душнила"
+
+        if sex == "m":
+            title = name_m
+        elif sex == "f":
+            title = name_f
+        else:
+            title = f"{name_m}(?)"
+
+        # Отправка сообщения в чат
         text = f"📜 {title} недели — {winner_name} (ср. длина {ratio:.1f} симв./сообщ.)! +{ACHIEVEMENT_REWARD} сит"
         await bot.send_message(chat_id, text)
+
+        # Добавление записи в user_achievements
+        add_or_update_user_achievement(winner_id, chat_id, "dushnila")
 
     finally:
         conn.close()
@@ -226,7 +281,7 @@ async def award_dushnila(chat_id):
 from db import get_user_sex, DB_FILE
 import sqlite3
 
-async def award_skomrnyashka(chat_id):
+async def award_skomrnyashka(chat_id: int):
     """Скромняшка недели — наименьшее число сообщений среди тех, у кого >= 5 сообщений."""
     conn = sqlite3.connect(DB_FILE)
     try:
@@ -250,13 +305,35 @@ async def award_skomrnyashka(chat_id):
         candidates.sort(key=lambda x: x[2])  # x[2] = week_msgs
         winner_id, winner_name, week_msgs = candidates[0]
 
+        # Начисляем сит
         add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
 
+        # Получаем пол пользователя
         sex = get_user_sex(winner_id, chat_id)
-        title = "Скромняшка" if sex == "f" else "Скромняшек" if sex == "m" else "Скромняшка(?)"
 
+        # Достаём названия ачивки из БД
+        cur.execute("""
+            SELECT name_m, name_f FROM achievements WHERE key = 'skomrnyashka'
+        """)
+        row = cur.fetchone()
+        if row:
+            name_m, name_f = row
+        else:
+            name_m, name_f = "Скромняшек", "Скромняшка"
+
+        if sex == "m":
+            title = name_m
+        elif sex == "f":
+            title = name_f
+        else:
+            title = f"{name_f}(?)"
+
+        # Отправка сообщения в чат
         text = f"🙈 {title} недели — {winner_name} ({week_msgs} сообщений)! +{ACHIEVEMENT_REWARD} сит"
         await bot.send_message(chat_id, text)
+
+        # Добавление записи в user_achievements
+        add_or_update_user_achievement(winner_id, chat_id, "skromnyashka")
 
     finally:
         conn.close()
