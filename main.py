@@ -604,10 +604,6 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 # ------------------------------
 @dp.message()
 async def handle_message(message: types.Message):
-    try:
-        sticker_manager.note_activity(message.chat.id, message.date)
-    except Exception:
-        logging.exception("note_activity failed")
 
     if message.text and message.text.startswith("/"):
         return
