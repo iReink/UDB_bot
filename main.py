@@ -494,9 +494,11 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
         elif data == "likes:alltime_top":
             cur.execute("""
-                SELECT name, total_likes_taken FROM total_stats
-                WHERE chat_id = ?
-                ORDER BY total_likes_taken DESC
+                SELECT u.name, t.total_likes_taken
+                FROM total_stats t
+                JOIN users u ON u.user_id = t.user_id AND u.chat_id = t.chat_id
+                WHERE t.chat_id = ?
+                ORDER BY t.total_likes_taken DESC
                 LIMIT 10
             """, (chat_id,))
             rows = cur.fetchall()
