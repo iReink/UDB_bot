@@ -479,8 +479,8 @@ async def likes_menu_callback(callback_query: CallbackQuery):
         await callback_query.message.delete()
     except Exception:
         pass  # игнорируем если сообщение уже удалено
-    text = ""
 
+    text = ""
     with get_connection() as conn:
         cur = conn.cursor()
 
@@ -510,6 +510,7 @@ async def likes_menu_callback(callback_query: CallbackQuery):
             rows = cur.fetchall()
             text = "🏆 Топ получателей лайков за всё время:\n"
             text += "\n".join([f"{i + 1}. {name} — {likes} ❤️" for i, (name, likes) in enumerate(rows)])
+
 
         elif data == "likes:weekly_givers":
             cur.execute("""
@@ -588,12 +589,10 @@ async def likes_menu_callback(callback_query: CallbackQuery):
                 f"За неделю: {week_likes} лайков, ср. на сообщение {week_avg:.2f}\n"
                 f"За всё время: {all_likes} лайков, ср. на сообщение {all_avg:.2f}"
             )
-
-    # отправляем новое сообщение с результатом
-    await callback_query.message.chat.send_message(text)
+    # отправляем новое сообщение с результатом через бота
+    await bot.send_message(chat_id, text)
     # отвечаем на callback, чтобы кнопка визуально отпустилась
     await callback_query.answer()
-
 
 
 # ------------------------------
