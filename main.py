@@ -602,7 +602,7 @@ def add_sits(chat_id: int, user_id: int, amount: int):
     """Добавляет или вычитает сит для пользователя."""
     from db import get_user, add_or_update_user
 
-    user = get_user(user_id)
+    user = get_user(user_id, chat_id)
     if user is None:
         # создаём пользователя, если нет
         add_or_update_user(user_id, chat_id, name="", sits=amount)
