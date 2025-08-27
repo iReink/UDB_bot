@@ -16,7 +16,7 @@ def insert_achievements():
 
     for key, male, female in achievements:
         cur.execute("""
-            INSERT OR IGNORE INTO achievements (key, title_male, title_female)
+            INSERT OR IGNORE INTO achievements (key, name_m, name_f)
             VALUES (?, ?, ?)
         """, (key, male, female))
 
