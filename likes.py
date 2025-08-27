@@ -1,33 +1,37 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram import types
-from db import get_connection
-from main import bot, dp
+# likes.py
+from aiogram import F
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 
+from main import dp, bot
+from db import get_connection  # или другие функции из db
 
-# --- Клавиатура ---
+# --- Меню лайков ---
 def build_likes_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton("Топ залайканых за неделю", callback_data="likes:week_top")],
-        [InlineKeyboardButton("Топ залайканых за всё время", callback_data="likes:all_top")],
-        [InlineKeyboardButton("Топ добряков недели", callback_data="likes:week_givers")],
-        [InlineKeyboardButton("Топ добряков за всё время", callback_data="likes:all_givers")],
-        [InlineKeyboardButton("Топ-5 сообщений недели", callback_data="likes:week_msgs")],
-        [InlineKeyboardButton("Топ-5 сообщений за всё время", callback_data="likes:all_msgs")],
+        [InlineKeyboardButton("Топ залайканых за неделю", callback_data="likes:weekly_top")],
+        [InlineKeyboardButton("Топ залайканых за всё время", callback_data="likes:alltime_top")],
+        [InlineKeyboardButton("Топ добряков недели", callback_data="likes:weekly_givers")],
+        [InlineKeyboardButton("Топ добряков за всё время", callback_data="likes:alltime_givers")],
+        [InlineKeyboardButton("Топ-5 сообщений недели", callback_data="likes:weekly_msgs")],
+        [InlineKeyboardButton("Топ-5 сообщений за всё время", callback_data="likes:alltime_msgs")],
         [InlineKeyboardButton("Статистика чата", callback_data="likes:chat_stats")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 # --- Команда /like ---
-@dp.message_handler(commands=["like"])
-async def show_like_menu(message: types.Message):
-    text = "❤️ Самая добрая статистика про ваши лайки ❤️"
-    await message.answer(text, reply_markup=build_likes_keyboard())
+async def cmd_like(message: Message):
+    await message.answer(
+        "❤️ Самая добрая статистика про ваши лайки ❤️",
+        reply_markup=build_likes_keyboard()
+    )
+
+
+dp.message.register(cmd_like, F.text == "/like")
 
 
 # --- Обработчик кнопок ---
-@dp.callback_query_handler(lambda c: c.data.startswith("likes:"))
-async def likes_menu_callback(callback_query: types.CallbackQuery):
+async def likes_menu_callback(callback_query: CallbackQuery):
     data = callback_query.data
     chat_id = callback_query.message.chat.id
 
@@ -35,7 +39,7 @@ async def likes_menu_callback(callback_query: types.CallbackQuery):
     with get_connection() as conn:
         cur = conn.cursor()
 
-        if data == "likes:week_top":
+        if data == "likes:weekly_top":
             cur.execute("""
                 SELECT u.name, SUM(d.react_taken) as likes
                 FROM users u
@@ -49,7 +53,7 @@ async def likes_menu_callback(callback_query: types.CallbackQuery):
             text = "🏆 Топ получателей лайков за неделю:\n"
             text += "\n".join([f"{i + 1}. {name} — {likes} ❤️" for i, (name, likes) in enumerate(rows)])
 
-        elif data == "likes:all_top":
+        elif data == "likes:alltime_top":
             cur.execute("""
                 SELECT name, total_likes_taken FROM total_stats
                 WHERE chat_id = ?
@@ -60,7 +64,7 @@ async def likes_menu_callback(callback_query: types.CallbackQuery):
             text = "🏆 Топ получателей лайков за всё время:\n"
             text += "\n".join([f"{i + 1}. {name} — {likes} ❤️" for i, (name, likes) in enumerate(rows)])
 
-        elif data == "likes:week_givers":
+        elif data == "likes:weekly_givers":
             cur.execute("""
                 SELECT u.name, SUM(d.react_given) as likes
                 FROM users u
@@ -74,7 +78,7 @@ async def likes_menu_callback(callback_query: types.CallbackQuery):
             text = "💖 Топ добряков недели:\n"
             text += "\n".join([f"{i + 1}. {name} — {likes} ❤️" for i, (name, likes) in enumerate(rows)])
 
-        elif data == "likes:all_givers":
+        elif data == "likes:alltime_givers":
             cur.execute("""
                 SELECT name, total_likes_given FROM total_stats
                 WHERE chat_id = ?
@@ -85,7 +89,7 @@ async def likes_menu_callback(callback_query: types.CallbackQuery):
             text = "💖 Топ добряков за всё время:\n"
             text += "\n".join([f"{i + 1}. {name} — {likes} ❤️" for i, (name, likes) in enumerate(rows)])
 
-        elif data == "likes:week_msgs":
+        elif data == "likes:weekly_msgs":
             cur.execute("""
                 SELECT message_id, react_taken, text
                 FROM daily_messages
@@ -95,12 +99,12 @@ async def likes_menu_callback(callback_query: types.CallbackQuery):
             """, (chat_id,))
             rows = cur.fetchall()
             text = "💬 Топ-5 сообщений недели:\n"
-            for react_taken, message_id, msg_text in rows:
-                link = f"https://t.me/c/{str(chat_id)[4:]}/{message_id}"  # приватные чаты: убрать -100
+            for message_id, react_taken, msg_text in rows:
+                link = f"https://t.me/c/{str(chat_id)[4:]}/{message_id}"
                 snippet = (msg_text[:50] + "...") if msg_text else ""
                 text += f"❤️ {react_taken} — {link} — {snippet}\n"
 
-        elif data == "likes:all_msgs":
+        elif data == "likes:alltime_msgs":
             cur.execute("""
                 SELECT message_id, react_taken, text
                 FROM total_messages
@@ -110,7 +114,7 @@ async def likes_menu_callback(callback_query: types.CallbackQuery):
             """, (chat_id,))
             rows = cur.fetchall()
             text = "💬 Топ-5 сообщений за всё время:\n"
-            for react_taken, message_id, msg_text in rows:
+            for message_id, react_taken, msg_text in rows:
                 link = f"https://t.me/c/{str(chat_id)[4:]}/{message_id}"
                 snippet = (msg_text[:50] + "...") if msg_text else ""
                 text += f"❤️ {react_taken} — {link} — {snippet}\n"
@@ -141,3 +145,6 @@ async def likes_menu_callback(callback_query: types.CallbackQuery):
     # Редактируем сообщение с меню
     await callback_query.message.edit_text(text, reply_markup=build_likes_keyboard())
     await callback_query.answer()
+
+
+dp.callback_query.register(likes_menu_callback, F.data.startswith("likes:"))
