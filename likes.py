@@ -1,7 +1,8 @@
 # likes.py
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
-
+from aiogram.types import Message
+from aiogram.filters import Command
 from main import dp, bot
 from db import get_connection  # или другие функции из db
 
@@ -19,7 +20,7 @@ def build_likes_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# --- Команда /like ---
+@dp.message(Command("like"))
 async def cmd_like(message: Message):
     await message.answer(
         "❤️ Самая добрая статистика про ваши лайки ❤️",
