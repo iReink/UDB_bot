@@ -541,7 +541,7 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
         elif data == "likes:weekly_msgs":
             cur.execute("""
-                SELECT message_id, reactions_count, text
+                SELECT message_id, reactions_count, message_text
                 FROM messages_reactions
                 WHERE chat_id = ? AND date >= date('now','-6 days')
                 ORDER BY reactions_count DESC
@@ -556,7 +556,7 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
         elif data == "likes:alltime_msgs":
             cur.execute("""
-                SELECT message_id, r	reactions_count, text
+                SELECT message_id, reactions_count, message_text
                 FROM messages_reactions
                 WHERE chat_id = ?
                 ORDER BY reactions_count DESC
