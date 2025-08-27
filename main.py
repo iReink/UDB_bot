@@ -579,7 +579,7 @@ async def likes_menu_callback(callback_query: CallbackQuery):
             week_avg = week_likes / week_msgs if week_msgs else 0
 
             cur.execute("""
-                SELECT SUM(react_taken) as all_likes, SUM(total_messages) as all_msgs
+                SELECT SUM(react_taken) as all_likes, SUM(messages) as all_msgs
                 FROM total_stats
                 WHERE chat_id = ?
             """, (chat_id,))
