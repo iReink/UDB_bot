@@ -31,7 +31,7 @@ from db import (
     get_all_chats,
     get_user_sex
 )
-
+import likes  # просто импортируем модуль, регистратор команд и обработчиков уже выполнится
 from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
 
 

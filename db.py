@@ -95,6 +95,31 @@ def get_user_sex(user_id: int, chat_id: int) -> Optional[str]:
         row = cur.fetchone()
         return row["sex"] if row else None
 
+def get_achievement_title(achievement_key: str, sex: str) -> str:
+    """
+    Возвращает название ачивки из таблицы achievements с учётом пола.
+    sex: 'm', 'f' или None/другое.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT name_m, name_f FROM achievements WHERE key = ?
+        """, (achievement_key,))
+        row = cur.fetchone()
+
+    if not row:
+        return achievement_key  # fallback: если нет записи в БД
+
+    name_m, name_f = row
+
+    if sex == "m":
+        return name_m
+    elif sex == "f":
+        return name_f
+    else:
+        # если неизвестно, по умолчанию мужская форма
+        return name_m
+
 
 # -------------------------------
 # Работа с daily_stats

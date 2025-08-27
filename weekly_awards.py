@@ -5,6 +5,7 @@ import logging
 import sqlite3
 import db
 from db import add_or_update_user_achievement
+from db import add_or_update_user_achievement, get_achievement_title, get_connection, get_user_sex
 
 
 bot = None       # сюда пробрасывается экземпляр бота из main.py
@@ -84,6 +85,10 @@ async def process_weekly_awards():
                 await award_flooder(chat_id, users)
                 await award_dushnila(chat_id, users)
                 await award_skomrnyashka(chat_id, users)
+                await award_lubimka(chat_id, users)
+                await award_likes_collector(chat_id, users)
+                await award_dobroe_serdtse(chat_id, users)
+                await award_tsarsky_like(chat_id)
 
             except Exception as e:
                 logging.exception(f"[weekly_awards] Ошибка при награждении в чате {chat_id}: {e}")
@@ -338,4 +343,167 @@ async def award_skomrnyashka(chat_id: int):
     finally:
         conn.close()
 
+async def award_lubimka(chat_id: int):
+    """Любимка недели — юзер с наибольшим средним числом полученных лайков за сообщение за неделю (≥5 сообщений)."""
 
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        # Считаем лайки за 7 дней
+        cur.execute("""
+            SELECT u.user_id, u.name,
+                   SUM(d.react_taken) as likes_taken,
+                   SUM(d.messages) as msgs
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND date(d.date) >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING msgs >= 5
+        """, (chat_id,))
+        rows = cur.fetchall()
+
+    if not rows:
+        return
+
+    # Среднее число лайков на сообщение
+    candidates = [(likes_taken / msgs, user_id, name) for user_id, name, likes_taken, msgs in rows if msgs > 0]
+    if not candidates:
+        return
+
+    candidates.sort(reverse=True, key=lambda x: x[0])
+    avg_likes, winner_id, winner_name = candidates[0]
+
+    # Добавляем ачивку
+    add_or_update_user_achievement(winner_id, chat_id, "lubimka")
+
+    # Берём название из БД (у Любимки одинаковое для m/f)
+    sex = get_user_sex(winner_id, chat_id)
+    title = get_achievement_title("lubimka", sex)
+
+    # Сообщение в чат
+    text = f"💖 {title} недели — {winner_name} (в среднем {avg_likes:.2f} лайка/сообщение)!"
+    await bot.send_message(chat_id, text)
+
+
+
+async def award_likes_collector(chat_id: int):
+    """Лайкосборник недели — автор с наибольшим числом полученных лайков за неделю."""
+    DB_FILE = "stats.db"
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        # Берём суммарные полученные лайки за последние 7 дней
+        cur.execute("""
+            SELECT u.user_id, u.name, SUM(d.react_taken) as week_likes
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND d.date >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING week_likes > 0
+            ORDER BY week_likes DESC
+            LIMIT 1
+        """, (chat_id,))
+        row = cur.fetchone()
+
+        if not row:
+            return
+
+        winner_id, winner_name, week_likes = row
+
+        # добавляем ачивку
+        add_or_update_user_achievement(winner_id, chat_id, "likes_collector")
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+
+        # получаем правильное название ачивки из БД
+        sex = get_user_sex(winner_id, chat_id)
+        title = get_achievement_title("likes_collector", sex)
+
+        text = f"👍 {title} недели — {winner_name} ({week_likes} лайков)! +{ACHIEVEMENT_REWARD} сит"
+        await bot.send_message(chat_id, text)
+
+    finally:
+        conn.close()
+
+async def award_dobroe_serdtse(chat_id: int):
+    """Большое доброе сердце недели — поставивший больше всех лайков за неделю."""
+    DB_FILE = "stats.db"
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        # Берём суммарные отданные лайки за последние 7 дней
+        cur.execute("""
+            SELECT u.user_id, u.name, SUM(d.react_given) as week_given
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND d.date >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING week_given > 0
+            ORDER BY week_given DESC
+            LIMIT 1
+        """, (chat_id,))
+        row = cur.fetchone()
+
+        if not row:
+            return
+
+        winner_id, winner_name, week_given = row
+
+        # Добавляем ачивку
+        add_or_update_user_achievement(winner_id, chat_id, "dobroe_serdtse")
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+
+        # Получаем название ачивки из БД
+        sex = get_user_sex(winner_id, chat_id)
+        title = get_achievement_title("dobroe_serdtse", sex)
+
+        text = f"💖 {title} недели — {winner_name} (поставил {week_given} лайков)! +{ACHIEVEMENT_REWARD} сит"
+        await bot.send_message(chat_id, text)
+
+    finally:
+        conn.close()
+
+async def award_tsarsky_like(chat_id: int):
+    """Царский лайк недели — самое маленькое соотношение отданных/полученных лайков среди топ-20 по полученным лайкам."""
+    DB_FILE = "stats.db"
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        # Получаем топ-20 пользователей по полученным лайкам за неделю
+        cur.execute("""
+            SELECT u.user_id, u.name,
+                   SUM(d.react_taken) as week_taken,
+                   SUM(d.react_given) as week_given
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND d.date >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING week_taken > 0
+            ORDER BY week_taken DESC
+            LIMIT 20
+        """, (chat_id,))
+        top20 = cur.fetchall()
+
+        if not top20:
+            return
+
+        # Вычисляем соотношение отданных/полученных лайков
+        ratios = [(row[3] / row[2] if row[2] > 0 else float('inf'), row[0], row[1]) for row in top20]
+        ratios.sort(key=lambda x: x[0])  # минимальное соотношение
+        ratio, winner_id, winner_name = ratios[0]
+
+        # Добавляем ачивку
+        add_or_update_user_achievement(winner_id, chat_id, "tsarsky_like")
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+
+        sex = get_user_sex(winner_id, chat_id)
+        title = get_achievement_title("tsarsky_like", sex)
+
+        text = f"👑 {title} недели — {winner_name} (соотношение лайков: {ratio:.2f})! +{ACHIEVEMENT_REWARD} сит"
+        await bot.send_message(chat_id, text)
+
+    finally:
+        conn.close()
