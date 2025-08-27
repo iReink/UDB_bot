@@ -500,11 +500,11 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
         elif data == "likes:alltime_top":
             cur.execute("""
-                SELECT u.name, t.total_likes_taken
+                SELECT u.name, t.react_taken
                 FROM total_stats t
                 JOIN users u ON u.user_id = t.user_id AND u.chat_id = t.chat_id
                 WHERE t.chat_id = ?
-                ORDER BY t.total_likes_taken DESC
+                ORDER BY t.react_taken DESC
                 LIMIT 10
             """, (chat_id,))
             rows = cur.fetchall()
@@ -528,9 +528,9 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
         elif data == "likes:alltime_givers":
             cur.execute("""
-                SELECT name, total_likes_given FROM total_stats
+                SELECT name, react_given FROM total_stats
                 WHERE chat_id = ?
-                ORDER BY total_likes_given DESC
+                ORDER BY react_given DESC
                 LIMIT 10
             """, (chat_id,))
             rows = cur.fetchall()
@@ -539,10 +539,10 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
         elif data == "likes:weekly_msgs":
             cur.execute("""
-                SELECT message_id, react_taken, text
+                SELECT message_id, reactions_count, text
                 FROM daily_messages
                 WHERE chat_id = ? AND date >= date('now','-6 days')
-                ORDER BY react_taken DESC
+                ORDER BY reactions_count DESC
                 LIMIT 5
             """, (chat_id,))
             rows = cur.fetchall()
@@ -554,10 +554,10 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
         elif data == "likes:alltime_msgs":
             cur.execute("""
-                SELECT message_id, react_taken, text
+                SELECT message_id, r	reactions_count, text
                 FROM total_messages
                 WHERE chat_id = ?
-                ORDER BY react_taken DESC
+                ORDER BY reactions_count DESC
                 LIMIT 5
             """, (chat_id,))
             rows = cur.fetchall()
@@ -577,7 +577,7 @@ async def likes_menu_callback(callback_query: CallbackQuery):
             week_avg = week_likes / week_msgs if week_msgs else 0
 
             cur.execute("""
-                SELECT SUM(total_likes_taken) as all_likes, SUM(total_messages) as all_msgs
+                SELECT SUM(react_taken) as all_likes, SUM(total_messages) as all_msgs
                 FROM total_stats
                 WHERE chat_id = ?
             """, (chat_id,))
