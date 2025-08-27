@@ -474,7 +474,13 @@ async def likes_menu_callback(callback_query: CallbackQuery):
     chat_id = callback_query.message.chat.id
     data = callback_query.data
 
+    # удаляем старое сообщение с меню
+    try:
+        await callback_query.message.delete()
+    except Exception:
+        pass  # игнорируем если сообщение уже удалено
     text = ""
+
     with get_connection() as conn:
         cur = conn.cursor()
 
@@ -583,16 +589,10 @@ async def likes_menu_callback(callback_query: CallbackQuery):
                 f"За всё время: {all_likes} лайков, ср. на сообщение {all_avg:.2f}"
             )
 
-    # Подготовим клавиатуру
-    new_markup = build_likes_keyboard()
-
-    # Редактируем только если есть изменения
-    if callback_query.message.text != text or callback_query.message.reply_markup != new_markup:
-        await callback_query.message.edit_text(text, reply_markup=new_markup)
-
-    # Отвечаем на нажатие кнопки, чтобы меню не “зависло”
+    # отправляем новое сообщение с результатом
+    await callback_query.message.chat.send_message(text)
+    # отвечаем на callback, чтобы кнопка визуально отпустилась
     await callback_query.answer()
-
 
 
 
