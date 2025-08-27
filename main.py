@@ -469,10 +469,10 @@ async def cmd_like(message: Message):
     )
 
 # --- Обработчик кнопок меню лайков ---
-@dp.callback_query(lambda c: c.data.startswith("likes:"))
+@dp.callback_query(F.data.startswith("likes:"))
 async def likes_menu_callback(callback_query: CallbackQuery):
-    data = callback_query.data
     chat_id = callback_query.message.chat.id
+    data = callback_query.data
 
     text = ""
     with get_connection() as conn:
@@ -583,10 +583,15 @@ async def likes_menu_callback(callback_query: CallbackQuery):
                 f"За всё время: {all_likes} лайков, ср. на сообщение {all_avg:.2f}"
             )
 
-    # Редактируем сообщение с меню
-    await callback_query.message.edit_text(text, reply_markup=build_likes_keyboard())
-    await callback_query.answer()
+    # Подготовим клавиатуру
+    new_markup = build_likes_keyboard()
 
+    # Редактируем только если есть изменения
+    if callback_query.message.text != text or callback_query.message.reply_markup != new_markup:
+        await callback_query.message.edit_text(text, reply_markup=new_markup)
+
+    # Отвечаем на нажатие кнопки, чтобы меню не “зависло”
+    await callback_query.answer()
 
 
 
