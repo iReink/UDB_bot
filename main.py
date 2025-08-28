@@ -534,7 +534,7 @@ async def likes_menu_callback(callback_query: CallbackQuery):
                 FROM total_stats t
                 JOIN users u ON u.user_id = t.user_id AND u.chat_id = t.chat_id
                 WHERE t.chat_id = ?
-                ORDER BY t.react_taken DESC
+                ORDER BY t.react_given DESC
                 LIMIT 10
             """, (chat_id,))
             rows = cur.fetchall()
@@ -1022,18 +1022,10 @@ async def reward_daily_top(bot: Bot):
             logging.error(f"Не удалось отправить сообщение в чат {chat_id}: {e}")
 
 
-
-
-
-
-
-
-
 # ---------- Запуск ----------
 
 weekly_awards.bot = bot
 weekly_awards.add_sits = add_sits
-
 
 async def main():
     asyncio.create_task(daily_reward_task())  # награждение в 23:55
