@@ -250,7 +250,7 @@ async def daily_punish_task():
 async def daily_reward_task():
     while True:
         now = datetime.now()
-        reward_time = now.replace(hour=00, minute=10, second=0, microsecond=0)
+        reward_time = now.replace(hour=22, minute=12, second=0, microsecond=0)
 
         # Если текущее время уже позже 23:55, переносим на завтра
         if now >= reward_time:
