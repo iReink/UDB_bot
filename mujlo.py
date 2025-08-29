@@ -101,3 +101,18 @@ async def handle_mujlo_buy(callback: types.CallbackQuery):
     # Сообщение в чат
     await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопку
     await callback.message.answer(f"✅ Пользователь {user['name']} теперь может говорить свободно")
+
+async def reset_mujlo_daily():
+    while True:
+        now = datetime.now()
+        reset_time = now.replace(hour=23, minute=43, second=0, microsecond=0)
+        if now >= reset_time:
+            reset_time += timedelta(days=1)
+        wait_seconds = (reset_time - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE mujlo SET mujlo_freed = 0")
+            conn.commit()
+        logging.info("[mujlo] Сброс состояния mujlo_freed для всех пользователей")

@@ -32,7 +32,7 @@ from db import (
 )
 from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
 from sticker_manager import silence_checker_task, bot as sm_bot
-from mujlo import handle_mujlo_message, handle_mujlo_buy
+from mujlo import handle_mujlo_message, handle_mujlo_buy, reset_mujlo_daily
 
 
 
@@ -1040,6 +1040,7 @@ async def main():
     asyncio.create_task(weekly_awards.weekly_awards_task())  # еженедельные награды
     asyncio.create_task(daily_punish_task())  # Ежедневное наказание за кофе
     asyncio.create_task(silence_checker_task())
+    asyncio.create_task(reset_mujlo_daily()) # сброс покупок мужла по утру
 
     await dp.start_polling(
         bot,
