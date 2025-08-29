@@ -8,7 +8,7 @@ from aiogram import types, Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from db import get_connection, add_or_update_user
+from db import get_connection, add_or_update_user, get_user
 # или лучше сделать отдельный импорт bot через общий модуль, если есть
 
 MUJLO = "CAACAgIAAyEFAASixe81AAEBo3posMDwzO10nION2l0m2Rzk7L_UJAACcl4AAq0s-Uufvzuo1oaf2jYE"
@@ -68,35 +68,36 @@ async def handle_mujlo_message(message: types.Message):
 
 # @dp.callback_query(lambda c: c.data.startswith("mujlo_buy:"))
 async def handle_mujlo_buy(callback: types.CallbackQuery):
-    """Обрабатываем покупку права говорить."""
-    try:
-        bot = callback.bot  # берём объект бота из callback
-        _, chat_id_str, user_id_str = callback.data.split(":")
-        chat_id, user_id = int(chat_id_str), int(user_id_str)
+    chat_id, user_id = map(int, callback.data.split(":")[1:])
+    user = get_user(user_id, chat_id)
 
-        # Получаем пользователя и проверяем баланс сит
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT name, sits FROM users WHERE chat_id=? AND user_id=?", (chat_id, user_id))
-            user = cur.fetchone()
-            if not user:
-                await callback.answer("Пользователь не найден", show_alert=True)
-                return
-            name, sits = user["name"], user["sits"]
+    if not user:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
 
-            if sits < 2:
-                await callback.answer("Недостаточно сит", show_alert=True)
-                return
+    # Проверяем, не купил ли уже право
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT mujlo_freed FROM mujlo WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+        row = cur.fetchone()
+        if row and row["mujlo_freed"]:
+            await callback.answer("Пользователь уже купил право говорить!", show_alert=True)
+            # Удаляем кнопку, чтобы нельзя было нажать
+            await callback.message.edit_reply_markup(reply_markup=None)
+            return
 
-            # Списываем 2 сита
-            cur.execute("UPDATE users SET sits = sits - 2 WHERE chat_id=? AND user_id=?", (chat_id, user_id))
-            # Отмечаем, что пользователь освобождён до конца ночи
-            cur.execute("UPDATE mujlo SET mujlo_freed = 1 WHERE chat_id=? AND user_id=?", (chat_id, user_id))
-            conn.commit()
+    # Проверяем баланс сит
+    if user["sits"] < 2:
+        await callback.answer("Недостаточно сит для покупки права.", show_alert=True)
+        return
 
-        # Отправляем сообщение в чат
-        await bot.send_message(chat_id, f"✅ Пользователь {name} теперь может говорить свободно")
-        await callback.answer()  # визуально отпускаем кнопку
+    # Списываем сита и помечаем право купленным
+    add_or_update_user(user_id, chat_id, user["name"], sits=user["sits"] - 2)
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE mujlo SET mujlo_freed=1 WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+        conn.commit()
 
-    except Exception as e:
-        logging.error(f"[mujlo] Ошибка обработки покупки: {e}")
+    # Сообщение в чат
+    await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопку
+    await callback.message.answer(f"✅ Пользователь {user['name']} теперь может говорить свободно")
