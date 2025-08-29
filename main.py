@@ -886,7 +886,7 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
         # Шанс штрафа
         punished_now = False
         if n > 2:
-            chance = 1 - math.exp(-0.5 * (n - 2))
+            chance = 1 - math.exp(-0.21 * (n - 2))
             punished_now = random.random() < chance
 
         if punished_now:
