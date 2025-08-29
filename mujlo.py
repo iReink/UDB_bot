@@ -4,120 +4,99 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from aiogram import types
+from aiogram import types, Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db import get_connection, add_or_update_user
-from main import dp, bot  # если bot объявлен в main.py
+from main import dp  # если bot объявлен в main.py
 # или лучше сделать отдельный импорт bot через общий модуль, если есть
 
 MUJLO = "CAACAgIAAyEFAASixe81AAEBo3posMDwzO10nION2l0m2Rzk7L_UJAACcl4AAq0s-Uufvzuo1oaf2jYE"
 
-# словарь для кулдаунов: (chat_id, user_id) -> datetime последнего ответа
-_last_mujlo_reply = {}
-
+# --- Внутреннее состояние ---
+_last_mujlo_sent: dict[tuple[int, int], datetime] = {}  # ключ (chat_id, user_id) -> время последнего стикера
 
 async def handle_mujlo_message(message: types.Message):
-    """
-    Обрабатывает сообщения для мужло-режима:
-    - Только ночью (22:00–03:00)
-    - Только пользователи с sex = 'm'
-    - Не чаще одного раза в 3 минуты
-    - Если mujlo_freed = 1, то больше не трогаем
-    """
+    """Обрабатываем сообщение пользователя для MUJLO-стикера."""
     try:
         now = datetime.now()
         hour = now.hour
-
-        # --- Проверка времени ---
-        if not (hour >= 22 or hour < 3):
-            return
+        if not (22 <= hour or hour < 3):
+            return  # только между 22:00 и 03:00
 
         chat_id = message.chat.id
         user_id = message.from_user.id
 
-        # --- Проверка пола и статуса ---
+        # Проверяем пол пользователя
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT sex FROM users WHERE user_id=? AND chat_id=?", (user_id, chat_id))
+            cur.execute("SELECT sex FROM users WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
             row = cur.fetchone()
             if not row or row["sex"] != "m":
                 return
 
-            cur.execute("SELECT mujlo_freed FROM mujlo WHERE user_id=? AND chat_id=?", (user_id, chat_id))
-            mj = cur.fetchone()
-            if not mj or mj["mujlo_freed"] == 1:
-                return
-
-        # --- Проверка кулдауна ---
-        last_time = _last_mujlo_reply.get((chat_id, user_id))
+        # Проверяем таймаут 3 минуты
+        last_time = _last_mujlo_sent.get((chat_id, user_id))
         if last_time and (now - last_time) < timedelta(minutes=3):
             return
-        _last_mujlo_reply[(chat_id, user_id)] = now
+
+        # Проверяем, не купил ли пользователь право говорить до конца ночи
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT mujlo_freed FROM mujlo WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+            mujlo_row = cur.fetchone()
+            if mujlo_row and mujlo_row["mujlo_freed"]:
+                return
 
         # --- Отправка стикера + кнопки ---
         kb = InlineKeyboardBuilder()
-        kb.button(text="Купить право высказаться (2 сита)", callback_data=f"mujlo_buy:{chat_id}:{user_id}")
+        kb.button(
+            text="Купить право высказаться (2 сита)",
+            callback_data=f"mujlo_buy:{chat_id}:{user_id}"
+        )
         kb.adjust(1)
 
-        await bot.send_sticker(chat_id, MUJLO, reply_to_message_id=message.message_id)
-        await bot.send_message(chat_id, "😶", reply_markup=kb.as_markup())
+        await message.answer_sticker(MUJLO, reply_to_message_id=message.message_id)
+        await message.answer("😶", reply_markup=kb.as_markup())
+
+        _last_mujlo_sent[(chat_id, user_id)] = now
 
     except Exception as e:
-        logging.error(f"[mujlo] Ошибка обработки: {e}")
+        logging.error(f"[mujlo] Ошибка обработки сообщения: {e}")
 
 
 @dp.callback_query(lambda c: c.data.startswith("mujlo_buy:"))
 async def handle_mujlo_buy(callback: types.CallbackQuery):
+    """Обрабатываем покупку права говорить."""
     try:
-        parts = callback.data.split(":")
-        if len(parts) != 3:
-            await callback.answer("Ошибка данных", show_alert=True)
-            return
+        bot = callback.bot  # берём объект бота из callback
+        _, chat_id_str, user_id_str = callback.data.split(":")
+        chat_id, user_id = int(chat_id_str), int(user_id_str)
 
-        chat_id = int(parts[1])
-        user_id = int(parts[2])
-
-        # проверка пользователя и его сита
+        # Получаем пользователя и проверяем баланс сит
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT sits, name FROM users WHERE user_id=? AND chat_id=?", (user_id, chat_id))
+            cur.execute("SELECT name, sits FROM users WHERE chat_id=? AND user_id=?", (chat_id, user_id))
             user = cur.fetchone()
             if not user:
-                await callback.answer("Пользователь не найден в БД", show_alert=True)
+                await callback.answer("Пользователь не найден", show_alert=True)
                 return
-
-            sits = user["sits"] or 0
-            name = user["name"]
+            name, sits = user["name"], user["sits"]
 
             if sits < 2:
-                await callback.answer("Недостаточно ситов!", show_alert=True)
+                await callback.answer("Недостаточно сит", show_alert=True)
                 return
 
-            # списываем 2 сита
-            new_sits = sits - 2
-            add_or_update_user(user_id, chat_id, name, sits=new_sits)
-
-            # помечаем что освобождён
-            cur.execute(
-                "UPDATE mujlo SET mujlo_freed=1 WHERE user_id=? AND chat_id=?",
-                (user_id, chat_id)
-            )
+            # Списываем 2 сита
+            cur.execute("UPDATE users SET sits = sits - 2 WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+            # Отмечаем, что пользователь освобождён до конца ночи
+            cur.execute("UPDATE mujlo SET mujlo_freed = 1 WHERE chat_id=? AND user_id=?", (chat_id, user_id))
             conn.commit()
 
-        # редактируем кнопку, чтобы её нельзя было жать снова
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except TelegramBadRequest:
-            pass  # бывает если кнопки уже нет
-
-        # уведомляем чат
+        # Отправляем сообщение в чат
         await bot.send_message(chat_id, f"✅ Пользователь {name} теперь может говорить свободно")
-
-        # подтверждаем колбэк
-        await callback.answer("Вы купили право говорить")
+        await callback.answer()  # визуально отпускаем кнопку
 
     except Exception as e:
-        logging.error(f"[mujlo] Ошибка при покупке: {e}")
-        await callback.answer("Ошибка при обработке", show_alert=True)
+        logging.error(f"[mujlo] Ошибка обработки покупки: {e}")

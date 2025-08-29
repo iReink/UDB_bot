@@ -640,7 +640,7 @@ async def handle_message(message: types.Message):
         conn.commit()
 
     # проверка на тише мужло
-    await handle_mujlo_message(message)
+    await handle_mujlo_message(message, bot)
 
 
 from datetime import date
