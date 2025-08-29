@@ -9,7 +9,6 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db import get_connection, add_or_update_user
-from main import dp  # если bot объявлен в main.py
 # или лучше сделать отдельный импорт bot через общий модуль, если есть
 
 MUJLO = "CAACAgIAAyEFAASixe81AAEBo3posMDwzO10nION2l0m2Rzk7L_UJAACcl4AAq0s-Uufvzuo1oaf2jYE"
