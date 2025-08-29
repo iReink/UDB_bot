@@ -1,4 +1,3 @@
-import json
 import os
 import asyncio
 import re
@@ -96,7 +95,7 @@ def ensure_user(chat_id: int, user_id: int, user_name: str):
     Создаёт пользователя, daily_stats за последние 7 дней и total_stats при необходимости.
     """
     # Проверяем пользователя
-    user = db.get_user(user_id)
+    user = db.get_user(user_id, chat_id)
     if not user:
         db.add_or_update_user(user_id, chat_id, user_name, sits=0, punished=0, sex=None)
     else:
@@ -121,7 +120,7 @@ def ensure_user(chat_id: int, user_id: int, user_name: str):
             )
 
     # Total_stats
-    if not db.get_total_stats(user_id):
+    if not db.get_total_stats(user_id, chat_id):
         db.add_or_update_total_stats(user_id, chat_id, messages=0, words=0, chars=0, stickers=0, coffee=0)
 
 
@@ -1012,7 +1011,7 @@ async def reward_daily_top(bot: Bot):
         for i, (uid, count, name) in enumerate(top3):
             amount = rewards[i]
             # Добавляем ситы
-            add_or_update_user(uid, chat_id, user_row["name"], sits=amount)
+            add_or_update_user(uid, chat_id, name, sits=amount)
             text_lines.append(f"{i + 1} место — {name} — {amount} сит")
 
         # Отправка сообщения в чат
