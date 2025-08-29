@@ -18,6 +18,7 @@ _last_mujlo_sent: dict[tuple[int, int], datetime] = {}  # ключ (chat_id, use
 
 async def handle_mujlo_message(message: types.Message):
     """Обрабатываем сообщение пользователя для MUJLO-стикера."""
+
     try:
         now = datetime.now()
         hour = now.hour
