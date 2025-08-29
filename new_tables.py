@@ -1,28 +1,36 @@
-# insert_achievements.py
 import sqlite3
 
 DB_FILE = "stats.db"
 
-def insert_achievements():
+def init_mujlo_table():
     conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    achievements = [
-        ("lubimka", "Любимка", "Любимка"),  # одинаковое название
-        ("likesobornik", "Лайкосборник", "Лайкосборница"),
-        ("dobroe_serdtse", "Большое доброе сердце", "Большое доброе сердце"),
-        ("tsarsky_like", "Царский лайк", "Царский лайк"),
-    ]
+    # Создаем таблицу mujlo
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS mujlo (
+            chat_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            mujlo_freed INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (chat_id, user_id)
+        )
+    """)
 
-    for key, male, female in achievements:
+    # Получаем всех юзеров из таблицы users
+    cur.execute("SELECT chat_id, user_id FROM users")
+    rows = cur.fetchall()
+
+    # Заполняем таблицу mujlo начальными значениями
+    for row in rows:
         cur.execute("""
-            INSERT OR IGNORE INTO achievements (key, name_m, name_f)
-            VALUES (?, ?, ?)
-        """, (key, male, female))
+            INSERT OR IGNORE INTO mujlo (chat_id, user_id, mujlo_freed)
+            VALUES (?, ?, 0)
+        """, (row["chat_id"], row["user_id"]))
 
     conn.commit()
     conn.close()
+    print(f"Таблица mujlo инициализирована, записей добавлено: {len(rows)}")
 
 if __name__ == "__main__":
-    insert_achievements()
-    print("✅ Новые ачивки добавлены в таблицу achievements")
+    init_mujlo_table()

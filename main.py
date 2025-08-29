@@ -39,6 +39,7 @@ from sticker_manager import silence_checker_task, bot as sm_bot
 TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
 STATS_FILE = "stats.json"
 MAKOVKA_FILE_ID = "CAACAgIAAyEFAASjKavKAAOcaJ95ivqdgkA5gstkAbRt25CCRLAAAkN5AAJTNbFKdWJ4ufamt9I2BA"
+MUJLO = "CAACAgIAAyEFAASixe81AAEBo3posMDwzO10nION2l0m2Rzk7L_UJAACcl4AAq0s-Uufvzuo1oaf2jYE"
 
 # Конфигурация магазина
 SHOP_ITEMS = {
@@ -250,7 +251,7 @@ async def daily_punish_task():
 async def daily_reward_task():
     while True:
         now = datetime.now()
-        reward_time = now.replace(hour=22, minute=16, second=0, microsecond=0)
+        reward_time = now.replace(hour=21, minute=45, second=0, microsecond=0)
 
         # Если текущее время уже позже 23:55, переносим на завтра
         if now >= reward_time:
