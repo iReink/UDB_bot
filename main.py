@@ -32,14 +32,14 @@ from db import (
 )
 from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
 from sticker_manager import silence_checker_task, bot as sm_bot
-
+from mujlo import handle_mujlo_message, handle_mujlo_buy
 
 
 
 TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
 STATS_FILE = "stats.json"
 MAKOVKA_FILE_ID = "CAACAgIAAyEFAASjKavKAAOcaJ95ivqdgkA5gstkAbRt25CCRLAAAkN5AAJTNbFKdWJ4ufamt9I2BA"
-MUJLO = "CAACAgIAAyEFAASixe81AAEBo3posMDwzO10nION2l0m2Rzk7L_UJAACcl4AAq0s-Uufvzuo1oaf2jYE"
+
 
 # Конфигурация магазина
 SHOP_ITEMS = {
@@ -638,6 +638,9 @@ async def handle_message(message: types.Message):
             message.date.isoformat()
         ))
         conn.commit()
+
+    # проверка на тише мужло
+    await handle_mujlo_message(message)
 
 
 from datetime import date
