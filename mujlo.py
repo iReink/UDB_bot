@@ -105,7 +105,7 @@ async def handle_mujlo_buy(callback: types.CallbackQuery):
 async def reset_mujlo_daily():
     while True:
         now = datetime.now()
-        reset_time = now.replace(hour=23, minute=43, second=0, microsecond=0)
+        reset_time = now.replace(hour=8, minute=00, second=0, microsecond=0)
         if now >= reset_time:
             reset_time += timedelta(days=1)
         wait_seconds = (reset_time - now).total_seconds()
