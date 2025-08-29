@@ -1030,10 +1030,10 @@ async def reward_daily_top(bot: Bot):
 weekly_awards.bot = bot
 weekly_awards.add_sits = add_sits
 
-# хэндлер сообщений
+# сообщения
 dp.message.register(handle_mujlo_message)
-# хэндлер нажатий кнопки
-dp.callback_query.register(handle_mujlo_buy)
+# inline-кнопка
+dp.callback_query.register(handle_mujlo_buy, lambda c: c.data.startswith("mujlo_buy:"))
 
 async def main():
     asyncio.create_task(daily_reward_task())  # награждение в 23:55

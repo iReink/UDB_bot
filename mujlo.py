@@ -65,7 +65,7 @@ async def handle_mujlo_message(message: types.Message):
         logging.error(f"[mujlo] Ошибка обработки сообщения: {e}")
 
 
-@dp.callback_query(lambda c: c.data.startswith("mujlo_buy:"))
+# @dp.callback_query(lambda c: c.data.startswith("mujlo_buy:"))
 async def handle_mujlo_buy(callback: types.CallbackQuery):
     """Обрабатываем покупку права говорить."""
     try:
