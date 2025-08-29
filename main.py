@@ -250,7 +250,7 @@ async def daily_punish_task():
 async def daily_reward_task():
     while True:
         now = datetime.now()
-        reward_time = now.replace(hour=22, minute=12, second=0, microsecond=0)
+        reward_time = now.replace(hour=22, minute=16, second=0, microsecond=0)
 
         # Если текущее время уже позже 23:55, переносим на завтра
         if now >= reward_time:
@@ -1011,7 +1011,7 @@ async def reward_daily_top(bot: Bot):
         for i, (uid, count, name) in enumerate(top3):
             amount = rewards[i]
             # Добавляем ситы
-            add_sits(uid, chat_id, amount=amount)
+            add_sits(chat_id, uid, amount=amount)
             text_lines.append(f"{i + 1} место — {name} — {amount} сит")
 
         # Отправка сообщения в чат
