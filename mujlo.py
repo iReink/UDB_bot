@@ -68,47 +68,56 @@ async def handle_mujlo_message(message: types.Message):
 
 # @dp.callback_query(lambda c: c.data.startswith("mujlo_buy:"))
 async def handle_mujlo_buy(callback: types.CallbackQuery):
-    # Разбираем данные из callback: chat_id и user_id владельца кнопки
-    chat_id, target_user_id = map(int, callback.data.split(":")[1:])
-    pressing_user_id = callback.from_user.id
-
-    logging.info(f"[mujlo_buy] Triggered by user_id={pressing_user_id}, target_user_id={target_user_id}, data={callback.data}")
-
-    # 🔒 Проверяем, что кнопку нажимает именно тот, кому она предназначена
-    if pressing_user_id != target_user_id:
-        await callback.answer("❌ Эта кнопка не для вас", show_alert=True)
-        return
-
-    user = get_user(target_user_id, chat_id)
-    if not user:
-        await callback.answer("Пользователь не найден.", show_alert=True)
-        return
-
-    # Проверяем, не купил ли уже право
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT mujlo_freed FROM mujlo WHERE chat_id=? AND user_id=?", (chat_id, target_user_id))
-        row = cur.fetchone()
-        if row and row["mujlo_freed"]:
-            await callback.answer("Пользователь уже купил право говорить!", show_alert=True)
-            await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопку
+    try:
+        parts = callback.data.split(":")
+        if len(parts) < 3:
+            await callback.answer("Некорректные данные кнопки.", show_alert=True)
             return
 
-    # Проверяем баланс сит
-    if user["sits"] < 2:
-        await callback.answer("Недостаточно сит для покупки права.", show_alert=True)
-        return
+        # Берём только chat_id и user_id
+        chat_id = int(parts[1])
+        target_user_id = int(parts[2])
+        pressing_user_id = callback.from_user.id
 
-    # Списываем сита и помечаем право купленным
-    add_or_update_user(target_user_id, chat_id, user["name"], sits=user["sits"] - 2)
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("UPDATE mujlo SET mujlo_freed=1 WHERE chat_id=? AND user_id=?", (chat_id, target_user_id))
-        conn.commit()
+        logging.info(f"[mujlo_buy] Triggered by pressing_user_id={pressing_user_id}, target_user_id={target_user_id}, data={callback.data}")
 
-    # Убираем кнопку и отправляем сообщение о покупке
-    await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer(f"✅ Пользователь {user['name']} теперь может говорить свободно")
+        # 🔒 Проверяем владельца кнопки
+        if pressing_user_id != target_user_id:
+            await callback.answer("❌ Эта кнопка не для вас", show_alert=True)
+            return
+
+        user = get_user(target_user_id, chat_id)
+        if not user:
+            await callback.answer("Пользователь не найден.", show_alert=True)
+            return
+
+        # Проверка покупки
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT mujlo_freed FROM mujlo WHERE chat_id=? AND user_id=?", (chat_id, target_user_id))
+            row = cur.fetchone()
+            if row and row["mujlo_freed"]:
+                await callback.answer("Пользователь уже купил право говорить!", show_alert=True)
+                await callback.message.edit_reply_markup(reply_markup=None)
+                return
+
+        if user["sits"] < 2:
+            await callback.answer("Недостаточно сит для покупки права.", show_alert=True)
+            return
+
+        # Обновляем данные
+        add_or_update_user(target_user_id, chat_id, user["name"], sits=user["sits"] - 2)
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE mujlo SET mujlo_freed=1 WHERE chat_id=? AND user_id=?", (chat_id, target_user_id))
+            conn.commit()
+
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(f"✅ Пользователь {user['name']} теперь может говорить свободно")
+
+    except Exception as e:
+        logging.exception(f"[mujlo_buy] Ошибка при обработке кнопки: {e}")
+        await callback.answer("Произошла ошибка при обработке кнопки.", show_alert=True)
 
 
 async def reset_mujlo_daily():
