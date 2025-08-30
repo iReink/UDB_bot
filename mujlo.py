@@ -70,6 +70,7 @@ async def handle_mujlo_message(message: types.Message):
 async def handle_mujlo_buy(callback: types.CallbackQuery):
     chat_id, user_id = map(int, callback.data.split(":")[1:])
     user = get_user(user_id, chat_id)
+    logging.info(f"[mujlo_buy] Triggered by: user_id={callback.from_user.id}, data={callback.data}")
 
     if not user:
         await callback.answer("Пользователь не найден.", show_alert=True)

@@ -424,6 +424,33 @@ async def send_stat(message: types.Message):
     await message.answer(get_weekly_chat_stats(chat_id))
 
 
+import random
+
+# Список ID стикеров
+STICKERS = [
+    "CAACAgIAAyEFAASjKavKAAICp2iy5hML1eFnIZwuKLpEpl9kmpfjAALwcAACZfRISVXIMpVstJbWNgQ",
+    "CAACAgIAAyEFAASjKavKAAICqGiy5ik08bQH5g9omzfd7PBs7Z9WAALuPQACkhZpSxMWB6aTq90jNgQ",
+    "CAACAgIAAyEFAASjKavKAAICqWiy5jV69ZFGo50JzQfII5P3FALqAAJ6XgACYKW5SvSEZVzObD2uNgQ",
+    "CAACAgIAAyEFAASjKavKAAICqmiy5kLEuAKILCRckR7jDGGBM74QAAJJBQACIwUNAAEQwqY-etbwdDYE",
+    "CAACAgIAAyEFAASjKavKAAICq2iy5k-gJSC_tNhj8BycFrIe0EtqAALhYAACsUq4SqjwDufD219_NgQ",
+    "CAACAgIAAyEFAASjKavKAAICrGiy5llX-oiyZp3BSZQCuiUacsPYAAIPXQACeuBJS2nWT1EelaLBNgQ",
+    "CAACAgIAAyEFAASjKavKAAICrWiy5mJIsVI1nVFUa-7JsyIol_hKAALLTgACphTRSjS9R-OrOiBNgQ",
+    "CAACAgIAAyEFAASjKavKAAICrmiy5ot1JJOUVIo_cdQF53wqpuqqAAKLLQACb2kZS6_QmgHnKUPwNgQ",
+    "CAACAgIAAyEFAASjKavKAAICrWiy5mJIsVI1nVFUa-7JsyIol_hKAALLTgACphTRSjS9R-8OrOiBNgQ"
+]
+
+async def send_reaction_reward(bot: Bot, chat_id: int, user_id: int, total: int):
+    # Выбираем случайный стикер
+    sticker_id = random.choice(STICKERS)
+
+    await bot.send_sticker(chat_id, sticker_id)
+    await bot.send_message(
+        chat_id,
+        f"🎉 @Thehemyl Виталик, держи зарплату за лайки ❤️",
+        parse_mode="Markdown"
+    )
+
+
 from aiogram.filters import Command
 from aiogram.types import Message
 
@@ -701,6 +728,17 @@ async def on_reaction(event: MessageReactionUpdated):
             VALUES (?, ?, ?)
             ON CONFLICT(chat_id, user_id) DO UPDATE SET react_given = react_given + ?
         """, (chat_id, user_id, delta_given, delta_given))
+
+        # --- Проверка на достижение кратности 300 реакций для конкретного пользователя ---
+        cur.execute("""
+            SELECT react_given FROM total_stats
+            WHERE chat_id=? AND user_id=?
+        """, (chat_id, user_id))
+        row = cur.fetchone()
+        if row:
+            total_react_given = row[0]
+            if user_id == 884940984 and total_react_given % 10 == 0:
+                await send_reaction_reward(bot, chat_id, user_id, total_react_given)
 
         # 3) Полученные реакции у автора
         cur.execute("""
