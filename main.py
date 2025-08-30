@@ -89,6 +89,10 @@ bot = Bot(token=TOKEN)
 sm_bot = bot
 dp = Dispatcher()
 
+#переменная для счётчика количества лайков, за которые Виталик получил запрлату
+last_reward_react_given = 0
+
+
 
 def ensure_user(chat_id: int, user_id: int, user_name: str):
     """
@@ -724,6 +728,7 @@ async def on_reaction(event: MessageReactionUpdated):
             ON CONFLICT(chat_id, user_id) DO UPDATE SET react_given = react_given + ?
         """, (chat_id, user_id, delta_given, delta_given))
 
+        global last_reward_react_given
         # --- Проверка на достижение кратности 300 реакций для конкретного пользователя ---
         cur.execute("""
             SELECT react_given FROM total_stats
@@ -732,8 +737,12 @@ async def on_reaction(event: MessageReactionUpdated):
         row = cur.fetchone()
         if row:
             total_react_given = row[0]
-            if user_id == 765591886 and total_react_given % 300 == 0:
+            global last_reward_react_given
+
+            # Проверяем: пользователь нужный, достигнут новый порог, и награда ещё не выдавалась за него
+            if user_id == 765591886 and total_react_given % 300 == 0 and total_react_given > last_reward_react_given:
                 await send_reaction_reward(bot, chat_id, user_id, total_react_given)
+                last_reward_react_given = total_react_given  # Запоминаем порог
 
         # 3) Полученные реакции у автора
         cur.execute("""
