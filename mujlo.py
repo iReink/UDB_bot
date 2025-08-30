@@ -53,7 +53,7 @@ async def handle_mujlo_message(message: types.Message):
         kb = InlineKeyboardBuilder()
         kb.button(
             text="Купить право высказаться (2 сита)",
-            callback_data=f"mujlo_buy:{chat_id}:{user_id}"
+            callback_data=f"mujlo_buy:{chat_id}:{user_id}:{message.from_user.id}"
         )
         kb.adjust(1)
 
@@ -68,10 +68,18 @@ async def handle_mujlo_message(message: types.Message):
 
 # @dp.callback_query(lambda c: c.data.startswith("mujlo_buy:"))
 async def handle_mujlo_buy(callback: types.CallbackQuery):
-    chat_id, user_id = map(int, callback.data.split(":")[1:])
-    user = get_user(user_id, chat_id)
-    logging.info(f"[mujlo_buy] Triggered by: user_id={callback.from_user.id}, data={callback.data}")
+    # Разбираем данные из callback: chat_id и user_id владельца кнопки
+    chat_id, target_user_id = map(int, callback.data.split(":")[1:])
+    pressing_user_id = callback.from_user.id
 
+    logging.info(f"[mujlo_buy] Triggered by user_id={pressing_user_id}, target_user_id={target_user_id}, data={callback.data}")
+
+    # 🔒 Проверяем, что кнопку нажимает именно тот, кому она предназначена
+    if pressing_user_id != target_user_id:
+        await callback.answer("❌ Эта кнопка не для вас", show_alert=True)
+        return
+
+    user = get_user(target_user_id, chat_id)
     if not user:
         await callback.answer("Пользователь не найден.", show_alert=True)
         return
@@ -79,12 +87,11 @@ async def handle_mujlo_buy(callback: types.CallbackQuery):
     # Проверяем, не купил ли уже право
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT mujlo_freed FROM mujlo WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+        cur.execute("SELECT mujlo_freed FROM mujlo WHERE chat_id=? AND user_id=?", (chat_id, target_user_id))
         row = cur.fetchone()
         if row and row["mujlo_freed"]:
             await callback.answer("Пользователь уже купил право говорить!", show_alert=True)
-            # Удаляем кнопку, чтобы нельзя было нажать
-            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопку
             return
 
     # Проверяем баланс сит
@@ -93,20 +100,21 @@ async def handle_mujlo_buy(callback: types.CallbackQuery):
         return
 
     # Списываем сита и помечаем право купленным
-    add_or_update_user(user_id, chat_id, user["name"], sits=user["sits"] - 2)
+    add_or_update_user(target_user_id, chat_id, user["name"], sits=user["sits"] - 2)
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute("UPDATE mujlo SET mujlo_freed=1 WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+        cur.execute("UPDATE mujlo SET mujlo_freed=1 WHERE chat_id=? AND user_id=?", (chat_id, target_user_id))
         conn.commit()
 
-    # Сообщение в чат
-    await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопку
+    # Убираем кнопку и отправляем сообщение о покупке
+    await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(f"✅ Пользователь {user['name']} теперь может говорить свободно")
+
 
 async def reset_mujlo_daily():
     while True:
         now = datetime.now()
-        reset_time = now.replace(hour=8, minute=00, second=0, microsecond=0)
+        reset_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
         if now >= reset_time:
             reset_time += timedelta(days=1)
         wait_seconds = (reset_time - now).total_seconds()
@@ -117,3 +125,4 @@ async def reset_mujlo_daily():
             cur.execute("UPDATE mujlo SET mujlo_freed = 0")
             conn.commit()
         logging.info("[mujlo] Сброс состояния mujlo_freed для всех пользователей")
+
