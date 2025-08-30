@@ -732,7 +732,7 @@ async def on_reaction(event: MessageReactionUpdated):
         row = cur.fetchone()
         if row:
             total_react_given = row[0]
-            if user_id == 884940984 and total_react_given % 10 == 0:
+            if user_id == 765591886 and total_react_given % 300 == 0:
                 await send_reaction_reward(bot, chat_id, user_id, total_react_given)
 
         # 3) Полученные реакции у автора
