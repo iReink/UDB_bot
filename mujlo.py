@@ -58,7 +58,7 @@ async def handle_mujlo_message(message: types.Message):
         kb.adjust(1)
 
         await message.answer_sticker(MUJLO, reply_to_message_id=message.message_id)
-        await message.answer("😶", reply_markup=kb.as_markup())
+        await message.answer(" ", reply_markup=kb.as_markup())
 
         _last_mujlo_sent[(chat_id, user_id)] = now
 
