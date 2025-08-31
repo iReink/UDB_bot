@@ -24,7 +24,7 @@ async def weekly_awards_task():
         days_ahead = 6 - now.weekday()  # weekday(): Пн=0, Вс=6
         if days_ahead < 0:
             days_ahead += 7
-        award_time = (now + timedelta(days=days_ahead)).replace(hour=21, minute=0, second=0, microsecond=0)
+        award_time = (now + timedelta(days=days_ahead)).replace(hour=21, minute=5, second=0, microsecond=0)
         if award_time <= now:
             award_time += timedelta(days=7)
 
@@ -82,12 +82,12 @@ async def process_weekly_awards():
                 # Вызываем функции награждения
                 await award_weekly_top(chat_id, users)
                 await award_stickerbomber(chat_id, users)
-                await award_flooder(chat_id, users)
-                await award_dushnila(chat_id, users)
-                await award_skomrnyashka(chat_id, users)
-                await award_lubimka(chat_id, users)
-                await award_likes_collector(chat_id, users)
-                await award_dobroe_serdtse(chat_id, users)
+                await award_flooder(chat_id)
+                await award_dushnila(chat_id)
+                await award_skomrnyashka(chat_id)
+                await award_lubimka(chat_id)
+                await award_likes_collector(chat_id)
+                await award_dobroe_serdtse(chat_id)
                 await award_tsarsky_like(chat_id)
 
             except Exception as e:
