@@ -52,13 +52,13 @@ async def handle_mujlo_message(message: types.Message):
         # --- Отправка стикера + кнопки ---
         kb = InlineKeyboardBuilder()
         kb.button(
-            text="Купить право высказаться (2 сита)",
+            text="2 сита",
             callback_data=f"mujlo_buy:{chat_id}:{user_id}:{message.from_user.id}"
         )
         kb.adjust(1)
 
         await message.answer_sticker(MUJLO, reply_to_message_id=message.message_id)
-        await message.answer(" ", reply_markup=kb.as_markup())
+        await message.answer("Купить право высказаться", reply_markup=kb.as_markup())
 
         _last_mujlo_sent[(chat_id, user_id)] = now
 
