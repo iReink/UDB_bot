@@ -505,44 +505,44 @@ def build_likes_keyboard() -> InlineKeyboardMarkup:
 async def top_stickers(message: types.Message):
     chat_id = message.chat.id
 
-    # Разбираем аргументы: после команды может быть число
+    # парсим лимит: /top_stickers 42 -> 42, по умолчанию 5
     args = message.text.strip().split()
     try:
         limit = int(args[1]) if len(args) > 1 else 5
     except ValueError:
-        limit = 5  # если аргумент не число, показываем 5
+        limit = 5
+    limit = max(1, min(limit, 100))  # защитимся от крайностей
 
-    # Ограничим максимум (чтобы бот не спамил сотнями стикеров)
-    limit = max(1, min(limit, 100))
-
-    # Достаём топ N стикеров по количеству
+    # достаём топ N
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
             SELECT file_id, count
             FROM sticker_stats
             WHERE chat_id = ?
-            ORDER BY count DESC
+            ORDER BY count DESC, file_id ASC
             LIMIT ?
         """, (chat_id, limit))
         rows = cur.fetchall()
 
     if not rows:
-        await message.answer("В этом чате пока нет статистики по стикерам.")
+        await message.answer("В этом чате пока нет статистики по отслеживаемым стикерам.")
         return
 
-    await message.answer(f"🏆 Топ-{limit} популярных стикеров:")
+    await message.answer(f"🏆 Топ-{len(rows)} популярных стикеров (подпись → стикер):")
 
-    # Отправляем каждый стикер с подписью
-    for file_id, count in rows:
+    # для каждого: сначала текст-«подпись», затем стикер как reply на неё
+    for i, (file_id, cnt) in enumerate(rows, start=1):
+        caption_msg = await message.answer(f"{i}. Использовали {cnt} раз(а)")
         try:
-            await message.answer_sticker(
+            await message.bot.send_sticker(
+                chat_id=chat_id,
                 sticker=file_id,
-                caption=f"Использовали {count} раз(а)"
+                reply_to_message_id=caption_msg.message_id
             )
         except Exception:
-            await message.answer(f"Стикер (ID: {file_id}) — {count} раз(а)")
-
+            # запасной вариант, если стикер не отправился
+            await message.answer(f"(не удалось отправить стикер {file_id})")
 
 @dp.message(Command("like"))
 async def cmd_like(message: Message):
