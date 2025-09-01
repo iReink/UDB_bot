@@ -28,18 +28,23 @@ from db import (
     add_or_update_user,
     get_last_7_daily_stats,
     get_all_chats,
-    get_user_sex
+    get_user_sex,
+    increment_sticker_stats
 )
 from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
 from sticker_manager import silence_checker_task, bot as sm_bot
 from mujlo import handle_mujlo_message, handle_mujlo_buy, reset_mujlo_daily
 
-
-
 TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
 STATS_FILE = "stats.json"
 MAKOVKA_FILE_ID = "CAACAgIAAyEFAASjKavKAAOcaJ95ivqdgkA5gstkAbRt25CCRLAAAkN5AAJTNbFKdWJ4ufamt9I2BA"
 
+# Стикерпаки, за которыми следим
+TRACKED_STICKERPACKS = {
+    "UDB_true",
+    # "AnotherPackName",
+    # "CoolMemes2025",
+}
 
 # Конфигурация магазина
 SHOP_ITEMS = {
@@ -149,7 +154,16 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
     # Определяем, является ли сообщение стикером
     is_sticker = getattr(message, "sticker", None) is not None
 
+
+
     if is_sticker:
+        if message.sticker and message.sticker.set_name in TRACKED_STICKERPACKS:
+            increment_sticker_stats(
+                chat_id=message.chat.id,
+                file_id=message.sticker.file_id,
+                set_name=message.sticker.set_name
+            )
+
         # Увеличиваем только стикеры
         increment_daily_stats(user_id, chat_id, today_str, stickers=1)
         increment_total_stats(user_id, chat_id, stickers=1)
@@ -437,7 +451,7 @@ STICKERS = [
     "CAACAgIAAyEFAASjKavKAAICqmiy5kLEuAKILCRckR7jDGGBM74QAAJJBQACIwUNAAEQwqY-etbwdDYE",
     "CAACAgIAAyEFAASjKavKAAICrWiy5mJIsVI1nVFUa-7JsyIol_hKAALLTgACphTRSjS9R-8OrOiBNgQ"
 ]
-
+#Награда Виталику за каждые 300 стикеров
 async def send_reaction_reward(bot: Bot, chat_id: int, user_id: int, total: int):
     # Выбираем случайный стикер
     sticker_id = random.choice(STICKERS)
@@ -448,7 +462,6 @@ async def send_reaction_reward(bot: Bot, chat_id: int, user_id: int, total: int)
         f"🎉 @Thehemyl Виталик, держи зарплату за лайки ❤️",
         parse_mode="Markdown"
     )
-
 
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -473,7 +486,6 @@ async def regenerate_usernames(message: Message):
     await message.answer("Имена пользователей обновлены.")
 
 
-
 # --- Меню лайков ---
 def build_likes_keyboard() -> InlineKeyboardMarkup:
     buttons = [
@@ -487,6 +499,49 @@ def build_likes_keyboard() -> InlineKeyboardMarkup:
     ]
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@dp.message(Command("top_stickers"))
+async def top_stickers(message: types.Message):
+    chat_id = message.chat.id
+
+    # Разбираем аргументы: после команды может быть число
+    args = message.text.strip().split()
+    try:
+        limit = int(args[1]) if len(args) > 1 else 5
+    except ValueError:
+        limit = 5  # если аргумент не число, показываем 5
+
+    # Ограничим максимум (чтобы бот не спамил сотнями стикеров)
+    limit = max(1, min(limit, 100))
+
+    # Достаём топ N стикеров по количеству
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT file_id, count
+            FROM sticker_stats
+            WHERE chat_id = ?
+            ORDER BY count DESC
+            LIMIT ?
+        """, (chat_id, limit))
+        rows = cur.fetchall()
+
+    if not rows:
+        await message.answer("В этом чате пока нет статистики по стикерам.")
+        return
+
+    await message.answer(f"🏆 Топ-{limit} популярных стикеров:")
+
+    # Отправляем каждый стикер с подписью
+    for file_id, count in rows:
+        try:
+            await message.answer_sticker(
+                sticker=file_id,
+                caption=f"Использовали {count} раз(а)"
+            )
+        except Exception:
+            await message.answer(f"Стикер (ID: {file_id}) — {count} раз(а)")
 
 
 @dp.message(Command("like"))

@@ -228,6 +228,21 @@ def increment_total_stats(user_id: int, chat_id: int,
         """, (user_id, chat_id, messages, words, chars, stickers, coffee))
         conn.commit()
 
+def increment_sticker_stats(chat_id: int, file_id: str, set_name: str):
+    """
+    Увеличивает счётчик для конкретного стикера (file_id) в конкретном чате.
+    Если записи нет — создаёт её с count = 1.
+    """
+    with closing(sqlite3.connect(DB_FILE)) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO sticker_stats (chat_id, file_id, set_name, count)
+            VALUES (?, ?, ?, 1)
+            ON CONFLICT(chat_id, file_id) DO UPDATE SET
+                count = count + 1
+        """, (chat_id, file_id, set_name))
+        conn.commit()
+
 
 def get_total_stats(user_id: int, chat_id: int) -> Optional[sqlite3.Row]:
     with closing(get_connection()) as conn:

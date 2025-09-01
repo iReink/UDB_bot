@@ -418,7 +418,7 @@ async def award_likes_collector(chat_id: int):
 
         # получаем правильное название ачивки из БД
         sex = get_user_sex(winner_id, chat_id)
-        title = get_achievement_title("likes_collector", sex)
+        title = get_achievement_title("likesobornik", sex)
 
         text = f"👍 {title} недели — {winner_name} ({week_likes} лайков)! +{ACHIEVEMENT_REWARD} сит"
         await bot.send_message(chat_id, text)
