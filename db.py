@@ -228,21 +228,24 @@ def increment_total_stats(user_id: int, chat_id: int,
         """, (user_id, chat_id, messages, words, chars, stickers, coffee))
         conn.commit()
 
-def increment_sticker_stats(chat_id: int, file_id: str, set_name: str):
+def increment_sticker_stats(chat_id: int, file_id: str, set_name: str | None = None, date_str: str | None = None):
     """
-    Увеличивает счётчик для конкретного стикера (file_id) в конкретном чате.
-    Если записи нет — создаёт её с count = 1.
+    Увеличивает счётчик для (chat_id, file_id, date).
+    date_str: 'YYYY-MM-DD'. Если None — берётся сегодня.
     """
-    with closing(sqlite3.connect(DB_FILE)) as conn:
+    if date_str is None:
+        date_str = date.today().isoformat()
+
+    with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO sticker_stats (chat_id, file_id, set_name, count)
-            VALUES (?, ?, ?, 1)
-            ON CONFLICT(chat_id, file_id) DO UPDATE SET
-                count = count + 1
-        """, (chat_id, file_id, set_name))
+            INSERT INTO sticker_stats (chat_id, file_id, set_name, date, count)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(chat_id, file_id, date) DO UPDATE SET
+                count = sticker_stats.count + 1,
+                set_name = COALESCE(excluded.set_name, sticker_stats.set_name)
+        """, (chat_id, file_id, set_name, date_str))
         conn.commit()
-
 
 def get_total_stats(user_id: int, chat_id: int) -> Optional[sqlite3.Row]:
     with closing(get_connection()) as conn:

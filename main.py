@@ -154,14 +154,14 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
     # Определяем, является ли сообщение стикером
     is_sticker = getattr(message, "sticker", None) is not None
 
-
-
     if is_sticker:
+        # если стикер из отслеживаемых паков — регистрируем его по сегодняшней дате
         if message.sticker and message.sticker.set_name in TRACKED_STICKERPACKS:
             increment_sticker_stats(
                 chat_id=message.chat.id,
                 file_id=message.sticker.file_id,
-                set_name=message.sticker.set_name
+                set_name=message.sticker.set_name,
+                date_str=date.today().isoformat()
             )
 
         # Увеличиваем только стикеры
@@ -513,14 +513,15 @@ async def top_stickers(message: types.Message):
         limit = 5
     limit = max(1, min(limit, 100))  # защитимся от крайностей
 
-    # достаём топ N
+    # достаём топ N, суммируя счётчики по всем датам
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT file_id, count
+            SELECT file_id, SUM(count) as total_count
             FROM sticker_stats
             WHERE chat_id = ?
-            ORDER BY count DESC, file_id ASC
+            GROUP BY file_id
+            ORDER BY total_count DESC, file_id ASC
             LIMIT ?
         """, (chat_id, limit))
         rows = cur.fetchall()
@@ -532,8 +533,8 @@ async def top_stickers(message: types.Message):
     await message.answer(f"🏆 Топ-{len(rows)} популярных стикеров (подпись → стикер):")
 
     # для каждого: сначала текст-«подпись», затем стикер как reply на неё
-    for i, (file_id, cnt) in enumerate(rows, start=1):
-        caption_msg = await message.answer(f"{i}. Использовали {cnt} раз(а)")
+    for i, (file_id, total_count) in enumerate(rows, start=1):
+        caption_msg = await message.answer(f"{i}. Использовали {total_count} раз(а)")
         try:
             await message.bot.send_sticker(
                 chat_id=chat_id,
@@ -541,8 +542,8 @@ async def top_stickers(message: types.Message):
                 reply_to_message_id=caption_msg.message_id
             )
         except Exception:
-            # запасной вариант, если стикер не отправился
             await message.answer(f"(не удалось отправить стикер {file_id})")
+
 
 @dp.message(Command("like"))
 async def cmd_like(message: Message):
