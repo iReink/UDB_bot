@@ -920,8 +920,10 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
         else:
             base_text = buy_text_template or "{user_name} купил вещь"
 
-        buy_text = base_text.format(user_name=user_name)
-        if n >= 3:
+        coffee_emoji = "☕️" * n  # генерируем строку с количеством кружек = числу кофе
+        buy_text = base_text.format(user_name=user_name).replace("☕️☕️☕️", coffee_emoji)
+
+        if n >= 2:
             buy_text += " ...в животе начинает бурчать"
 
         try:
