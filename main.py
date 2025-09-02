@@ -692,54 +692,45 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
 @dp.message(Command("charity"))
 async def charity_command(message: types.Message):
-    logging.info(f"[charity] Команда вызвана пользователем {message.from_user.id} ({message.from_user.username})")
+    import logging
+    from db import get_user_display_name
 
-    ADMIN_IDS = {6010666986, 884940984, 749027951}
-    user_id_sender = message.from_user.id
+    admin_ids = [6010666986, 884940984, 749027951]  # кто может использовать команду
 
-    if user_id_sender not in ADMIN_IDS:
-        logging.info(f"[charity] Пользователь {user_id_sender} не админ")
+    caller_id = message.from_user.id
+    logging.info(f"[charity] Команда вызвана пользователем {caller_id} ({message.from_user.username})")
+
+    if caller_id not in admin_ids:
         await message.answer("Команда только для администраторов доната")
         return
 
     args = message.text.strip().split()
     logging.info(f"[charity] Получены аргументы: {args}")
 
-    if len(args) != 3:
-        logging.info("[charity] Некорректное количество аргументов")
-        await message.answer("Использование: /charity @username количество")
+    if len(args) < 3:
+        await message.answer("Ошибка: нужно указать user_id и количество ситов.\nПример: /charity 884940984 50")
         return
 
-    username_mention = args[1]
-    if not username_mention.startswith("@"):
-        logging.info("[charity] Первый аргумент не начинается с @")
-        await message.answer("Первый аргумент должен быть username пользователя (начинается с @)")
+    try:
+        target_user_id = int(args[1])
+    except ValueError:
+        await message.answer("Ошибка: user_id должен быть числом.")
         return
 
     try:
         amount = int(args[2])
-        if amount <= 0:
-            raise ValueError
     except ValueError:
-        logging.info("[charity] Второй аргумент некорректен или <=0")
-        await message.answer("Второй аргумент должен быть положительным числом сит")
+        await message.answer("Ошибка: количество ситов должно быть числом.")
         return
 
-    username = username_mention[1:]  # убираем @
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT user_id, chat_id FROM users WHERE name=?", (username,))
-        row = cur.fetchone()
-        if not row:
-            logging.info(f"[charity] Пользователь {username_mention} не найден в базе")
-            await message.answer(f"Пользователь {username_mention} не найден в базе")
-            return
-        user_id_target, chat_id = row
-        logging.info(f"[charity] Найден пользователь: user_id={user_id_target}, chat_id={chat_id}")
+    # Начисляем ситы
+    add_sits(message.chat.id, target_user_id, amount)
 
-    add_sits(chat_id, user_id_target, amount)
-    logging.info(f"[charity] Начислено {amount} сита пользователю {user_id_target}")
-    await message.answer(f"Спасибо {username_mention} за доброе дело! {amount} сита начислено")
+    # Получаем имя пользователя для упоминания
+    target_name = get_user_display_name(target_user_id, message.chat.id)
+
+    await message.answer(f"Спасибо {target_name} за доброе дело! {amount} сита начислено")
+    logging.info(f"[charity] Начислено {amount} сита пользователю {target_user_id} ({target_name})")
 
 
 

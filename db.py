@@ -252,3 +252,19 @@ def get_total_stats(user_id: int, chat_id: int) -> Optional[sqlite3.Row]:
         cur = conn.cursor()
         cur.execute("SELECT * FROM total_stats WHERE user_id=? AND chat_id=?", (user_id, chat_id))
         return cur.fetchone()
+
+
+def get_user_display_name(user_id: int, chat_id: int) -> str:
+    """Возвращает красивое имя пользователя по user_id."""
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT name
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+        """, (user_id, chat_id))
+        row = cur.fetchone()
+
+    if row and row[0]:
+        return row[0]
+    return str(user_id)  # fallback
