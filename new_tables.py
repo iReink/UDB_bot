@@ -3,7 +3,7 @@ from contextlib import closing
 from db import get_connection, add_or_update_user
 from sosalsa import get_user_display_name
 
-TARGET_USER_ID = 648803872
+TARGET_USER_ID = 16725613
 SITS_PER_SOS = 2  # сколько сит возвращаем за одну сосаную пару
 
 
