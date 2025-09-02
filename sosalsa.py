@@ -88,11 +88,32 @@ def get_possible_shpeh_partners(chat_id: int, buyer_id: int):
 
 def get_sos_menu():
     kb = InlineKeyboardBuilder()
-    kb.row(types.InlineKeyboardButton(text="💋 Рандомно пососаться", callback_data="sos_random"))
-    kb.row(types.InlineKeyboardButton(text="🔥 Рандомно пошпёхаться", callback_data="shpeh_random"))
-    kb.row(types.InlineKeyboardButton(text="📊 Статистика сосания", callback_data="sos_stats"))
-    kb.row(types.InlineKeyboardButton(text="📊 Статистика шпёха", callback_data="shpeh_stats"))
+    kb.row(
+        types.InlineKeyboardButton(
+            text="💋 Рандомно пососаться (2 сита)",
+            callback_data="sos_random"
+        )
+    )
+    kb.row(
+        types.InlineKeyboardButton(
+            text="🔥 Рандомно пошпёхаться (5 ситов)",
+            callback_data="shpeh_random"
+        )
+    )
+    kb.row(
+        types.InlineKeyboardButton(
+            text="📊 Статистика сосания",
+            callback_data="sos_stats"
+        )
+    )
+    kb.row(
+        types.InlineKeyboardButton(
+            text="📊 Статистика шпёха",
+            callback_data="shpeh_stats"
+        )
+    )
     return kb.as_markup()
+
 
 
 def get_user_display_name(user_id: int, chat_id: int) -> str:
@@ -136,8 +157,14 @@ def register_sos_handlers(dp):
         def verb_shpeh(sex):
             return "пошпёхалась" if sex == "female" else "пошпёхался"
 
-        # Рандомно пососаться
+        # ==========================
+        # Рандомно пососаться (2 сита)
+        # ==========================
         if action == "sos_random":
+            cost = 2
+            if get_sits(chat_id, user_id) < cost:
+                await query.answer("Недостаточно сит для покупки действия!", show_alert=True)
+                return
             target_id = get_random_active_user(chat_id, user_id)
             if not target_id:
                 await query.answer("Нет активных участников!")
@@ -145,11 +172,21 @@ def register_sos_handlers(dp):
 
             target_name = get_user_display_name(target_id, chat_id)
             increment_sosalsa(chat_id, user_id, target_id, shpeh=False)
+            add_sits(chat_id, user_id, -cost)
 
-            await query.message.answer(f"💋 {buyer_name} {verb_sos(buyer_sex)} с {target_name}")
+            await query.message.answer(
+                f"💋 {buyer_name} {verb_sos(buyer_sex)} с {target_name}"
+            )
 
-        # Рандомно пошпёхаться
+        # ==========================
+        # Рандомно пошпёхаться (5 ситов)
+        # ==========================
         elif action == "shpeh_random":
+            cost = 5
+            if get_sits(chat_id, user_id) < cost:
+                await query.answer("Недостаточно сит для покупки действия!", show_alert=True)
+                return
+
             partners = get_possible_shpeh_partners(chat_id, user_id)
             if not partners:
                 await query.answer("Извини, не с кем. Попробуй сначала пососаться.")
@@ -158,10 +195,15 @@ def register_sos_handlers(dp):
             target_id = random.choice(partners)
             target_name = get_user_display_name(target_id, chat_id)
             increment_sosalsa(chat_id, user_id, target_id, shpeh=True)
+            add_sits(chat_id, user_id, -cost)
 
-            await query.message.answer(f"🔥 {buyer_name} {verb_shpeh(buyer_sex)} с {target_name}")
+            await query.message.answer(
+                f"🔥 {buyer_name} {verb_shpeh(buyer_sex)} с {target_name}"
+            )
 
+        # ==========================
         # Статистика сосания
+        # ==========================
         elif action == "sos_stats":
             rows = get_top_pairs(chat_id, shpeh=False)
             if not rows:
@@ -174,7 +216,9 @@ def register_sos_handlers(dp):
                     text += f"{i}. {name1} ❤️ {name2} — {cnt} раз(а)\n"
                 await query.message.answer(text)
 
+        # ==========================
         # Статистика шпёха
+        # ==========================
         elif action == "shpeh_stats":
             rows = get_top_pairs(chat_id, shpeh=True)
             if not rows:
@@ -188,3 +232,25 @@ def register_sos_handlers(dp):
                 await query.message.answer(text)
 
         await query.answer()
+
+
+def add_sits(chat_id: int, user_id: int, amount: int):
+    """Добавляет или вычитает сит для пользователя."""
+    from db import get_user, add_or_update_user
+
+    user = get_user(user_id, chat_id)
+    if user is None:
+        # создаём пользователя, если нет
+        add_or_update_user(user_id, chat_id, name="", sits=amount)
+    else:
+        new_sits = (user["sits"] or 0) + amount
+        add_or_update_user(user_id, chat_id, name=user["name"], sits=new_sits)
+
+
+#получение баланса сита
+def get_sits(chat_id: int, user_id: int) -> int:
+    from db import get_user
+    user = get_user(user_id, chat_id)
+    if user and user["chat_id"] == chat_id:
+        return user["sits"] or 0
+    return 0
