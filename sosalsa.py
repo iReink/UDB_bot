@@ -241,7 +241,11 @@ def register_sos_handlers(dp):
     async def sos_command(message: types.Message):
         await message.answer("Выбирай действие:", reply_markup=get_sos_menu())
 
-    @dp.callback_query(lambda c: c.data in ["sos_random", "shpeh_random", "sos_stats", "shpeh_stats"])
+    @dp.callback_query(lambda c: c.data in [
+        "sos_random", "shpeh_random",
+        "sos_stats", "shpeh_stats",
+        "my_sos_stats", "my_shpeh_stats"
+    ])
     async def sos_callback(query: types.CallbackQuery):
         action = query.data
         user_id = query.from_user.id
