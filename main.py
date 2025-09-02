@@ -690,6 +690,60 @@ async def likes_menu_callback(callback_query: CallbackQuery):
     await callback_query.answer()
 
 
+@dp.message(Command("charity"))
+async def charity_command(message: types.Message):
+    logging.info(f"[charity] Команда вызвана пользователем {message.from_user.id} ({message.from_user.username})")
+
+    ADMIN_IDS = {6010666986, 884940984, 749027951}
+    user_id_sender = message.from_user.id
+
+    if user_id_sender not in ADMIN_IDS:
+        logging.info(f"[charity] Пользователь {user_id_sender} не админ")
+        await message.answer("Команда только для администраторов доната")
+        return
+
+    args = message.text.strip().split()
+    logging.info(f"[charity] Получены аргументы: {args}")
+
+    if len(args) != 3:
+        logging.info("[charity] Некорректное количество аргументов")
+        await message.answer("Использование: /charity @username количество")
+        return
+
+    username_mention = args[1]
+    if not username_mention.startswith("@"):
+        logging.info("[charity] Первый аргумент не начинается с @")
+        await message.answer("Первый аргумент должен быть username пользователя (начинается с @)")
+        return
+
+    try:
+        amount = int(args[2])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        logging.info("[charity] Второй аргумент некорректен или <=0")
+        await message.answer("Второй аргумент должен быть положительным числом сит")
+        return
+
+    username = username_mention[1:]  # убираем @
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id, chat_id FROM users WHERE name=?", (username,))
+        row = cur.fetchone()
+        if not row:
+            logging.info(f"[charity] Пользователь {username_mention} не найден в базе")
+            await message.answer(f"Пользователь {username_mention} не найден в базе")
+            return
+        user_id_target, chat_id = row
+        logging.info(f"[charity] Найден пользователь: user_id={user_id_target}, chat_id={chat_id}")
+
+    add_sits(chat_id, user_id_target, amount)
+    logging.info(f"[charity] Начислено {amount} сита пользователю {user_id_target}")
+    await message.answer(f"Спасибо {username_mention} за доброе дело! {amount} сита начислено")
+
+
+
+
 # ------------------------------
 # Когда новое сообщение
 # ------------------------------
@@ -901,59 +955,6 @@ def spend_sits(chat_id: int, user_id: int, amount: int) -> tuple[bool, int]:
 
 # Разрешённые user_id для использования команды
 ADMIN_IDS = {6010666986, 884940984, 749027951}
-
-
-@dp.message(Command("charity"))
-async def charity_command(message: types.Message):
-    logging.info(f"[charity] Команда вызвана пользователем {message.from_user.id} ({message.from_user.username})")
-
-    ADMIN_IDS = {6010666986, 884940984, 749027951}
-    user_id_sender = message.from_user.id
-
-    if user_id_sender not in ADMIN_IDS:
-        logging.info(f"[charity] Пользователь {user_id_sender} не админ")
-        await message.answer("Команда только для администраторов доната")
-        return
-
-    args = message.text.strip().split()
-    logging.info(f"[charity] Получены аргументы: {args}")
-
-    if len(args) != 3:
-        logging.info("[charity] Некорректное количество аргументов")
-        await message.answer("Использование: /charity @username количество")
-        return
-
-    username_mention = args[1]
-    if not username_mention.startswith("@"):
-        logging.info("[charity] Первый аргумент не начинается с @")
-        await message.answer("Первый аргумент должен быть username пользователя (начинается с @)")
-        return
-
-    try:
-        amount = int(args[2])
-        if amount <= 0:
-            raise ValueError
-    except ValueError:
-        logging.info("[charity] Второй аргумент некорректен или <=0")
-        await message.answer("Второй аргумент должен быть положительным числом сит")
-        return
-
-    username = username_mention[1:]  # убираем @
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT user_id, chat_id FROM users WHERE name=?", (username,))
-        row = cur.fetchone()
-        if not row:
-            logging.info(f"[charity] Пользователь {username_mention} не найден в базе")
-            await message.answer(f"Пользователь {username_mention} не найден в базе")
-            return
-        user_id_target, chat_id = row
-        logging.info(f"[charity] Найден пользователь: user_id={user_id_target}, chat_id={chat_id}")
-
-    add_sits(chat_id, user_id_target, amount)
-    logging.info(f"[charity] Начислено {amount} сита пользователю {user_id_target}")
-    await message.answer(f"Спасибо {username_mention} за доброе дело! {amount} сита начислено")
-
 
 
 #клавиатура магазина сита
