@@ -55,3 +55,6 @@ def refund_sos_for_user(target_user_id: int = TARGET_USER_ID):
 
         conn.commit()
         print("Возврат завершён и записи удалены.")
+
+
+refund_sos_for_user(TARGET_USER_ID)
