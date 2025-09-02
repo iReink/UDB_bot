@@ -13,7 +13,6 @@ from db import get_connection, get_user_sex
 # ==========================
 MARRIED_PAIRS = [
     (749027951, 884940984),
-    # Добавляйте новые пары здесь
 ]
 
 # ==========================
@@ -254,8 +253,8 @@ def register_sos_handlers(dp):
         buyer_name = get_user_display_name(user_id, chat_id)
         buyer_sex = get_user_sex(user_id, chat_id)
 
-        def verb_sos(sex): return "пососалась" if sex == "female" else "пососался"
-        def verb_shpeh(sex): return "пошпёхалась" if sex == "female" else "пошпёхался"
+        def verb_sos(sex): return "пососалась" if sex == "f" else "пососался"
+        def verb_shpeh(sex): return "пошпёхалась" if sex == "f" else "пошпёхался"
 
         # ----------------------
         # Рандомно пососаться
