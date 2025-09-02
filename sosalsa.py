@@ -132,6 +132,19 @@ def get_possible_shpeh_partners(chat_id: int, buyer_id: int):
 
     return filtered
 
+def get_user_stats(chat_id: int, user_id: int, shpeh: bool = False):
+    """Возвращает список партнёров и количество взаимодействий для конкретного пользователя."""
+    column = "shpehalsa_count" if shpeh else "sosalsa_count"
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT user_id1, user_id2, {column}
+            FROM sosalsa_stats
+            WHERE chat_id = ? AND {column} > 0 AND (user_id1 = ? OR user_id2 = ?)
+            ORDER BY {column} DESC
+        """, (chat_id, user_id, user_id))
+        return cur.fetchall()
+
 
 # ==========================
 # INLINE-МЕНЮ
@@ -161,6 +174,18 @@ def get_sos_menu():
         types.InlineKeyboardButton(
             text="📊 Статистика шпёха",
             callback_data="shpeh_stats"
+        )
+    )
+    kb.row(
+        types.InlineKeyboardButton(
+            text="👤 Моя статистика сосания",
+            callback_data="my_sos_stats"
+        )
+    )
+    kb.row(
+        types.InlineKeyboardButton(
+            text="👤 Моя статистика шпёха",
+            callback_data="my_shpeh_stats"
         )
     )
     return kb.as_markup()
@@ -297,6 +322,36 @@ def register_sos_handlers(dp):
                     name1 = get_user_display_name(u1, chat_id)
                     name2 = get_user_display_name(u2, chat_id)
                     text += f"{i}. {name1} 🔥 {name2} — {cnt} раз(а)\n"
+                await query.message.answer(text)
+
+        # ----------------------
+        # Моя статистика сосания
+        # ----------------------
+        elif action == "my_sos_stats":
+            rows = get_user_stats(chat_id, user_id, shpeh=False)
+            if not rows:
+                await query.message.answer("У тебя ещё нет сосаний 😢")
+            else:
+                text = f"👤 Личная статистика сосания ({buyer_name}):\n"
+                for i, (u1, u2, cnt) in enumerate(rows, 1):
+                    partner_id = u2 if u1 == user_id else u1
+                    partner_name = get_user_display_name(partner_id, chat_id)
+                    text += f"{i}. ❤️ {partner_name} — {cnt} раз(а)\n"
+                await query.message.answer(text)
+
+        # ----------------------
+        # Моя статистика шпёха
+        # ----------------------
+        elif action == "my_shpeh_stats":
+            rows = get_user_stats(chat_id, user_id, shpeh=True)
+            if not rows:
+                await query.message.answer("У тебя ещё нет шпёха 😢")
+            else:
+                text = f"👤 Личная статистика шпёха ({buyer_name}):\n"
+                for i, (u1, u2, cnt) in enumerate(rows, 1):
+                    partner_id = u2 if u1 == user_id else u1
+                    partner_name = get_user_display_name(partner_id, chat_id)
+                    text += f"{i}. 🔥 {partner_name} — {cnt} раз(а)\n"
                 await query.message.answer(text)
 
         await query.answer()
