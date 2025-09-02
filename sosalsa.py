@@ -9,6 +9,14 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from db import get_connection, get_user_sex
 
 # ==========================
+# ЖЕНАТЫЕ ПАРЫ (можно добавлять новых)
+# ==========================
+MARRIED_PAIRS = [
+    (749027951, 884940984),
+    # Добавляйте новые пары здесь
+]
+
+# ==========================
 # БАЗА ДАННЫХ
 # ==========================
 
@@ -56,15 +64,38 @@ def get_active_users(chat_id: int, days: int = 7):
         return [row[0] for row in cur.fetchall()]
 
 
-def get_random_active_user(chat_id: int, exclude_user: int):
-    """Выбирает случайного активного пользователя, кроме указанного."""
+def get_random_active_user(chat_id: int, buyer_id: int):
+    """Выбирает случайного активного пользователя, исключая женатые пары и себя."""
     active_users = get_active_users(chat_id)
-    candidates = [uid for uid in active_users if uid != exclude_user]
+    candidates = []
+
+    for uid in active_users:
+        # Исключаем себя
+        if uid == buyer_id:
+            continue
+
+        # Проверяем женатые пары: если buyer или uid в MARRIED_PAIRS, оставляем только друг с другом
+        in_pair = None
+        for u1, u2 in MARRIED_PAIRS:
+            if buyer_id in (u1, u2):
+                in_pair = (u1, u2)
+                break
+
+        if in_pair:
+            # Если buyer в паре, партнёр должен быть другой половинкой
+            if uid in in_pair:
+                candidates.append(uid)
+        else:
+            # Если buyer не в паре, исключаем всех из пар
+            if any(uid in pair for pair in MARRIED_PAIRS):
+                continue
+            candidates.append(uid)
+
     return random.choice(candidates) if candidates else None
 
 
 def get_possible_shpeh_partners(chat_id: int, buyer_id: int):
-    """Возвращает список user_id, с кем buyer_id сосался >=3 раз, и кто активен."""
+    """Возвращает список user_id для шпёха (>=3 сосаний) и активных."""
     active_users = set(get_active_users(chat_id))
     with closing(get_connection()) as conn:
         cur = conn.cursor()
@@ -79,7 +110,25 @@ def get_possible_shpeh_partners(chat_id: int, buyer_id: int):
                 partner = u1 if u2 == buyer_id else u2
                 if partner in active_users:
                     candidates.add(partner)
-    return list(candidates)
+
+    # Фильтруем по женатым парам
+    filtered = []
+    for uid in candidates:
+        in_pair = None
+        for u1, u2 in MARRIED_PAIRS:
+            if buyer_id in (u1, u2):
+                in_pair = (u1, u2)
+                break
+
+        if in_pair:
+            if uid in in_pair:
+                filtered.append(uid)
+        else:
+            if any(uid in pair for pair in MARRIED_PAIRS):
+                continue
+            filtered.append(uid)
+
+    return filtered
 
 
 # ==========================
@@ -115,7 +164,6 @@ def get_sos_menu():
     return kb.as_markup()
 
 
-
 def get_user_display_name(user_id: int, chat_id: int) -> str:
     """Возвращает красивое имя пользователя по user_id."""
     with closing(get_connection()) as conn:
@@ -133,6 +181,31 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
 
 
 # ==========================
+# СИТЫ
+# ==========================
+
+def add_sits(chat_id: int, user_id: int, amount: int):
+    """Добавляет или вычитает сит для пользователя."""
+    from db import get_user, add_or_update_user
+
+    user = get_user(user_id, chat_id)
+    if user is None:
+        add_or_update_user(user_id, chat_id, name="", sits=amount)
+    else:
+        new_sits = (user["sits"] or 0) + amount
+        add_or_update_user(user_id, chat_id, name=user["name"], sits=new_sits)
+
+
+def get_sits(chat_id: int, user_id: int) -> int:
+    """Возвращает баланс сит пользователя."""
+    from db import get_user
+    user = get_user(user_id, chat_id)
+    if user and user["chat_id"] == chat_id:
+        return user["sits"] or 0
+    return 0
+
+
+# ==========================
 # РЕГИСТРАЦИЯ ХЕНДЛЕРОВ
 # ==========================
 
@@ -147,40 +220,35 @@ def register_sos_handlers(dp):
         user_id = query.from_user.id
         chat_id = query.message.chat.id
 
-        # Определяем имя и пол покупателя
         buyer_name = get_user_display_name(user_id, chat_id)
-        buyer_sex = get_user_sex(user_id, chat_id)  # 'male', 'female' или None
+        buyer_sex = get_user_sex(user_id, chat_id)
 
-        def verb_sos(sex):
-            return "пососалась" if sex == "female" else "пососался"
+        def verb_sos(sex): return "пососалась" if sex == "female" else "пососался"
+        def verb_shpeh(sex): return "пошпёхалась" if sex == "female" else "пошпёхался"
 
-        def verb_shpeh(sex):
-            return "пошпёхалась" if sex == "female" else "пошпёхался"
-
-        # ==========================
-        # Рандомно пососаться (2 сита)
-        # ==========================
+        # ----------------------
+        # Рандомно пососаться
+        # ----------------------
         if action == "sos_random":
             cost = 2
             if get_sits(chat_id, user_id) < cost:
                 await query.answer("Недостаточно сит для покупки действия!", show_alert=True)
                 return
+
             target_id = get_random_active_user(chat_id, user_id)
             if not target_id:
-                await query.answer("Нет активных участников!")
+                await query.answer("Нет активных участников!", show_alert=True)
                 return
 
             target_name = get_user_display_name(target_id, chat_id)
             increment_sosalsa(chat_id, user_id, target_id, shpeh=False)
             add_sits(chat_id, user_id, -cost)
 
-            await query.message.answer(
-                f"💋 {buyer_name} {verb_sos(buyer_sex)} с {target_name}"
-            )
+            await query.message.answer(f"💋 {buyer_name} {verb_sos(buyer_sex)} с {target_name}")
 
-        # ==========================
-        # Рандомно пошпёхаться (5 ситов)
-        # ==========================
+        # ----------------------
+        # Рандомно пошпёхаться
+        # ----------------------
         elif action == "shpeh_random":
             cost = 5
             if get_sits(chat_id, user_id) < cost:
@@ -189,7 +257,7 @@ def register_sos_handlers(dp):
 
             partners = get_possible_shpeh_partners(chat_id, user_id)
             if not partners:
-                await query.answer("Извини, не с кем. Попробуй сначала пососаться.")
+                await query.answer("Извини, не с кем. Попробуй сначала пососаться.", show_alert=True)
                 return
 
             target_id = random.choice(partners)
@@ -197,13 +265,11 @@ def register_sos_handlers(dp):
             increment_sosalsa(chat_id, user_id, target_id, shpeh=True)
             add_sits(chat_id, user_id, -cost)
 
-            await query.message.answer(
-                f"🔥 {buyer_name} {verb_shpeh(buyer_sex)} с {target_name}"
-            )
+            await query.message.answer(f"🔥 {buyer_name} {verb_shpeh(buyer_sex)} с {target_name}")
 
-        # ==========================
+        # ----------------------
         # Статистика сосания
-        # ==========================
+        # ----------------------
         elif action == "sos_stats":
             rows = get_top_pairs(chat_id, shpeh=False)
             if not rows:
@@ -216,9 +282,9 @@ def register_sos_handlers(dp):
                     text += f"{i}. {name1} ❤️ {name2} — {cnt} раз(а)\n"
                 await query.message.answer(text)
 
-        # ==========================
+        # ----------------------
         # Статистика шпёха
-        # ==========================
+        # ----------------------
         elif action == "shpeh_stats":
             rows = get_top_pairs(chat_id, shpeh=True)
             if not rows:
@@ -232,25 +298,3 @@ def register_sos_handlers(dp):
                 await query.message.answer(text)
 
         await query.answer()
-
-
-def add_sits(chat_id: int, user_id: int, amount: int):
-    """Добавляет или вычитает сит для пользователя."""
-    from db import get_user, add_or_update_user
-
-    user = get_user(user_id, chat_id)
-    if user is None:
-        # создаём пользователя, если нет
-        add_or_update_user(user_id, chat_id, name="", sits=amount)
-    else:
-        new_sits = (user["sits"] or 0) + amount
-        add_or_update_user(user_id, chat_id, name=user["name"], sits=new_sits)
-
-
-#получение баланса сита
-def get_sits(chat_id: int, user_id: int) -> int:
-    from db import get_user
-    user = get_user(user_id, chat_id)
-    if user and user["chat_id"] == chat_id:
-        return user["sits"] or 0
-    return 0
