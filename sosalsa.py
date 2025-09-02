@@ -100,20 +100,15 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT username, first_name, last_name
+            SELECT name
             FROM users
             WHERE user_id = ? AND chat_id = ?
         """, (user_id, chat_id))
         row = cur.fetchone()
 
-    if row:
-        username, first_name, last_name = row
-        if username:
-            return f"@{username}"
-        elif last_name:
-            return f"{first_name} {last_name}"
-        return first_name
-    return str(user_id)
+    if row and row[0]:
+        return row[0]
+    return str(user_id)  # fallback
 
 
 # ==========================
