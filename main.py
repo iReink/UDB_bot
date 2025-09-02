@@ -35,6 +35,8 @@ from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
 from sticker_manager import silence_checker_task, bot as sm_bot
 from mujlo import handle_mujlo_message, handle_mujlo_buy, reset_mujlo_daily
 
+import sosalsa
+
 TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
 STATS_FILE = "stats.json"
 MAKOVKA_FILE_ID = "CAACAgIAAyEFAASjKavKAAOcaJ95ivqdgkA5gstkAbRt25CCRLAAAkN5AAJTNbFKdWJ4ufamt9I2BA"
