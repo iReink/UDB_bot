@@ -899,6 +899,56 @@ def spend_sits(chat_id: int, user_id: int, amount: int) -> tuple[bool, int]:
         add_or_update_user(user_id, chat_id, "", sits=0)
         return False, 0
 
+# Разрешённые user_id для использования команды
+ADMIN_IDS = {6010666986, 884940984, 749027951}
+
+@dp.message(Command("charity"))
+async def charity_command(message: types.Message):
+    user_id_sender = message.from_user.id
+
+    # 1) Проверяем, что отправитель — администратор
+    if user_id_sender not in ADMIN_IDS:
+        await message.answer("Команда только для администраторов доната")
+        return
+
+    # 2) Парсим аргументы команды
+    args = message.text.strip().split()
+    if len(args) != 3:
+        await message.answer("Использование: /charity @username количество")
+        return
+
+    username_mention = args[1]
+    if not username_mention.startswith("@"):
+        await message.answer("Первый аргумент должен быть username пользователя (начинается с @)")
+        return
+
+    try:
+        amount = int(args[2])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("Второй аргумент должен быть положительным числом сит")
+        return
+
+    # 3) Находим user_id по username
+    username = username_mention[1:]  # убираем @
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id, chat_id FROM users WHERE username=?", (username,))
+        row = cur.fetchone()
+        if not row:
+            await message.answer(f"Пользователь {username_mention} не найден в базе")
+            return
+        user_id_target, chat_id = row
+
+    # 4) Начисляем ситы
+    add_sits(chat_id, user_id_target, amount)
+
+    # 5) Отправляем сообщение
+    await message.answer(f"Спасибо {username_mention} за доброе дело! {amount} сита начислено")
+
+
+
 #клавиатура магазина сита
 def build_shop_keyboard() -> InlineKeyboardMarkup:
     buttons = []
