@@ -24,7 +24,7 @@ async def weekly_awards_task():
         days_ahead = 6 - now.weekday()  # weekday(): Пн=0, Вс=6
         if days_ahead < 0:
             days_ahead += 7
-        award_time = (now + timedelta(days=days_ahead)).replace(hour=21, minute=5, second=0, microsecond=0)
+        award_time = (now + timedelta(days=days_ahead)).replace(hour=23, minute=0, second=0, microsecond=0)
         if award_time <= now:
             award_time += timedelta(days=7)
 

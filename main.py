@@ -221,7 +221,7 @@ async def daily_punish_task():
     """
     while True:
         now = datetime.now()
-        punish_time = now.replace(hour=20, minute=45, second=0, microsecond=0)
+        punish_time = now.replace(hour=22, minute=45, second=0, microsecond=0)
         if now >= punish_time:
             punish_time += timedelta(days=1)
 
@@ -278,7 +278,7 @@ async def daily_punish_task():
 async def daily_reward_task():
     while True:
         now = datetime.now()
-        reward_time = now.replace(hour=21, minute=45, second=0, microsecond=0)
+        reward_time = now.replace(hour=23, minute=45, second=0, microsecond=0)
 
         # Если текущее время уже позже 23:55, переносим на завтра
         if now >= reward_time:
@@ -1013,7 +1013,7 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
 
     try:
         # 0) Проверка времени
-        if 20 <= now.hour < 22:
+        if 22 <= now.hour:
             await callback.answer(f"После 22:00 фильтр больше не наливают, {user_name} ☕️❌", show_alert=True)
             return
 
