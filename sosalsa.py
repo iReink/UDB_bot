@@ -52,16 +52,18 @@ def get_top_pairs(chat_id: int, shpeh: bool = False, limit: int = 10):
 
 
 def get_active_users(chat_id: int, days: int = 7):
-    """Возвращает список user_id активных пользователей за последние N дней."""
+    """Возвращает список user_id активных пользователей за последние N дней,
+    у которых messages > 0 хотя бы в один из последних N дней."""
     date_threshold = (datetime.now() - timedelta(days=days)).date().isoformat()
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
             SELECT DISTINCT user_id
             FROM daily_stats
-            WHERE chat_id = ? AND date >= ?
+            WHERE chat_id = ? AND date >= ? AND messages > 0
         """, (chat_id, date_threshold))
         return [row[0] for row in cur.fetchall()]
+
 
 
 def get_random_active_user(chat_id: int, buyer_id: int):
