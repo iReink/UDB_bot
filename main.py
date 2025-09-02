@@ -36,6 +36,12 @@ from sticker_manager import silence_checker_task, bot as sm_bot
 from mujlo import handle_mujlo_message, handle_mujlo_buy, reset_mujlo_daily
 
 
+from sosalsa import register_sos_handlers
+
+dp = Dispatcher()
+register_sos_handlers(dp)
+
+
 
 TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
 STATS_FILE = "stats.json"
@@ -94,9 +100,8 @@ logging.basicConfig(
 
 bot = Bot(token=TOKEN)
 sm_bot = bot
-dp = Dispatcher()
 
-import sosalsa
+
 
 #переменная для счётчика количества лайков, за которые Виталик получил запрлату
 last_reward_react_given = 0
