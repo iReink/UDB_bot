@@ -67,7 +67,7 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
 
 def join_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="Присоединиться", callback_data="group_join"))
+    kb.row(InlineKeyboardButton(text="Присоединиться (1 сит)", callback_data="group_join"))
     return kb.as_markup()
 
 # ==========================
