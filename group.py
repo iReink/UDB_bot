@@ -117,7 +117,7 @@ def register_group_handlers(dp):
     # Ничего не возвращаем — dp уже знает про хендлер
 
 
-async def start_group_event(callback: types.CallbackQuery):
+async def start_group_event(message: types.Message):
     """
     Точка входа при покупке товара.
     1) Проверяем баланс организатора
@@ -128,20 +128,20 @@ async def start_group_event(callback: types.CallbackQuery):
     6) Сообщение с кнопкой «Присоединиться» (5 минут)
     7) Закрываем кнопку, шлём финальный список
     """
-    chat_id = callback.message.chat.id
-    user_id = callback.message.from_user.id
+    chat_id = message.chat.id
+    user_id = message.from_user.id
 
     # Проверяем баланс организатора
     balance = get_sits(chat_id, user_id)
     if balance < EVENT_COST:
-        await callback.message.answer(
+        await message.answer(
             f"Недостаточно сит для запуска ивента! Нужно: {EVENT_COST}, у тебя: {balance}"
         )
         return
 
     # Не даём запустить параллельно второй ивент в том же чате
     if chat_id in ACTIVE_GROUP_EVENTS:
-        await callback.message.answer("Ивент уже идёт — подожди окончания текущего.")
+        await message.answer("Ивент уже идёт — подожди окончания текущего.")
         return
 
     # Списываем стоимость ивента с организатора
@@ -151,13 +151,13 @@ async def start_group_event(callback: types.CallbackQuery):
     ACTIVE_GROUP_EVENTS[chat_id] = GroupEventState()
 
     # 1) Стикер
-    await callback.message.answer_sticker(STICKER_FILE_ID)
+    await message.answer_sticker(STICKER_FILE_ID)
 
     # Уведомляем о списании
-    await callback.message.answer(f"С твоего счета списано {EVENT_COST} сит за запуск ивента")
+    await message.answer(f"С твоего счета списано {EVENT_COST} сит за запуск ивента")
 
     # Запускаем «флоу» как фоновую задачу, чтобы не блокировать остальной бот
-    asyncio.create_task(_run_event_flow(callback.message.bot, chat_id))
+    asyncio.create_task(_run_event_flow(message.bot, chat_id))
 
 
 # ==========================
