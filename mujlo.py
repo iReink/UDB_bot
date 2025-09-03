@@ -22,7 +22,7 @@ async def handle_mujlo_message(message: types.Message):
     try:
         now = datetime.now()
         hour = now.hour
-        if not (22 <= hour or hour < 3):
+        if not hour < 5:
             return  # только между 22:00 и 03:00
 
         chat_id = message.chat.id
