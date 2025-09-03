@@ -41,8 +41,8 @@ from sosalsa import register_sos_handlers
 dp = Dispatcher()
 register_sos_handlers(dp)
 
-from group import register_poe_command  # замени your_module на имя файла
-register_poe_command(dp)
+import group
+group.register_group_handlers(dp)
 
 
 
@@ -89,6 +89,15 @@ SHOP_ITEMS = {
         "name": "📝 Купить стикер",
         "price": 1000,
         "buy_text": "Воу воу! {user_name} выложил кругленькую сумму, чтобы купить свой стикер! \nНапиши министру стикеров что именно ты хочешь, но помни, что окончательное решение за ним."
+    },
+    "group": {
+        "name": "Групповая мастурбация",
+        "price": 3,
+        "buy_text": {
+            "m": "{user_name} всех зовёт на огонёк",
+            "f": "{user_name} всех зовёт на огонёк"
+        },
+    "action": "group"
     }
 }
 
@@ -983,6 +992,11 @@ async def handle_shop_buy(callback: types.CallbackQuery):
             return
         if action == "drink_coffee":
             await action_drink_coffee(callback, item)
+            return
+        if action == "group":
+            from group import start_group_event
+            # Передаём сам message, чтобы функция могла слать сообщения в чат
+            await start_group_event(callback.message)
             return
 
         price = item["price"]
