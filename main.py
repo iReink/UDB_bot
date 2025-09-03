@@ -41,6 +41,9 @@ from sosalsa import register_sos_handlers
 dp = Dispatcher()
 register_sos_handlers(dp)
 
+from group import register_poe_command  # замени your_module на имя файла
+register_poe_command(dp)
+
 
 
 TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
