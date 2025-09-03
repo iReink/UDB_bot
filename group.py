@@ -107,10 +107,9 @@ def register_group_handlers(dp):
                 state.participants.add(user_id)
                 state.joined_order.append(user_id)
                 await query.answer("Ты в деле!")
-
-        # Сообщение в чат
-        phrase = random.choice(GROUP_JOIN_MESSAGES).format(name=display_name)
-        await query.message.answer(phrase)
+                # Сообщение в чат
+                phrase = random.choice(GROUP_JOIN_MESSAGES).format(name=display_name)
+                await query.message.answer(phrase)
 
 # ==========================
 # ЗАПУСК ИВЕНТА
