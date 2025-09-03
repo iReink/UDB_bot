@@ -215,5 +215,14 @@ async def _run_event_flow(bot: Bot, chat_id: int):
             text = "Групповая мастурбация окончена! Спасибо всем участникам. Вот они сверху вниз:\n" + "\n".join(lines)
             await bot.send_message(chat_id, text)
 
+            # 🎲 Выбираем победителя
+            import random
+            winner_id = random.choice(state.joined_order)
+            winner_name = state.names.get(winner_id) or get_user_display_name(winner_id, chat_id)
+
+            # Сообщение + выдача сита
+            await bot.send_message(chat_id, f"Весь сит сегодня достался {winner_name}!")
+            add_sits(chat_id, winner_id, 3)
+
         # Чистим состояние
         ACTIVE_GROUP_EVENTS.pop(chat_id, None)
