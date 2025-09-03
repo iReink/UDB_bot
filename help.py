@@ -57,6 +57,6 @@ HELP_TEXT = """
 """
 
 def register_help_handler(dp):
-    @dp.message(Command("help"))
+    @dp.message(Command(commands=["help", "?", "помощь"]))
     async def send_help(message: types.Message):
         await message.answer(HELP_TEXT, parse_mode="HTML")
