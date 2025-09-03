@@ -92,7 +92,7 @@ SHOP_ITEMS = {
     },
     "group": {
         "name": "Групповая мастурбация",
-        "price": 3,
+        "price": 1,
         "buy_text": {
             "m": "{user_name} всех зовёт на огонёк",
             "f": "{user_name} всех зовёт на огонёк"
