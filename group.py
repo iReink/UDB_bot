@@ -8,6 +8,7 @@ from aiogram import types
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram import Bot
+from sosalsa import add_sits, get_sits
 
 from db import get_connection
 
@@ -17,6 +18,7 @@ from db import get_connection
 
 STICKER_FILE_ID = "CAACAgIAAyEFAASjKavKAAIDrGi31TwpfP-R-JI64M0v6eRnTCFxAAJMUAACITxRSq0hIi2dEdhQNgQ"
 VOICE_PATH = "images/poehali.ogg"
+EVENT_COST = 3  # Стоимость запуска ивента в ситах
 
 PREPARE_DELAY_SEC = 10 * 60   # 10 минут ожидания
 JOIN_WINDOW_SEC   = 5 * 60    # 5 минут окно присоединения
@@ -95,7 +97,7 @@ def register_group_handlers(dp):
                 await query.answer("Ты уже присоединился!", show_alert=True)
                 return
 
-            # Регистрируем участника
+            # Регистрируем участника (бесплатно)
             state.participants.add(user_id)
             state.joined_order.append(user_id)
 
@@ -118,24 +120,41 @@ def register_group_handlers(dp):
 async def start_group_event(message: types.Message):
     """
     Точка входа при покупке товара.
-    1) Отправляем стикер
-    2) Ждем 10 минут
-    3) Голосовое
-    4) Сообщение с кнопкой «Присоединиться» (5 минут)
-    5) Закрываем кнопку, шлём финальный список
+    1) Проверяем баланс организатора
+    2) Списываем стоимость ивента
+    3) Отправляем стикер
+    4) Ждем 10 минут
+    5) Голосовое
+    6) Сообщение с кнопкой «Присоединиться» (5 минут)
+    7) Закрываем кнопку, шлём финальный список
     """
     chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    # Проверяем баланс организатора
+    balance = get_sits(chat_id, user_id)
+    if balance < EVENT_COST:
+        await message.answer(
+            f"Недостаточно сит для запуска ивента! Нужно: {EVENT_COST}, у тебя: {balance}"
+        )
+        return
 
     # Не даём запустить параллельно второй ивент в том же чате
     if chat_id in ACTIVE_GROUP_EVENTS:
         await message.answer("Ивент уже идёт — подожди окончания текущего.")
         return
 
+    # Списываем стоимость ивента с организатора
+    add_sits(chat_id, user_id, -EVENT_COST)
+
     # Регистрируем состояние
     ACTIVE_GROUP_EVENTS[chat_id] = GroupEventState()
 
     # 1) Стикер
     await message.answer_sticker(STICKER_FILE_ID)
+
+    # Уведомляем о списании
+    await message.answer(f"С твоего счета списано {EVENT_COST} сит за запуск ивента")
 
     # Запускаем «флоу» как фоновую задачу, чтобы не блокировать остальной бот
     asyncio.create_task(_run_event_flow(message.bot, chat_id))
