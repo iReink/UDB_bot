@@ -117,7 +117,8 @@ def register_group_handlers(dp):
     # Ничего не возвращаем — dp уже знает про хендлер
 
 
-async def start_group_event(message: types.Message):
+async def start_group_event(message: types.Message, user_id: int):
+    chat_id = message.chat.id
     """
     Точка входа при покупке товара.
     1) Проверяем баланс организатора
@@ -128,8 +129,6 @@ async def start_group_event(message: types.Message):
     6) Сообщение с кнопкой «Присоединиться» (5 минут)
     7) Закрываем кнопку, шлём финальный список
     """
-    chat_id = message.chat.id
-    user_id = message.from_user.id
 
     # Проверяем баланс организатора
     balance = get_sits(chat_id, user_id)
