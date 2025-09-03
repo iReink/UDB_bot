@@ -44,6 +44,9 @@ register_sos_handlers(dp)
 import group
 group.register_group_handlers(dp)
 
+from help import register_help_handler
+register_help_handler(dp)
+
 
 
 TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
