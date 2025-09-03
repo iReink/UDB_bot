@@ -996,7 +996,7 @@ async def handle_shop_buy(callback: types.CallbackQuery):
         if action == "group":
             from group import start_group_event
             # Передаём сам message, чтобы функция могла слать сообщения в чат
-            await start_group_event(callback.message)
+            await start_group_event(callback)
             return
 
         price = item["price"]
