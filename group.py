@@ -7,6 +7,7 @@ from typing import Dict, Set
 from aiogram import types
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram import Bot
 
 from db import get_connection
 
@@ -144,7 +145,7 @@ async def start_group_event(message: types.Message):
 # ВНУТРЕННЯЯ ЛОГИКА
 # ==========================
 
-async def _run_event_flow(bot: types.Bot, chat_id: int):
+async def _run_event_flow(bot: Bot, chat_id: int):
     state = ACTIVE_GROUP_EVENTS.get(chat_id)
     if not state:
         return
