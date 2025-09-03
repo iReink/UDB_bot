@@ -154,9 +154,18 @@ async def _run_event_flow(bot: Bot, chat_id: int):
 
     try:
         # 10 минут ожидания
-        await asyncio.sleep(PREPARE_DELAY_SEC)
+        await asyncio.sleep(PREPARE_DELAY_SEC - 7 * 60)  # Ждём до отметки 7 минут
+        await bot.send_message(chat_id, "До групповой мастурбации осталось 7 минут!")
 
-        # Голосовое
+        await asyncio.sleep(3 * 60)  # Ждём до отметки 4 минут
+        await bot.send_message(chat_id, "До групповой мастурбации осталось 4 минуты!")
+
+        await asyncio.sleep(3 * 60)  # Ждём до отметки 1 минуты
+        await bot.send_message(chat_id, "До групповой мастурбации осталась 1 минута!")
+
+        await asyncio.sleep(1 * 60)  # Ждём оставшуюся 1 минуту
+
+        # Голосовое перед стартом
         try:
             voice = FSInputFile(VOICE_PATH)
             await bot.send_voice(chat_id, voice)
@@ -164,12 +173,26 @@ async def _run_event_flow(bot: Bot, chat_id: int):
             pass
 
         # Сообщение с кнопкой
-        msg = await bot.send_message(chat_id, "Поехали! Для участия нажми на кнопку", reply_markup=join_keyboard())
+        msg = await bot.send_message(
+            chat_id,
+            "Поехали! Для участия нажми на кнопку",
+            reply_markup=join_keyboard()
+        )
         state.join_msg_id = msg.message_id
         state.join_open = True
 
-        # 5 минут на присоединение
-        await asyncio.sleep(JOIN_WINDOW_SEC)
+        # Активная фаза с напоминаниями
+        await asyncio.sleep(JOIN_WINDOW_SEC - 60 - 30 - 10 - 1)
+
+        await bot.send_message(chat_id, "⏳ Осталась одна минута! Готовимся!")
+        await asyncio.sleep(30)
+        await bot.send_message(chat_id, "🎯 Целимся!!")
+        await asyncio.sleep(20)
+        await bot.send_message(chat_id, "🔟 10-секундная готовность!")
+        await asyncio.sleep(9)
+        await bot.send_message(chat_id, "💥 ПЛИ!")
+
+        await asyncio.sleep(1)  # Дожидаемся финала
 
     finally:
         if state:
@@ -182,7 +205,7 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         except Exception:
             pass
 
-    # Финал
+    # Финал (как было дальше)
     if state:
         participants = state.joined_order
         freebies = state.freebies
