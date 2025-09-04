@@ -12,7 +12,8 @@ from aiogram import Bot
 from aiogram.filters import Command
 from aiogram import types
 import random
-
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import FSInputFile, CallbackQuery
 
 
 # Лок для безопасного обновления прогресса квестов
