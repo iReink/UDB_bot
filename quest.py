@@ -8,7 +8,7 @@ from typing import Optional
 from db import get_connection, get_user_display_name
 from sosalsa import add_sits
 from aiogram import Bot  # добавили для отправки сообщений
-
+from aiogram.filters import Command
 
 # ==============================
 # ОБНОВЛЕНИЕ ПРОГРЕССА
@@ -144,8 +144,7 @@ def assign_quest(user_id: int, chat_id: int, quest_id: int):
 # Регистрация обработчиков
 # ==========================
 def register_quest_handlers(dp):
-
-    @dp.message(commands=["quest"])
+    @dp.message(Command(commands=["quest"]))
     async def cmd_quest(message: types.Message):
         user_id = message.from_user.id
         chat_id = message.chat.id
