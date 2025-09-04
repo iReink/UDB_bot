@@ -1,17 +1,16 @@
 # quest.py
+import asyncio
 import sqlite3
 import logging
-import random
 from contextlib import closing
 from datetime import date
 from typing import Optional
 
-from aiogram import Bot, types
-from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-
 from db import get_connection, get_user_display_name
 from sosalsa import add_sits
+from aiogram import Bot
+from aiogram.filters import Command
+
 
 # Лок для безопасного обновления прогресса квестов
 QUEST_DB_LOCK = asyncio.Lock()
