@@ -14,6 +14,7 @@ from aiogram import types
 import random
 
 
+
 # Лок для безопасного обновления прогресса квестов
 QUEST_DB_LOCK = asyncio.Lock()
 
