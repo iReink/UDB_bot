@@ -33,7 +33,7 @@ def update_quest_progress(user_id: int, chat_id: int, quest_type: str, increment
             SELECT uq.id, uq.quest_id, uq.progress, qc.target, qc.reward
             FROM user_quests uq
             JOIN quests_catalog qc ON uq.quest_id = qc.id
-            WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date = ? AND uq.status = 'active'
+            WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date_taken = ? AND uq.status = 'active'
         """, (user_id, chat_id, today))
         row = cur.fetchone()
 
@@ -114,7 +114,7 @@ def get_user_daily_quest(user_id: int, chat_id: int):
             SELECT uq.quest_id, uq.progress, qc.description, qc.target, qc.reward
             FROM user_quests uq
             JOIN quests_catalog qc ON uq.quest_id = qc.id
-            WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date = ? AND uq.status = 'active'
+            WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date_taken = ? AND uq.status = 'active'
         """, (user_id, chat_id, today))
         return cur.fetchone()
 
@@ -134,7 +134,7 @@ def assign_quest(user_id: int, chat_id: int, quest_id: int):
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO user_quests (user_id, chat_id, quest_id, date, status, progress)
+            INSERT INTO user_quests (user_id, chat_id, quest_id, date_taken, status, progress)
             VALUES (?, ?, ?, ?, 'active', 0)
         """, (user_id, chat_id, quest_id, today))
         conn.commit()
