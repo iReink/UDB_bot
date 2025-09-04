@@ -129,7 +129,7 @@ def register_quest_handlers(dp):
 
         quest = get_user_daily_quest(user_id, chat_id)
         if quest:
-            quest_id, progress, description, target, reward = quest
+            quest_id, progress, description, target, reward, status = quest
             await message.answer(
                 f"📜 У тебя уже есть активный квест:\n"
                 f"— {description}\n"
