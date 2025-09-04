@@ -11,6 +11,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sosalsa import add_sits, get_sits
 from db import get_connection
 
+from quest import update_quest_progress
+
 # ==========================
 # НАСТРОЙКИ
 # ==========================
@@ -317,6 +319,8 @@ async def _run_event_flow(bot: Bot, chat_id: int):
             reward = len(participants) + 1
             add_sits(chat_id, winner_id, reward)
             await bot.send_message(chat_id, f"🎉 Победитель: {winner_name}! Получает {reward} сит!")
+            # ОТправка уведомления в обработчик квестов
+            update_quest_progress(winner_id, chat_id, "group_win", 1, bot=bot)
 
             # Бонус для одного из freebies
             if freebies:

@@ -35,7 +35,7 @@ from db import (
 from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
 from sticker_manager import silence_checker_task, bot as sm_bot
 from mujlo import handle_mujlo_message, handle_mujlo_buy, reset_mujlo_daily
-
+from quest import update_quest_progress
 
 from sosalsa import register_sos_handlers
 
@@ -47,6 +47,9 @@ group.register_group_handlers(dp)
 
 from help import register_help_handler
 register_help_handler(dp)
+
+from quest import register_quest_handlers
+register_quest_handlers(dp)
 
 
 
@@ -219,6 +222,8 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
         # Увеличиваем только стикеры
         increment_daily_stats(user_id, chat_id, today_str, stickers=1)
         increment_total_stats(user_id, chat_id, stickers=1)
+        # обновление для квеста на стикеры
+        update_quest_progress(user_id, chat_id, "stickers_sent", 1, bot)
 
         if not chat_name:
             chat_name = chat_id
@@ -248,6 +253,7 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
 
         increment_daily_stats(user_id, chat_id, today_str, messages=1, words=words, chars=chars)
         increment_total_stats(user_id, chat_id, messages=1, words=words, chars=chars)
+        update_quest_progress(user_id, chat_id, "messages_sent", 1, bot)
 
         if not chat_name:
             chat_name = chat_id
@@ -960,6 +966,9 @@ async def on_reaction(event: MessageReactionUpdated):
             ON CONFLICT(chat_id, user_id) DO UPDATE SET react_given = react_given + ?
         """, (chat_id, user_id, delta_given, delta_given))
 
+        #отправка события в обработчик квестов на отправленные лайки
+        update_quest_progress(user_id, chat_id, "likes_given", 1, bot)
+
         global last_reward_react_given
         # --- Проверка на достижение кратности 300 реакций для конкретного пользователя ---
         cur.execute("""
@@ -972,7 +981,7 @@ async def on_reaction(event: MessageReactionUpdated):
             global last_reward_react_given
 
             # Проверяем: пользователь нужный, достигнут новый порог, и награда ещё не выдавалась за него
-            if user_id == 765591886 and total_react_given % 300 == 0 and total_react_given > last_reward_react_given:
+            if user_id == 765591886 and total_react_given % 400 == 0 and total_react_given > last_reward_react_given:
                 await send_reaction_reward(bot, chat_id, user_id, total_react_given)
                 last_reward_react_given = total_react_given  # Запоминаем порог
 
@@ -987,6 +996,9 @@ async def on_reaction(event: MessageReactionUpdated):
             VALUES (?, ?, ?)
             ON CONFLICT(chat_id, user_id) DO UPDATE SET react_taken = react_taken + ?
         """, (chat_id, author_id, delta_given, delta_given))
+
+        # отправка события в обработчик квестов на полученные лайки
+        update_quest_progress(author_id, chat_id, "likes_recieved", 1, bot)
 
         conn.commit()
 
@@ -1191,6 +1203,10 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
             new_bal = get_user(user_id, chat_id)["sits"]
             msg = f"{user_name} получил 1 сит за фильтр. Остаток: {new_bal} сит"
             await callback.message.answer(msg)
+            return
+
+        if n >= 5:
+            update_quest_progress(user_id, chat_id, "coffee_safe", 1, bot)
 
     except Exception as e:
         logging.exception(f"Ошибка при действии drink_coffee: {e}")
