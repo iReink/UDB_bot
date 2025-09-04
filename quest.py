@@ -13,66 +13,66 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from db import get_connection, get_user_display_name
 from sosalsa import add_sits
 
-# ==============================
-# ОБНОВЛЕНИЕ ПРОГРЕССА
-# ==============================
+# Лок для безопасного обновления прогресса квестов
+QUEST_DB_LOCK = asyncio.Lock()
 
-def update_quest_progress(user_id: int, chat_id: int, quest_type: str, increment: int = 1, bot: Optional[Bot] = None):
+# ==============================
+# ОБНОВЛЕНИЕ ПРОГРЕССА (async)
+# ==============================
+async def update_quest_progress(user_id: int, chat_id: int, quest_type: str, increment: int = 1, bot: Optional[Bot] = None):
     """
-    Обновляет прогресс активного квеста пользователя.
+    Безопасно обновляет прогресс активного квеста пользователя.
+    Использует асинхронный Lock для избежания блокировки базы.
     """
-    today = date.today().isoformat()
+    async with QUEST_DB_LOCK:
+        today = date.today().isoformat()
 
-    with closing(get_connection()) as conn:
-        cur = conn.cursor()
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
 
-        # Получаем активный квест пользователя
-        cur.execute("""
-            SELECT uq.quest_id, uq.progress, qc.target, qc.reward, qc.type
-            FROM user_quests uq
-            JOIN quests_catalog qc ON uq.quest_id = qc.quest_id
-            WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date_taken = ? AND uq.status = 'active'
-        """, (user_id, chat_id, today))
-        row = cur.fetchone()
+            # Получаем активный квест пользователя
+            cur.execute("""
+                SELECT uq.user_id, uq.chat_id, uq.quest_id, uq.progress, qc.target, qc.reward, qc.type
+                FROM user_quests uq
+                JOIN quests_catalog qc ON uq.quest_id = qc.quest_id
+                WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date_taken = ? AND uq.status = 'active'
+            """, (user_id, chat_id, today))
+            row = cur.fetchone()
 
-        if not row:
-            return  # Нет активного квеста
+            if not row:
+                return  # Нет активного квеста
 
-        quest_id, progress, target, reward, quest_type_db = row
+            _, _, quest_id, progress, target, reward, quest_type_db = row
 
-        # Проверяем, совпадает ли тип квеста
-        if quest_type_db != quest_type:
-            return
+            if quest_type_db != quest_type:
+                return  # Квест не соответствует типу действия
 
-        # Обновляем прогресс
-        new_progress = progress + increment
-        cur.execute("""
-            UPDATE user_quests
-            SET progress = ?
-            WHERE user_id = ? AND chat_id = ? AND date_taken = ?
-        """, (new_progress, user_id, chat_id, today))
-        conn.commit()
+            # Обновляем прогресс
+            new_progress = progress + increment
+            cur.execute("""
+                UPDATE user_quests SET progress = ? WHERE user_id = ? AND chat_id = ? AND quest_id = ? AND date_taken = ?
+            """, (new_progress, user_id, chat_id, quest_id, today))
+            conn.commit()
 
-        # Проверяем выполнение
-        if new_progress >= target:
-            complete_quest(user_id, chat_id, quest_id, reward, bot)
+            # Проверяем выполнение
+            if new_progress >= target:
+                # Завершаем квест
+                await complete_quest(user_id, chat_id, quest_id, reward, bot)
 
 
 # ==============================
-# ЗАВЕРШЕНИЕ КВЕСТА
+# ЗАВЕРШЕНИЕ КВЕСТА (async)
 # ==============================
-
-def complete_quest(user_id: int, chat_id: int, quest_id: int, reward: int, bot: Optional[Bot] = None):
+async def complete_quest(user_id: int, chat_id: int, quest_id: int, reward: int, bot: Optional[Bot] = None):
     """Отмечает квест выполненным, выдает награду и шлёт сообщение в чат."""
-    today = date.today().isoformat()
-    with closing(get_connection()) as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE user_quests
-            SET status = 'completed', date_completed = ?
-            WHERE user_id = ? AND chat_id = ? AND quest_id = ? AND date_taken = ?
-        """, (today, user_id, chat_id, quest_id, today))
-        conn.commit()
+    async with QUEST_DB_LOCK:
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE user_quests SET status = 'completed', date_completed = ?
+                WHERE user_id = ? AND chat_id = ? AND quest_id = ? AND status = 'active'
+            """, (date.today().isoformat(), user_id, chat_id, quest_id))
+            conn.commit()
 
     # Получаем имя пользователя
     user_name = get_user_display_name(user_id, chat_id)
@@ -89,7 +89,6 @@ def complete_quest(user_id: int, chat_id: int, quest_id: int, reward: int, bot: 
         asyncio.create_task(
             bot.send_message(chat_id, f"🎉 Поздравляем! {user_name} выполнил квест и получил {reward} сит!")
         )
-
 
 # ==============================
 # УТИЛИТЫ
