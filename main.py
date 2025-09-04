@@ -223,7 +223,7 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
         increment_daily_stats(user_id, chat_id, today_str, stickers=1)
         increment_total_stats(user_id, chat_id, stickers=1)
         # обновление для квеста на стикеры
-        update_quest_progress(user_id, chat_id, "stickers_sent", 1, bot)
+        asyncio.create_task(update_quest_progress(user_id, chat_id, "stickers_sent", 1, bot))
 
         if not chat_name:
             chat_name = chat_id
@@ -253,7 +253,7 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
 
         increment_daily_stats(user_id, chat_id, today_str, messages=1, words=words, chars=chars)
         increment_total_stats(user_id, chat_id, messages=1, words=words, chars=chars)
-        update_quest_progress(user_id, chat_id, "messages_sent", 1, bot)
+        asyncio.create_task(update_quest_progress(user_id, chat_id, "messages_sent", 1, bot))
 
         if not chat_name:
             chat_name = chat_id
@@ -967,7 +967,7 @@ async def on_reaction(event: MessageReactionUpdated):
         """, (chat_id, user_id, delta_given, delta_given))
 
         #отправка события в обработчик квестов на отправленные лайки
-        update_quest_progress(user_id, chat_id, "likes_given", 1, bot)
+        asyncio.create_task(update_quest_progress(user_id, chat_id, "likes_given", 1, bot))
 
         global last_reward_react_given
         # --- Проверка на достижение кратности 300 реакций для конкретного пользователя ---
@@ -998,7 +998,7 @@ async def on_reaction(event: MessageReactionUpdated):
         """, (chat_id, author_id, delta_given, delta_given))
 
         # отправка события в обработчик квестов на полученные лайки
-        update_quest_progress(author_id, chat_id, "likes_recieved", 1, bot)
+        asyncio.create_task(update_quest_progress(author_id, chat_id, "likes_recieved", 1, bot))
 
         conn.commit()
 
@@ -1206,7 +1206,7 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
             return
 
         if n >= 5:
-            update_quest_progress(user_id, chat_id, "coffee_safe", 1, bot)
+            asyncio.create_task(update_quest_progress(user_id, chat_id, "coffee_safe", 1, bot))
 
     except Exception as e:
         logging.exception(f"Ошибка при действии drink_coffee: {e}")
