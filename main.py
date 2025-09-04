@@ -998,7 +998,7 @@ async def on_reaction(event: MessageReactionUpdated):
         """, (chat_id, author_id, delta_given, delta_given))
 
         # отправка события в обработчик квестов на полученные лайки
-        asyncio.create_task(update_quest_progress(author_id, chat_id, "likes_recieved", 1, bot))
+        asyncio.create_task(update_quest_progress(author_id, chat_id, "likes_received", 1, bot))
 
         conn.commit()
 
