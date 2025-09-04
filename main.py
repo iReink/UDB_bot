@@ -844,8 +844,8 @@ async def handle_give(message: types.Message):
     add_sits(chat_id, sender_id, -amount)
     add_sits(chat_id, receiver_id, amount)
 
-    sender_name = get_user_display_name(chat_id, sender_id)
-    receiver_name = get_user_display_name(chat_id, receiver_id)
+    sender_name = get_user_display_name(sender_id, chat_id)
+    receiver_name = get_user_display_name(receiver_id, chat_id)
 
     await message.answer(
         f"✅ {sender_name} передал(а) {amount} сит пользователю {receiver_name} {nick_raw}."
