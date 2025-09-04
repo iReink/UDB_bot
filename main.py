@@ -256,6 +256,19 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
         )
 
 
+from contextlib import closing
+from db import get_connection
+
+def find_user_id_by_nick(chat_id: int, nick: str) -> int | None:
+    """Возвращает user_id по нику (@nick) внутри конкретного чата, либо None."""
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id FROM users WHERE chat_id = ? AND nick = ?", (chat_id, nick))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+
 async def daily_punish_task():
     """
     Каждый день в 22:45 применяет реальные штрафы:
@@ -775,6 +788,70 @@ async def charity_command(message: types.Message):
     await message.answer(f"Спасибо {target_name} за доброе дело! {amount} сита начислено")
     logging.info(f"[charity] Начислено {amount} сита пользователю {target_user_id} ({target_name})")
 
+
+
+@dp.message(Command("give"))
+async def handle_give(message: types.Message):
+    chat_id = message.chat.id
+    sender_id = message.from_user.id
+
+    # Разбираем аргументы
+    # Поддерживаем варианты с несколькими пробелами/переносами строк
+    parts = (message.text or "").split()
+    # пример: ['/give', '@nick', '5']  -> нужно минимум 3 токена
+    if len(parts) < 3:
+        await message.answer("❌ Использование: /give @nick amount\nПример: /give @vasya 3")
+        return
+
+    nick_raw = parts[1].strip()
+    amount_raw = parts[2].strip()
+
+    # 1.1 Валидация ника и суммы
+    if not nick_raw.startswith("@") or len(nick_raw) < 2:
+        await message.answer("❌ Укажи ник в формате @username")
+        return
+
+    # Пытаемся привести к целому
+    try:
+        amount = int(amount_raw)
+    except ValueError:
+        await message.answer("❌ Сумма должна быть целым числом")
+        return
+
+    # 4) Защита от «хитрости»
+    if amount < 0:
+        await message.answer("🚫 Нет, мы закрыли эту дыру в безопасности.")
+        return
+    if amount == 0:
+        await message.answer("ℹ️ Ноль сит? Операция бессмысленна, ничего не перевожу.")
+        return
+
+    # 1.2 Проверяем, что получатель есть в базе (в ЭТОМ чате)
+    receiver_id = find_user_id_by_nick(chat_id, nick_raw)
+    if receiver_id is None:
+        await message.answer(
+            "❌ Пользователь с таким ником не найден в базе этого чата.\n"
+            "Попроси его написать хоть одно сообщение, чтобы я запомнил ник."
+        )
+        return
+
+    # На всякий случай запретим перевод самому себе
+    if receiver_id == sender_id:
+        await message.answer("🤔 Самому себе переводить смысла нет.")
+        return
+
+    # 2) Проверяем баланс отправителя
+    from sosalsa import get_sits, add_sits  # локальный импорт, чтобы не ловить циклические
+    balance = get_sits(chat_id, sender_id)
+    if balance < amount:
+        await message.answer(f"❌ Недостаточно сит. Нужно: {amount}, у тебя: {balance}")
+        return
+
+    # 3) Списываем/начисляем
+    add_sits(chat_id, sender_id, -amount)
+    add_sits(chat_id, receiver_id, amount)
+
+    await message.answer(f"✅ Перевёл(а) {amount} сит пользователю {nick_raw}.")
 
 
 
