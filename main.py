@@ -1105,6 +1105,7 @@ async def handle_shop_buy(callback: types.CallbackQuery):
             return
         if action == "group":
             from group import start_group_event
+            await callback.message.delete()
             await start_group_event(callback.message, callback.from_user.id)
             return
 

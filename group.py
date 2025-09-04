@@ -35,7 +35,7 @@ GROUP_JOIN_MESSAGES = [
 # СОСТОЯНИЕ ИВЕНТА
 # ==========================
 class GroupEventState:
-    __slots__ = ("participants", "joined_order", "names", "join_msg_id", "join_open", "lock", "freebies")
+    __slots__ = ("participants", "joined_order", "names", "join_msg_id", "join_open", "lock", "freebies", "reminders")
 
     def __init__(self) -> None:
         self.participants: Set[int] = set()       # user_id участников
@@ -45,6 +45,8 @@ class GroupEventState:
         self.join_open: bool = False
         self.lock = asyncio.Lock()
         self.freebies: List[int] = []             # те, кто не смог заплатить
+        self.reminders: Set[int] = set()          # список для напоминания
+
 
 
 # chat_id -> state
@@ -65,10 +67,23 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
     return row[0] if row and row[0] else str(user_id)
 
 
+# ==========================
+# КНОПКИ
+# ==========================
 def join_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="Присоединиться (1 сит)", callback_data="group_join"))
+    kb.row(
+        InlineKeyboardButton(text="Присоединиться (1 сит)", callback_data="group_join"),
+        InlineKeyboardButton(text="Смотреть (бесплатно)", callback_data="group_watch")
+    )
     return kb.as_markup()
+
+def remind_keyboard() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔔 Напомнить", callback_data="group_remind"))
+    return kb.as_markup()
+
+
 
 # ==========================
 # ОБРАБОТЧИКИ
@@ -107,9 +122,59 @@ def register_group_handlers(dp):
                 state.participants.add(user_id)
                 state.joined_order.append(user_id)
                 await query.answer("Ты в деле!")
-                # Сообщение в чат
                 phrase = random.choice(GROUP_JOIN_MESSAGES).format(name=display_name)
                 await query.message.answer(phrase)
+
+    @dp.callback_query(lambda c: c.data == "group_watch")
+    async def on_group_watch(query: types.CallbackQuery):
+        chat_id = query.message.chat.id
+        user_id = query.from_user.id
+
+        state = ACTIVE_GROUP_EVENTS.get(chat_id)
+        if not state or not state.join_open:
+            await query.answer("Окно регистрации закрыто.", show_alert=True)
+            return
+
+        async with state.lock:
+            if user_id in state.participants or user_id in state.freebies:
+                await query.answer("Ты уже зарегистрировался!", show_alert=True)
+                return
+
+            # Добавляем как зрителя
+            display_name = get_user_display_name(user_id, chat_id)
+            if display_name == str(user_id):
+                display_name = query.from_user.full_name or (
+                    f"@{query.from_user.username}" if query.from_user.username else str(user_id)
+                )
+            state.names[user_id] = display_name
+            state.freebies.append(user_id)
+
+        await query.message.answer(f"👀 {display_name} решил посмотреть онлайн-трансляцию")
+        await query.answer("Ты в списке зрителей!")
+
+    @dp.callback_query(lambda c: c.data == "group_remind")
+    async def on_group_remind(query: types.CallbackQuery):
+        chat_id = query.message.chat.id
+        user_id = query.from_user.id
+
+        state = ACTIVE_GROUP_EVENTS.get(chat_id)
+        if not state:
+            await query.answer("Ивент ещё не запущен.", show_alert=True)
+            return
+
+        async with state.lock:
+            if user_id in state.reminders:
+                await query.answer("Ты уже в списке для напоминания!", show_alert=True)
+                return
+            state.reminders.add(user_id)
+
+            display_name = query.from_user.full_name or (
+                f"@{query.from_user.username}" if query.from_user.username else str(user_id)
+            )
+            state.names[user_id] = display_name
+
+        await query.answer("✅ Напомню тебе перед стартом!")
+
 
 # ==========================
 # ЗАПУСК ИВЕНТА
@@ -142,6 +207,12 @@ async def start_group_event(message: types.Message, user_id: int):
     await message.answer_sticker(STICKER_FILE_ID)
     await message.answer(f"С твоего счёта списано {EVENT_COST} сит за запуск ивента")
 
+    # Сообщение с кнопкой "Напомнить"
+    await message.answer(
+        "Хочешь напоминание о старте? Нажми кнопку!",
+        reply_markup=remind_keyboard()
+    )
+
     asyncio.create_task(_run_event_flow(message.bot, chat_id))
 
 # ==========================
@@ -164,6 +235,24 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         await bot.send_message(chat_id, "До групповой мастурбации осталась 1 минута!")
 
         await asyncio.sleep(1 * 60)  # Ждём оставшуюся 1 минуту
+
+        # Напоминание всем за 10 секунд до старта
+        if state.reminders:
+            mentions = []
+            for uid in state.reminders:
+                username = None
+                with closing(get_connection()) as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT nick FROM users WHERE chat_id = ? AND user_id = ?", (chat_id, uid))
+                    row = cur.fetchone()
+                    username = row[0] if row and row[0] else None
+                if username:
+                    mentions.append(username)
+                else:
+                    mentions.append(state.names.get(uid, str(uid)))
+
+            text = " ".join(mentions) + " — скоро начинаем!!"
+            await bot.send_message(chat_id, text)
 
         # Голосовое перед стартом
         try:
