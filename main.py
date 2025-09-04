@@ -123,19 +123,42 @@ last_reward_react_given = 0
 
 
 
-def ensure_user(chat_id: int, user_id: int, user_name: str):
+def ensure_user(chat_id: int, user_id: int, user_name: str, username: str | None = None):
     """
     Гарантирует, что пользователь есть в БД и все записи корректны.
     Создаёт пользователя, daily_stats за последние 7 дней и total_stats при необходимости.
+    Также обновляет ник (username).
     """
-    # Проверяем пользователя
+    # Получаем пользователя из БД
     user = db.get_user(user_id, chat_id)
+
+    # Приводим username к виду '@username' или None
+    nick = f"@{username}" if username else None
+
     if not user:
-        db.add_or_update_user(user_id, chat_id, user_name, sits=0, punished=0, sex=None)
+        # Создаём новую запись
+        db.add_or_update_user(user_id, chat_id, user_name, sits=0, punished=0, sex=None, nick=nick)
     else:
-        # Обновляем имя, если пустое или изменилось
+        # Проверяем имя
+        needs_update = False
         if user["name"] != user_name:
-            db.add_or_update_user(user_id, chat_id, user_name)
+            needs_update = True
+
+        # Проверяем ник
+        db_nick = user.get("nick")
+        if db_nick != nick:
+            needs_update = True
+
+        if needs_update:
+            db.add_or_update_user(
+                user_id,
+                chat_id,
+                user_name,
+                sits=user.get("sits", 0),
+                punished=user.get("punished", 0),
+                sex=user.get("sex"),
+                nick=nick
+            )
 
     # Daily_stats: последние 7 дней
     today = datetime.now().date()
@@ -169,8 +192,12 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
     Если это стикер — увеличиваем только 'stickers'.
     Иначе — обновляем messages/words/chars как раньше.
     """
+    # Получаем username (ник)
+    username = message.from_user.username
+    nick = f"@{username}" if username else None
+
     # Гарантируем пользователя в БД
-    add_or_update_user(user_id, chat_id, user_name)
+    add_or_update_user(user_id, chat_id, user_name, nick=nick)
 
     # Определяем дату сегодня
     today_str = date.today().isoformat()
@@ -227,6 +254,7 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
         logging.info(
             f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, +1 сообщение, +{words} слов, +{chars} символов"
         )
+
 
 async def daily_punish_task():
     """

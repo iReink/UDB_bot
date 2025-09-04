@@ -44,23 +44,34 @@ def get_all_chats() -> list[int]:
 
 
 
-def add_or_update_user(user_id: int, chat_id: int, name: str,
-                       sits: Optional[int] = None,
-                       punished: Optional[int] = None,
-                       sex: Optional[str] = None):
-    """Добавляет или обновляет пользователя. Если sit/punished/sex = None, не меняем."""
+from typing import Optional
+from contextlib import closing
+from db import get_connection
+
+def add_or_update_user(
+    user_id: int,
+    chat_id: int,
+    name: str,
+    sits: Optional[int] = None,
+    punished: Optional[int] = None,
+    sex: Optional[str] = None,
+    nick: Optional[str] = None
+):
+    """Добавляет или обновляет пользователя. Если sit/punished/sex/nick = None, не меняем."""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO users (user_id, chat_id, name, sits, punished, sex)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO users (user_id, chat_id, name, sits, punished, sex, nick)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 name = excluded.name,
                 sits = COALESCE(excluded.sits, users.sits),
                 punished = COALESCE(excluded.punished, users.punished),
-                sex = COALESCE(users.sex, excluded.sex)
-        """, (user_id, chat_id, name, sits, punished, sex))
+                sex = COALESCE(users.sex, excluded.sex),
+                nick = COALESCE(excluded.nick, users.nick)
+        """, (user_id, chat_id, name, sits, punished, sex, nick))
         conn.commit()
+
 
 def add_or_update_user_achievement(user_id: int, chat_id: int, achievement_key: str):
     """
