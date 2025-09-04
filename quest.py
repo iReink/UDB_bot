@@ -30,7 +30,7 @@ def update_quest_progress(user_id: int, chat_id: int, quest_type: str, increment
 
         # Получаем активный квест пользователя
         cur.execute("""
-            SELECT uq.id, uq.quest_id, uq.progress, qc.target, qc.reward_sits
+            SELECT uq.id, uq.quest_id, uq.progress, qc.target, qc.reward
             FROM user_quests uq
             JOIN quests_catalog qc ON uq.quest_id = qc.id
             WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date = ? AND uq.status = 'active'
@@ -111,7 +111,7 @@ def get_user_daily_quest(user_id: int, chat_id: int):
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT uq.quest_id, uq.progress, qc.description, qc.target, qc.reward_sits
+            SELECT uq.quest_id, uq.progress, qc.description, qc.target, qc.reward
             FROM user_quests uq
             JOIN quests_catalog qc ON uq.quest_id = qc.id
             WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date = ? AND uq.status = 'active'
@@ -123,7 +123,7 @@ def get_random_quests(count=3):
     """Возвращает случайные квесты из каталога."""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id, description, target, reward_sits FROM quests_catalog")
+        cur.execute("SELECT id, description, target, reward FROM quests_catalog")
         quests = cur.fetchall()
     return random.sample(quests, min(count, len(quests)))
 
@@ -192,7 +192,7 @@ def register_quest_handlers(dp):
         # Получаем данные квеста для отображения
         with closing(get_connection()) as conn:
             cur = conn.cursor()
-            cur.execute("SELECT description, target, reward_sits FROM quests_catalog WHERE id = ?", (quest_id,))
+            cur.execute("SELECT description, target, reward FROM quests_catalog WHERE id = ?", (quest_id,))
             quest = cur.fetchone()
 
         if quest:
