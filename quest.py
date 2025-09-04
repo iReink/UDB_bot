@@ -81,17 +81,21 @@ async def complete_quest(user_id: int, chat_id: int, reward: int, bot: Optional[
 # УТИЛИТЫ
 # ==============================
 
-def get_user_daily_quest(user_id: int, chat_id: int):
-    """Возвращает активный квест пользователя, если есть."""
+def get_user_daily_quest(user_id: int, chat_id: int, only_active: bool = True):
+    """Возвращает квест пользователя на сегодня. Если only_active=True — только активные."""
     today = date.today().isoformat()
     with closing(get_connection()) as conn:
         cur = conn.cursor()
-        cur.execute("""
-            SELECT uq.quest_id, uq.progress, qc.description, qc.target, qc.reward
+        query = """
+            SELECT uq.quest_id, uq.progress, qc.description, qc.target, qc.reward, uq.status
             FROM user_quests uq
             JOIN quests_catalog qc ON uq.quest_id = qc.quest_id
-            WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date_taken = ? AND uq.status = 'active'
-        """, (user_id, chat_id, today))
+            WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date_taken = ?
+        """
+        params = [user_id, chat_id, today]
+        if only_active:
+            query += " AND uq.status = 'active'"
+        cur.execute(query, params)
         return cur.fetchone()
 
 def get_random_quests(count=3):
@@ -151,8 +155,13 @@ def register_quest_handlers(dp):
         chat_id = query.message.chat.id
         quest_id = int(query.data.split(":")[1])
 
-        if get_user_daily_quest(user_id, chat_id):
-            await query.answer("Ты уже выбрал квест на сегодня!", show_alert=True)
+        existing_quest = get_user_daily_quest(user_id, chat_id, only_active=False)
+        if existing_quest:
+            _, _, _, _, _, status = existing_quest
+            if status == "completed":
+                await query.answer("Ты уже выполнил квест сегодня!", show_alert=True)
+            else:
+                await query.answer("Ты уже выбрал квест на сегодня!", show_alert=True)
             return
 
         assign_quest(user_id, chat_id, quest_id)
@@ -171,3 +180,4 @@ def register_quest_handlers(dp):
                 f"🏆 Награда: {reward} сит"
             )
         await query.answer("Квест выбран!")
+
