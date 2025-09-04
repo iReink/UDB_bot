@@ -847,8 +847,12 @@ async def handle_give(message: types.Message):
     sender_name = get_user_display_name(sender_id, chat_id)
     receiver_name = get_user_display_name(receiver_id, chat_id)
 
+    # Определяем глагол по полу отправителя
+    sender_sex = get_user_sex(sender_id, chat_id)
+    verb = "передала" if sender_sex == "f" else "передал"
+
     await message.answer(
-        f"✅ {sender_name} передал(а) {amount} сит пользователю {receiver_name} {nick_raw}."
+        f"✅ {sender_name} {verb} {amount} сит пользователю {receiver_name} {nick_raw}."
     )
 
 
