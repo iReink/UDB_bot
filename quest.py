@@ -32,7 +32,7 @@ def update_quest_progress(user_id: int, chat_id: int, quest_type: str, increment
         cur.execute("""
             SELECT uq.id, uq.quest_id, uq.progress, qc.target, qc.reward
             FROM user_quests uq
-            JOIN quests_catalog qc ON uq.quest_id = qc.id
+            JOIN quests_catalog qc ON uq.quest_id = qc.quest_id
             WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date_taken = ? AND uq.status = 'active'
         """, (user_id, chat_id, today))
         row = cur.fetchone()
@@ -113,7 +113,7 @@ def get_user_daily_quest(user_id: int, chat_id: int):
         cur.execute("""
             SELECT uq.quest_id, uq.progress, qc.description, qc.target, qc.reward
             FROM user_quests uq
-            JOIN quests_catalog qc ON uq.quest_id = qc.id
+            JOIN quests_catalog qc ON uq.quest_id = qc.quest_id
             WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date_taken = ? AND uq.status = 'active'
         """, (user_id, chat_id, today))
         return cur.fetchone()
