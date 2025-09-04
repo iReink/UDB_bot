@@ -11,7 +11,7 @@ from sosalsa import add_sits
 from aiogram import Bot
 from aiogram.filters import Command
 from aiogram import types
-
+import random
 
 
 # Лок для безопасного обновления прогресса квестов
