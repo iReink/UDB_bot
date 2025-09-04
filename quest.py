@@ -1,14 +1,17 @@
 # quest.py
 import sqlite3
 import logging
+import random
 from contextlib import closing
 from datetime import date
 from typing import Optional
 
+from aiogram import Bot, types
+from aiogram.filters import Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
 from db import get_connection, get_user_display_name
 from sosalsa import add_sits
-from aiogram import Bot  # добавили для отправки сообщений
-from aiogram.filters import Command
 
 # ==============================
 # ОБНОВЛЕНИЕ ПРОГРЕССА
@@ -17,11 +20,6 @@ from aiogram.filters import Command
 def update_quest_progress(user_id: int, chat_id: int, quest_type: str, increment: int = 1, bot: Optional[Bot] = None):
     """
     Обновляет прогресс активного квеста пользователя.
-    :param user_id: ID пользователя
-    :param chat_id: ID чата
-    :param quest_type: тип квеста (messages_sent, stickers_sent, likes_given, likes_received и т.д.)
-    :param increment: насколько увеличить прогресс
-    :param bot: экземпляр бота для отправки сообщений
     """
     today = date.today().isoformat()
 
@@ -30,7 +28,7 @@ def update_quest_progress(user_id: int, chat_id: int, quest_type: str, increment
 
         # Получаем активный квест пользователя
         cur.execute("""
-            SELECT uq.id, uq.quest_id, uq.progress, qc.target, qc.reward
+            SELECT uq.quest_id, uq.progress, qc.target, qc.reward, qc.type
             FROM user_quests uq
             JOIN quests_catalog qc ON uq.quest_id = qc.quest_id
             WHERE uq.user_id = ? AND uq.chat_id = ? AND uq.date_taken = ? AND uq.status = 'active'
@@ -38,41 +36,42 @@ def update_quest_progress(user_id: int, chat_id: int, quest_type: str, increment
         row = cur.fetchone()
 
         if not row:
-            return  # Нет активного квеста — ничего не делаем
+            return  # Нет активного квеста
 
-        uq_id, quest_id, progress, target, reward = row
+        quest_id, progress, target, reward, quest_type_db = row
 
-        # Получаем тип квеста
-        cur.execute("SELECT quest_type FROM quests_catalog WHERE id = ?", (quest_id,))
-        quest_type_db = cur.fetchone()[0]
-
+        # Проверяем, совпадает ли тип квеста
         if quest_type_db != quest_type:
-            return  # Этот квест не про это действие
+            return
 
         # Обновляем прогресс
         new_progress = progress + increment
-        cur.execute("UPDATE user_quests SET progress = ? WHERE id = ?", (new_progress, uq_id))
+        cur.execute("""
+            UPDATE user_quests
+            SET progress = ?
+            WHERE user_id = ? AND chat_id = ? AND date_taken = ?
+        """, (new_progress, user_id, chat_id, today))
         conn.commit()
 
         # Проверяем выполнение
         if new_progress >= target:
-            complete_quest(user_id, chat_id, uq_id, reward, bot)
+            complete_quest(user_id, chat_id, quest_id, reward, bot)
 
 
 # ==============================
 # ЗАВЕРШЕНИЕ КВЕСТА
 # ==============================
 
-def complete_quest(user_id: int, chat_id: int, uq_id: int, reward: int, bot: Optional[Bot] = None):
+def complete_quest(user_id: int, chat_id: int, quest_id: int, reward: int, bot: Optional[Bot] = None):
     """Отмечает квест выполненным, выдает награду и шлёт сообщение в чат."""
+    today = date.today().isoformat()
     with closing(get_connection()) as conn:
         cur = conn.cursor()
-
-        # Обновляем статус
         cur.execute("""
-            UPDATE user_quests SET status = 'completed'
-            WHERE id = ?
-        """, (uq_id,))
+            UPDATE user_quests
+            SET status = 'completed', date_completed = ?
+            WHERE user_id = ? AND chat_id = ? AND quest_id = ? AND date_taken = ?
+        """, (today, user_id, chat_id, quest_id, today))
         conn.commit()
 
     # Получаем имя пользователя
@@ -92,18 +91,9 @@ def complete_quest(user_id: int, chat_id: int, uq_id: int, reward: int, bot: Opt
         )
 
 
-# quest.py
-import random
-from aiogram import types
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from contextlib import closing
-from datetime import date
-
-from db import get_connection
-
-# ==========================
-# Утилиты
-# ==========================
+# ==============================
+# УТИЛИТЫ
+# ==============================
 
 def get_user_daily_quest(user_id: int, chat_id: int):
     """Возвращает активный квест пользователя, если есть."""
@@ -123,7 +113,7 @@ def get_random_quests(count=3):
     """Возвращает случайные квесты из каталога."""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id, description, target, reward FROM quests_catalog")
+        cur.execute("SELECT quest_id, description, target, reward FROM quests_catalog")
         quests = cur.fetchall()
     return random.sample(quests, min(count, len(quests)))
 
@@ -140,10 +130,12 @@ def assign_quest(user_id: int, chat_id: int, quest_id: int):
         conn.commit()
 
 
-# ==========================
-# Регистрация обработчиков
-# ==========================
+# ==============================
+# РЕГИСТРАЦИЯ ХЕНДЛЕРОВ
+# ==============================
+
 def register_quest_handlers(dp):
+
     @dp.message(Command(commands=["quest"]))
     async def cmd_quest(message: types.Message):
         user_id = message.from_user.id
@@ -192,7 +184,7 @@ def register_quest_handlers(dp):
         # Получаем данные квеста для отображения
         with closing(get_connection()) as conn:
             cur = conn.cursor()
-            cur.execute("SELECT description, target, reward FROM quests_catalog WHERE id = ?", (quest_id,))
+            cur.execute("SELECT description, target, reward FROM quests_catalog WHERE quest_id = ?", (quest_id,))
             quest = cur.fetchone()
 
         if quest:
