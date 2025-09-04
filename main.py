@@ -29,7 +29,8 @@ from db import (
     get_last_7_daily_stats,
     get_all_chats,
     get_user_sex,
-    increment_sticker_stats
+    increment_sticker_stats,
+    get_user_display_name
 )
 from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
 from sticker_manager import silence_checker_task, bot as sm_bot
@@ -790,15 +791,13 @@ async def charity_command(message: types.Message):
 
 
 
+
 @dp.message(Command("give"))
 async def handle_give(message: types.Message):
     chat_id = message.chat.id
     sender_id = message.from_user.id
 
-    # Разбираем аргументы
-    # Поддерживаем варианты с несколькими пробелами/переносами строк
     parts = (message.text or "").split()
-    # пример: ['/give', '@nick', '5']  -> нужно минимум 3 токена
     if len(parts) < 3:
         await message.answer("❌ Использование: /give @nick amount\nПример: /give @vasya 3")
         return
@@ -806,19 +805,16 @@ async def handle_give(message: types.Message):
     nick_raw = parts[1].strip()
     amount_raw = parts[2].strip()
 
-    # 1.1 Валидация ника и суммы
     if not nick_raw.startswith("@") or len(nick_raw) < 2:
         await message.answer("❌ Укажи ник в формате @username")
         return
 
-    # Пытаемся привести к целому
     try:
         amount = int(amount_raw)
     except ValueError:
         await message.answer("❌ Сумма должна быть целым числом")
         return
 
-    # 4) Защита от «хитрости»
     if amount < 0:
         await message.answer("🚫 Нет, мы закрыли эту дыру в безопасности.")
         return
@@ -826,7 +822,6 @@ async def handle_give(message: types.Message):
         await message.answer("ℹ️ Ноль сит? Операция бессмысленна, ничего не перевожу.")
         return
 
-    # 1.2 Проверяем, что получатель есть в базе (в ЭТОМ чате)
     receiver_id = find_user_id_by_nick(chat_id, nick_raw)
     if receiver_id is None:
         await message.answer(
@@ -835,23 +830,26 @@ async def handle_give(message: types.Message):
         )
         return
 
-    # На всякий случай запретим перевод самому себе
     if receiver_id == sender_id:
         await message.answer("🤔 Самому себе переводить смысла нет.")
         return
 
-    # 2) Проверяем баланс отправителя
-    from sosalsa import get_sits, add_sits  # локальный импорт, чтобы не ловить циклические
+    from sosalsa import get_sits, add_sits
     balance = get_sits(chat_id, sender_id)
     if balance < amount:
         await message.answer(f"❌ Недостаточно сит. Нужно: {amount}, у тебя: {balance}")
         return
 
-    # 3) Списываем/начисляем
+    # Списываем/начисляем
     add_sits(chat_id, sender_id, -amount)
     add_sits(chat_id, receiver_id, amount)
 
-    await message.answer(f"✅ Перевёл(а) {amount} сит пользователю {nick_raw}.")
+    sender_name = get_user_display_name(chat_id, sender_id)
+    receiver_name = get_user_display_name(chat_id, receiver_id)
+
+    await message.answer(
+        f"✅ {sender_name} передал(а) {amount} сит пользователю {receiver_name} {nick_raw}."
+    )
 
 
 
