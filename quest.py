@@ -10,6 +10,8 @@ from db import get_connection, get_user_display_name
 from sosalsa import add_sits
 from aiogram import Bot
 from aiogram.filters import Command
+from aiogram import types
+
 
 
 # Лок для безопасного обновления прогресса квестов
