@@ -51,6 +51,10 @@ register_help_handler(dp)
 from quest import register_quest_handlers
 register_quest_handlers(dp)
 
+from hall import register_hall_handlers
+# Регистрируем обработчики модуля hall
+register_hall_handlers(dp)
+
 
 
 TOKEN = "7566137789:AAGmm_djHOuqiL2WvAkKHuGoIfnkuPMLepY"
