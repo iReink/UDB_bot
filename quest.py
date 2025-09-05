@@ -1,4 +1,3 @@
-# quest.py
 import asyncio
 import random
 import logging
@@ -127,15 +126,22 @@ def register_quest_handlers(dp):
         user_id = message.from_user.id
         chat_id = message.chat.id
 
-        quest = get_user_daily_quest(user_id, chat_id)
+        quest = get_user_daily_quest(user_id, chat_id, only_active=False)
         if quest:
             quest_id, progress, description, target, reward, status = quest
-            await message.answer(
-                f"📜 У тебя уже есть активный квест:\n"
-                f"— {description}\n"
-                f"📈 Прогресс: {progress}/{target}\n"
-                f"🏆 Награда: {reward} сит"
-            )
+            if status == "completed":
+                await message.answer(
+                    f"✅ Ты уже выполнил квест сегодня!\n"
+                    f"— {description}\n"
+                    f"🏆 Награда: {reward} сит"
+                )
+            else:
+                await message.answer(
+                    f"📜 У тебя уже есть активный квест:\n"
+                    f"— {description}\n"
+                    f"📈 Прогресс: {progress}/{target}\n"
+                    f"🏆 Награда: {reward} сит"
+                )
             return
 
         quests = get_random_quests(3)
@@ -173,6 +179,7 @@ def register_quest_handlers(dp):
 
         if quest:
             description, target, reward = quest
+            await query.message.delete()  # <-- удаляем сообщение с кнопками
             await query.message.answer(
                 f"✅ Квест принят:\n"
                 f"— {description}\n"
@@ -180,4 +187,3 @@ def register_quest_handlers(dp):
                 f"🏆 Награда: {reward} сит"
             )
         await query.answer("Квест выбран!")
-
