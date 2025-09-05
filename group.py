@@ -131,6 +131,9 @@ def register_group_handlers(dp):
                 await query.answer("Ты в деле!")
                 phrase = random.choice(GROUP_JOIN_MESSAGES).format(name=display_name)
                 await query.message.answer(phrase)
+                from quest import update_quest_progress
+                # обновляем прогресс квеста group_part
+                await update_quest_progress(user_id, chat_id, "group_part", 1, bot=query.bot)
 
     @dp.callback_query(lambda c: c.data == "group_watch")
     async def on_group_watch(query: types.CallbackQuery):
