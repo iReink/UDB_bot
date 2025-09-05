@@ -1196,6 +1196,9 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
             await callback.message.answer(msg)
             logging.info(f"{user_name} получил флаг punished (кофе {n}) в чате {chat_id}")
             await callback.answer()
+            from quest import update_quest_progress
+            await update_quest_progress(user_id, chat_id, "coffee_fail", 1, bot=bot)
+
             return
 
         if n >= 4:
