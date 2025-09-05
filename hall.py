@@ -1,52 +1,55 @@
 # hall.py
 import random
-from io import BytesIO
+import io
 from pathlib import Path
-
-from aiogram import types, Bot
-from aiogram.filters import Command
 from PIL import Image
-from aiogram.types import InputFile
 
-IMAGES_DIR = Path("images")  # папка с картинками
+from aiogram import Router, types
+from aiogram.filters import Command
+from aiogram.types import BufferedInputFile
 
-# Список накладываемых картинок с координатами (x, y)
-OVERLAY_IMAGES = [
+# Создаём router для регистрации обработчиков
+router = Router()
+
+# Путь к папке с изображениями
+IMAGES_DIR = Path("images")
+
+# Список картинок для наложения с координатами
+OVERLAYS = [
     ("carl.png", (131, 311)),
     ("mako.png", (837, 198)),
     ("mors.png", (596, 151)),
 ]
 
-BACKGROUND_IMAGE = "back.png"
+# Фон
+BACKGROUND = IMAGES_DIR / "back.png"
 
 
-def generate_hall_image():
-    """Генерируем итоговое изображение для зала славы"""
-    # Открываем фон
-    bg_path = IMAGES_DIR / BACKGROUND_IMAGE
-    base_image = Image.open(bg_path).convert("RGBA")
+@router.message(Command(commands=["hall"]))
+async def cmd_hall(message: types.Message):
+    # Загружаем фон
+    try:
+        back = Image.open(BACKGROUND).convert("RGBA")
+    except FileNotFoundError:
+        await message.answer("Ошибка: фон не найден.")
+        return
 
-    # Накладываем остальные картинки с шансом 70%
-    for filename, coords in OVERLAY_IMAGES:
+    # Для каждого оверлея делаем шанс 70%
+    for filename, coords in OVERLAYS:
         if random.random() <= 0.7:
             overlay_path = IMAGES_DIR / filename
-            overlay_img = Image.open(overlay_path).convert("RGBA")
-            base_image.paste(overlay_img, coords, overlay_img)  # альфа-канал учитывается
+            try:
+                overlay = Image.open(overlay_path).convert("RGBA")
+            except FileNotFoundError:
+                continue  # если нет файла — просто пропускаем
+            back.paste(overlay, coords, overlay)
 
-    # Сохраняем результат в BytesIO, чтобы отправить через Telegram
-    output = BytesIO()
-    output.name = "hall.png"
-    base_image.save(output, format="PNG")
-    output.seek(0)
-    return output
+    # Сохраняем результат в BytesIO
+    img_bytes = io.BytesIO()
+    back = back.convert("RGB")  # Telegram не любит RGBA в InputFile
+    back.save(img_bytes, format="PNG")
+    img_bytes.seek(0)
 
-
-def register_hall_handlers(dp):
-    """Регистрируем обработчики для модуля hall"""
-    @dp.message(Command(commands=["hall"]))
-    async def cmd_hall(message: types.Message):
-        """Отправляем зал славы с изображениями"""
-        img_bytes = generate_hall_image()
-        img_bytes.seek(0)  # обязательно сбросить курсор в начало
-        photo = InputFile(img_bytes, filename="hall.png")
-        await message.answer_photo(photo)
+    # Отправляем фото через BufferedInputFile
+    photo = BufferedInputFile(img_bytes, filename="hall.png")
+    await message.answer_photo(photo)
