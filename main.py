@@ -51,9 +51,9 @@ register_help_handler(dp)
 from quest import register_quest_handlers
 register_quest_handlers(dp)
 
-from hall import router as hall_router
-# где создаёте dp или main router
-dp.include_router(hall_router)
+from hall import register_hall_handlers
+register_hall_handlers(dp)
+
 
 
 
