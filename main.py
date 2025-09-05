@@ -1203,10 +1203,11 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
             new_bal = get_user(user_id, chat_id)["sits"]
             msg = f"{user_name} получил 1 сит за фильтр. Остаток: {new_bal} сит"
             await callback.message.answer(msg)
+            if n >= 5:
+                asyncio.create_task(update_quest_progress(user_id, chat_id, "coffee_safe", 1, bot))
             return
 
-        if n >= 5:
-            asyncio.create_task(update_quest_progress(user_id, chat_id, "coffee_safe", 1, bot))
+
 
     except Exception as e:
         logging.exception(f"Ошибка при действии drink_coffee: {e}")
