@@ -47,5 +47,5 @@ def register_hall_handlers(dp):
         img_bytes.seek(0)
 
         # Отправляем фото через BufferedInputFile
-        photo = BufferedInputFile(img_bytes, filename="hall.png")
+        photo = BufferedInputFile(img_bytes.read(), filename="hall.png")
         await message.answer_photo(photo)
