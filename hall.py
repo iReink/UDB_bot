@@ -6,6 +6,7 @@ from pathlib import Path
 from aiogram import types, Bot
 from aiogram.filters import Command
 from PIL import Image
+from aiogram.types import InputFile
 
 IMAGES_DIR = Path("images")  # папка с картинками
 
@@ -46,4 +47,6 @@ def register_hall_handlers(dp):
     async def cmd_hall(message: types.Message):
         """Отправляем зал славы с изображениями"""
         img_bytes = generate_hall_image()
-        await message.answer_photo(img_bytes)
+        img_bytes.seek(0)  # обязательно сбросить курсор в начало
+        photo = InputFile(img_bytes, filename="hall.png")
+        await message.answer_photo(photo)
