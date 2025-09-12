@@ -872,7 +872,7 @@ async def handle_give(message: types.Message):
 async def cmd_all(message: types.Message):
 
     now_hour = datetime.now().hour
-    if now_hour > 18:
+    if now_hour < 9:
         await message.answer("Сейчас слишком поздно чтобы всех звать. Попробуй после 9 утра")
         return
 
