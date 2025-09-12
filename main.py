@@ -39,6 +39,9 @@ from quest import update_quest_progress
 
 from sosalsa import register_sos_handlers
 
+from aiogram.exceptions import TelegramNetworkError, TelegramServerError
+
+
 dp = Dispatcher()
 register_sos_handlers(dp)
 
