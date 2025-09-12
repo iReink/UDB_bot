@@ -866,6 +866,89 @@ async def handle_give(message: types.Message):
     )
 
 
+# -----------------------------
+# /all — собрать всех
+# -----------------------------
+@dp.message(Command("all"))
+async def cmd_all(message: types.Message):
+    chat_id = message.chat.id
+    user_name = message.from_user.full_name
+
+    try:
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT nick
+                FROM users
+                WHERE chat_id = ? AND nick IS NOT NULL AND nick != '' AND is_all != 0
+            """, (chat_id,))
+            rows = cur.fetchall()
+
+        if not rows:
+            await message.answer("Никого ещё нет в списке. Ты можешь добавить себя командой /addme")
+            return
+
+        nicks = " ".join([row[0] for row in rows])
+        text = (
+            f"{user_name} решил всех собрать!\n"
+            f"{nicks}\n\n"
+            "Хочешь чтобы тебя тоже звали этой командой? Пиши /addme\n"
+            "Хочешь удалить себя из этого списка? Жми /deleteme"
+        )
+        await message.answer(text)
+
+    except Exception as e:
+        logging.exception(f"[all_users] Ошибка в /all: {e}")
+        await message.answer("Произошла ошибка при выполнении команды /all.")
+
+
+# -----------------------------
+# /addme — добавить себя
+# -----------------------------
+@dp.message(Command("addme"))
+async def cmd_addme(message: types.Message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    try:
+        user = get_user(user_id, chat_id)
+        if user is None:
+            add_or_update_user(user_id, chat_id, name=message.from_user.full_name, sits=0, is_all=1)
+        else:
+            add_or_update_user(user_id, chat_id, name=user["name"], sits=user["sits"], nick=user.get("nick", ""), is_all=1)
+
+        await message.answer("✅ Ты добавлен в список для команды /all!")
+
+    except Exception as e:
+        logging.exception(f"[all_users] Ошибка в /addme: {e}")
+        await message.answer("Произошла ошибка при добавлении тебя в список.")
+
+
+# -----------------------------
+# /deleteme — удалить себя
+# -----------------------------
+@dp.message(Command("deleteme"))
+async def cmd_deleteme(message: types.Message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    try:
+        user = get_user(user_id, chat_id)
+        if user is None:
+            await message.answer("❌ Тебя нет в базе, нечего удалять.")
+            return
+
+        add_or_update_user(user_id, chat_id, name=user["name"], sits=user["sits"], nick=user.get("nick", ""), is_all=0)
+        await message.answer("✅ Ты удалён из списка для команды /all!")
+
+    except Exception as e:
+        logging.exception(f"[all_users] Ошибка в /deleteme: {e}")
+        await message.answer("Произошла ошибка при удалении тебя из списка.")
+
+
+
+
+
 
 # ------------------------------
 # Когда новое сообщение
