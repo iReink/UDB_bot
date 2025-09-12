@@ -867,6 +867,76 @@ async def handle_give(message: types.Message):
 
 
 
+# --- /all ---
+@dp.message(Command("all"))
+async def cmd_all(message: types.Message):
+    chat_id = message.chat.id
+    user_name = message.from_user.full_name
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT nick FROM users
+            WHERE chat_id=? AND is_all=1 AND nick IS NOT NULL AND nick != ''
+        """, (chat_id,))
+        rows = cur.fetchall()
+
+    if not rows:
+        await message.answer("Никого не удалось собрать 😅")
+        return
+
+    nicks = " ".join([row["nick"] for row in rows])
+    text = (
+        f"{user_name} решил всех собрать!\n"
+        f"{nicks}\n\n"
+        "Хочешь чтобы тебя тоже хвалили этой командой? Пиши /addme\n"
+        "Хочешь удалить себя из этого списка? Жми /deleteme"
+    )
+    await message.answer(text)
+
+# --- /addme ---
+@dp.message(Command("addme"))
+async def cmd_addme(message: types.Message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE user_id=? AND chat_id=?", (user_id, chat_id))
+        user = cur.fetchone()
+
+    if not user:
+        await message.answer("Сначала бот должен знать о вас. Отправьте любое сообщение.")
+        return
+
+    # безопасно достаём ник
+    nick = user["nick"] if "nick" in user and user["nick"] else ""
+    add_or_update_user(user_id, chat_id, nick=nick, is_all=1)
+    await message.answer("✅ Вы добавлены в список /all")
+
+# --- /deleteme ---
+@dp.message(Command("deleteme"))
+async def cmd_deleteme(message: types.Message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE user_id=? AND chat_id=?", (user_id, chat_id))
+        user = cur.fetchone()
+
+    if not user:
+        await message.answer("Вы ещё не известны боту 😅")
+        return
+
+    # безопасно достаём ник
+    nick = user["nick"] if "nick" in user and user["nick"] else ""
+    add_or_update_user(user_id, chat_id, nick=nick, is_all=0)
+    await message.answer("❌ Вы удалены из списка /all")
+
+
+
+
 # ------------------------------
 # Когда новое сообщение
 # ------------------------------
