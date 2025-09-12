@@ -1422,17 +1422,31 @@ dp.message.register(handle_mujlo_message)
 dp.callback_query.register(handle_mujlo_buy, lambda c: c.data.startswith("mujlo_buy:"))
 
 async def main():
+    # Запускаем фоновые задачи
     asyncio.create_task(daily_reward_task())  # награждение в 23:55
     asyncio.create_task(weekly_awards.weekly_awards_task())  # еженедельные награды
     asyncio.create_task(daily_punish_task())  # Ежедневное наказание за кофе
     asyncio.create_task(silence_checker_task())
-    asyncio.create_task(reset_mujlo_daily()) # сброс покупок мужла по утру
+    asyncio.create_task(reset_mujlo_daily())  # сброс покупок мужла по утру
 
-    await dp.start_polling(
-        bot,
-        allowed_updates=["message", "callback_query", "message_reaction", "message_reaction_count"]
-    )
+    # Цикл polling с автоперезапуском при ошибках
+    while True:
+        try:
+            await dp.start_polling(
+                bot,
+                allowed_updates=["message", "callback_query", "message_reaction", "message_reaction_count"]
+            )
+        except (TelegramNetworkError, TelegramServerError) as e:
+            logging.warning(f"Ошибка Telegram: {e}. Перезапуск polling через 5 секунд...")
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            logging.info("Polling остановлен по сигналу CancelledError")
+            break
+        except Exception as e:
+            logging.exception(f"Неожиданная ошибка: {e}. Перезапуск polling через 5 секунд...")
+            await asyncio.sleep(5)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
