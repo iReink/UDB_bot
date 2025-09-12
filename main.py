@@ -910,42 +910,30 @@ async def cmd_addme(message: types.Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    try:
-        user = get_user(user_id, chat_id)
-        if user is None:
-            add_or_update_user(user_id, chat_id, name=message.from_user.full_name, sits=0, is_all=1)
-        else:
-            add_or_update_user(user_id, chat_id, name=user["name"], sits=user["sits"], nick=user.get("nick", ""), is_all=1)
+    # Берём текущие данные пользователя
+    user = get_user(user_id, chat_id)
+    if not user:
+        # Если пользователя нет в БД, добавим с ником из Telegram
+        nick = f"@{message.from_user.username}" if message.from_user.username else ""
+        add_or_update_user(user_id, chat_id, name=message.from_user.full_name, nick=nick, is_all=1)
+    else:
+        # Если есть — меняем только флаг is_all
+        add_or_update_user(user_id, chat_id, name=user["name"], is_all=1)
 
-        await message.answer("✅ Ты добавлен в список для команды /all!")
+    await message.answer("✅ Теперь ты в списке /all!")
 
-    except Exception as e:
-        logging.exception(f"[all_users] Ошибка в /addme: {e}")
-        await message.answer("Произошла ошибка при добавлении тебя в список.")
-
-
-# -----------------------------
-# /deleteme — удалить себя
-# -----------------------------
 @dp.message(Command("deleteme"))
 async def cmd_deleteme(message: types.Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    try:
-        user = get_user(user_id, chat_id)
-        if user is None:
-            await message.answer("❌ Тебя нет в базе, нечего удалять.")
-            return
+    user = get_user(user_id, chat_id)
+    if not user:
+        await message.answer("❌ Тебя нет в базе, нечего удалять.")
+        return
 
-        add_or_update_user(user_id, chat_id, name=user["name"], sits=user["sits"], nick=user.get("nick", ""), is_all=0)
-        await message.answer("✅ Ты удалён из списка для команды /all!")
-
-    except Exception as e:
-        logging.exception(f"[all_users] Ошибка в /deleteme: {e}")
-        await message.answer("Произошла ошибка при удалении тебя из списка.")
-
-
+    add_or_update_user(user_id, chat_id, name=user["name"], is_all=0)
+    await message.answer("✅ Ты удалён из списка /all.")
 
 
 
@@ -1293,6 +1281,7 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
             new_bal = get_user(user_id, chat_id)["sits"]
             msg = f"{user_name} получил 1 сит за фильтр. Остаток: {new_bal} сит"
             await callback.message.answer(msg)
+            from quest import update_quest_progress
             if n >= 5:
                 asyncio.create_task(update_quest_progress(user_id, chat_id, "coffee_safe", 1, bot))
             return

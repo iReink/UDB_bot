@@ -55,22 +55,25 @@ def add_or_update_user(
     sits: Optional[int] = None,
     punished: Optional[int] = None,
     sex: Optional[str] = None,
-    nick: Optional[str] = None
+    nick: Optional[str] = None,
+    is_all: Optional[int] = None  # <-- добавили параметр
 ):
-    """Добавляет или обновляет пользователя. Если sit/punished/sex/nick = None, не меняем."""
+    """Добавляет или обновляет пользователя. Если sit/punished/sex/nick/is_all = None, не меняем."""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO users (user_id, chat_id, name, sits, punished, sex, nick)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+        cur.execute(f"""
+            INSERT INTO users (user_id, chat_id, name, sits, punished, sex, nick, is_all)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 name = excluded.name,
                 sits = COALESCE(excluded.sits, users.sits),
                 punished = COALESCE(excluded.punished, users.punished),
                 sex = COALESCE(users.sex, excluded.sex),
-                nick = COALESCE(excluded.nick, users.nick)
-        """, (user_id, chat_id, name, sits, punished, sex, nick))
+                nick = COALESCE(excluded.nick, users.nick),
+                is_all = COALESCE(excluded.is_all, users.is_all)
+        """, (user_id, chat_id, name, sits, punished, sex, nick, is_all))
         conn.commit()
+
 
 
 def add_or_update_user_achievement(user_id: int, chat_id: int, achievement_key: str):
