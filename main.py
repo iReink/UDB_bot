@@ -911,7 +911,7 @@ async def cmd_addme(message: types.Message):
 
     # безопасно достаём ник
     nick = user["nick"] if "nick" in user and user["nick"] else ""
-    add_or_update_user(user_id, chat_id, nick=nick, is_all=1)
+    add_or_update_user(user_id, chat_id, is_all=1)
     await message.answer("✅ Вы добавлены в список /all")
 
 # --- /deleteme ---
