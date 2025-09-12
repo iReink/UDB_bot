@@ -51,27 +51,36 @@ from db import get_connection
 def add_or_update_user(
     user_id: int,
     chat_id: int,
-    name: str,
+    name: Optional[str] = None,
     sits: Optional[int] = None,
     punished: Optional[int] = None,
     sex: Optional[str] = None,
     nick: Optional[str] = None,
-    is_all: Optional[int] = None  # <-- добавили параметр
+    is_all: Optional[int] = None
 ):
-    """Добавляет или обновляет пользователя. Если sit/punished/sex/nick/is_all = None, не меняем."""
+    """Добавляет или обновляет пользователя. Меняем только те поля, что не None."""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
-        cur.execute(f"""
+        cur.execute("""
             INSERT INTO users (user_id, chat_id, name, sits, punished, sex, nick, is_all)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
-                name = excluded.name,
+                name = COALESCE(excluded.name, users.name),
                 sits = COALESCE(excluded.sits, users.sits),
                 punished = COALESCE(excluded.punished, users.punished),
-                sex = COALESCE(users.sex, excluded.sex),
+                sex = COALESCE(excluded.sex, users.sex),
                 nick = COALESCE(excluded.nick, users.nick),
                 is_all = COALESCE(excluded.is_all, users.is_all)
-        """, (user_id, chat_id, name, sits, punished, sex, nick, is_all))
+        """, (
+            user_id,
+            chat_id,
+            name,
+            sits,
+            punished,
+            sex,
+            nick,
+            is_all
+        ))
         conn.commit()
 
 

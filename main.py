@@ -882,7 +882,7 @@ async def cmd_all(message: types.Message):
         rows = cur.fetchall()
 
     if not rows:
-        await message.answer("Никого не удалось собрать 😅")
+        await message.answer("Никого не удалось собрать 😅. Добавь себя через /addme")
         return
 
     nicks = " ".join([row["nick"] for row in rows])
