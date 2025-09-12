@@ -59,8 +59,6 @@ def add_or_update_user(
     is_all: Optional[int] = None
 ):
     """Добавляет или обновляет пользователя. Меняем только те поля, что не None."""
-    if is_all is None:
-        is_all = 0  # для новой вставки
 
     with closing(get_connection()) as conn:
         cur = conn.cursor()
