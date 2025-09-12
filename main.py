@@ -870,6 +870,11 @@ async def handle_give(message: types.Message):
 # --- /all ---
 @dp.message(Command("all"))
 async def cmd_all(message: types.Message):
+    now_hour = datetime.now().hour
+    if now_hour > 19:
+        await message.answer("Сейчас слишком поздно чтобы всех звать. Попробуй после 9 утра")
+        return
+
     chat_id = message.chat.id
     user_name = message.from_user.full_name
 
@@ -877,18 +882,21 @@ async def cmd_all(message: types.Message):
         cur = conn.cursor()
         cur.execute("""
             SELECT nick FROM users
-            WHERE chat_id=? AND is_all=1 AND nick IS NOT NULL AND nick != ''
+            WHERE chat_id = ?
+              AND nick IS NOT NULL
+              AND nick != ''
+              AND is_all != 0
         """, (chat_id,))
         rows = cur.fetchall()
 
     if not rows:
-        await message.answer("Никого не удалось собрать 😅. Добавь себя через /addme")
+        await message.answer("Никого пока нет в списке /all. Пусть люди добавятся через /addme")
         return
 
-    nicks = " ".join([row["nick"] for row in rows])
+    mentions = " ".join(row[0] for row in rows)
     text = (
         f"{user_name} решил всех собрать!\n"
-        f"{nicks}\n\n"
+        f"{mentions}\n\n"
         "Хочешь чтобы тебя тоже хвалили этой командой? Пиши /addme\n"
         "Хочешь удалить себя из этого списка? Жми /deleteme"
     )
