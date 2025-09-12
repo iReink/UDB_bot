@@ -872,7 +872,7 @@ async def handle_give(message: types.Message):
 async def cmd_all(message: types.Message):
 
     now_hour = datetime.now().hour
-    if now_hour > 19:
+    if now_hour > 18:
         await message.answer("Сейчас слишком поздно чтобы всех звать. Попробуй после 9 утра")
         return
 
@@ -937,7 +937,7 @@ async def cmd_deleteme(message: types.Message):
 
     # безопасно достаём ник
     nick = user["nick"] if "nick" in user and user["nick"] else ""
-    add_or_update_user(user_id, chat_id, nick=nick, is_all=0)
+    add_or_update_user(user_id, chat_id, is_all=0)
     await message.answer("❌ Вы удалены из списка /all")
 
 
