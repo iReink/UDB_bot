@@ -895,7 +895,7 @@ async def cmd_all(message: types.Message):
     text = (
         f"{user_name} решил всех собрать!\n"
         f"{nicks}\n\n"
-        "Хочешь чтобы тебя тоже хвалили этой командой? Пиши /addme\n"
+        "Хочешь чтобы тебя тоже звали этой командой? Пиши /addme\n"
         "Хочешь удалить себя из этого списка? Жми /deleteme"
     )
     await message.answer(text)
