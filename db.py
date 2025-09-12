@@ -59,11 +59,14 @@ def add_or_update_user(
     is_all: Optional[int] = None
 ):
     """Добавляет или обновляет пользователя. Меняем только те поля, что не None."""
+    if is_all is None:
+        is_all = 0  # для новой вставки
+
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO users (user_id, chat_id, name, sits, punished, sex, nick, is_all)
-            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 name = COALESCE(excluded.name, users.name),
                 sits = COALESCE(excluded.sits, users.sits),
@@ -82,6 +85,7 @@ def add_or_update_user(
             is_all
         ))
         conn.commit()
+
 
 
 
