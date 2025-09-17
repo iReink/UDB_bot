@@ -772,7 +772,7 @@ from aiogram.filters import Command
 @dp.message(Command("charity"))
 async def charity_command(message: types.Message):
     import logging
-    from db import get_user_display_name  # предполагаю, что у тебя эти функции уже есть
+    from db import get_user_display_name
 
     admin_ids = [6010666986, 884940984, 749027951]  # кто может использовать команду
 
@@ -783,38 +783,38 @@ async def charity_command(message: types.Message):
         await message.answer("Команда только для администраторов доната")
         return
 
-    # Берём текст из caption, если сообщение с картинкой, иначе из text
-    text = message.text or message.caption or ""
-    args = text.strip().split()[1:]  # убираем саму команду
-
-    if len(args) < 2:
-        await message.answer(
-            "Ошибка: нужно указать пользователя и количество ситов.\n"
-            "Пример: /charity 884940984 50 или /charity @nickname 50"
-        )
+    # Берём текст команды (если есть фото/документ → caption)
+    text = message.text or message.caption
+    if not text:
+        await message.answer("Ошибка: не удалось распознать команду.")
         return
 
-    target_arg, amount_arg = args[0], args[1]
+    args = text.strip().split()
+    logging.info(f"[charity] Получены аргументы: {args}")
 
-    # Определяем ID пользователя
+    if len(args) < 3:
+        await message.answer("Ошибка: нужно указать user_id или @ник и количество ситов.\nПример: /charity 884940984 50 или /charity @nickname 50")
+        return
+
+    target_arg = args[1]
+    amount_arg = args[2]
+
+    # Определяем user_id цели
     target_user_id = None
-    if target_arg.startswith("@"):  # если ник
-        # Пытаемся найти пользователя в чате
-        try:
-            member = await message.chat.get_member(target_arg[1:])
-            target_user_id = member.user.id
-        except Exception as e:
-            await message.answer("Ошибка: не удалось найти пользователя по нику.")
-            logging.error(f"[charity] Ошибка поиска по нику {target_arg}: {e}")
+    if target_arg.startswith("@"):
+        target_nick = target_arg[1:]
+        target_user_id = find_user_id_by_nick(message.chat.id, target_nick)
+        if not target_user_id:
+            await message.answer("Ошибка: не удалось найти пользователя по нику в базе.")
             return
     else:
         try:
             target_user_id = int(target_arg)
         except ValueError:
-            await message.answer("Ошибка: user_id должен быть числом или укажите @nickname.")
+            await message.answer("Ошибка: user_id должен быть числом.")
             return
 
-    # Проверяем количество
+    # Количество ситов
     try:
         amount = int(amount_arg)
     except ValueError:
