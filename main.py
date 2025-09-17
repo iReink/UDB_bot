@@ -802,8 +802,8 @@ async def charity_command(message: types.Message):
     # Определяем user_id цели
     target_user_id = None
     if target_arg.startswith("@"):
-        target_nick = target_arg[1:]
-        target_user_id = find_user_id_by_nick(message.chat.id, target_nick)
+        #target_nick = target_arg[1:]
+        target_user_id = find_user_id_by_nick(message.chat.id, target_arg)
         if not target_user_id:
             await message.answer("Ошибка: не удалось найти пользователя по нику в базе.")
             return
