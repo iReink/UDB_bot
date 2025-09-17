@@ -32,6 +32,10 @@ from db import (
     increment_sticker_stats,
     get_user_display_name
 )
+from aiogram.filters import Command, CommandObject
+from aiogram.types import Message
+
+
 from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
 from sticker_manager import silence_checker_task, bot as sm_bot
 from mujlo import handle_mujlo_message, handle_mujlo_buy, reset_mujlo_daily
@@ -762,49 +766,57 @@ async def likes_menu_callback(callback_query: CallbackQuery):
     await callback_query.answer()
 
 
+from aiogram import types
+from aiogram.filters import Command
+
 @dp.message(Command("charity"))
-async def charity_command(message: types.Message, command: CommandObject):
-    admin_ids = [6010666986, 884940984, 749027951]  # список админов
+async def charity_command(message: types.Message):
+    import logging
+    from db import get_user_display_name  # предполагаю, что у тебя эти функции уже есть
+
+    admin_ids = [6010666986, 884940984, 749027951]  # кто может использовать команду
 
     caller_id = message.from_user.id
     logging.info(f"[charity] Команда вызвана пользователем {caller_id} ({message.from_user.username})")
 
-    # Проверяем права
     if caller_id not in admin_ids:
         await message.answer("Команда только для администраторов доната")
         return
 
-    # Проверяем наличие аргументов
-    if not command.args:
-        await message.answer("Ошибка: нужно указать пользователя и количество ситов.\nПример: /charity 884940984 50 или /charity @nickname 50")
-        return
-
-    args = command.args.split()
-    logging.info(f"[charity] Получены аргументы: {args}")
+    # Берём текст из caption, если сообщение с картинкой, иначе из text
+    text = message.text or message.caption or ""
+    args = text.strip().split()[1:]  # убираем саму команду
 
     if len(args) < 2:
-        await message.answer("Ошибка: нужно указать пользователя и количество ситов.\nПример: /charity 884940984 50 или /charity @nickname 50")
+        await message.answer(
+            "Ошибка: нужно указать пользователя и количество ситов.\n"
+            "Пример: /charity 884940984 50 или /charity @nickname 50"
+        )
         return
 
-    # Определяем target_user_id
-    target_arg = args[0]
-    target_user_id = None
+    target_arg, amount_arg = args[0], args[1]
 
-    if target_arg.isdigit():
-        target_user_id = int(target_arg)
-    elif target_arg.startswith("@"):
-        # ищем по username в БД
-        target_user_id = get_user_id_by_username(target_arg[1:], message.chat.id)
-        if not target_user_id:
-            await message.answer(f"Ошибка: пользователь {target_arg} не найден в базе.")
+    # Определяем ID пользователя
+    target_user_id = None
+    if target_arg.startswith("@"):  # если ник
+        # Пытаемся найти пользователя в чате
+        try:
+            member = await message.chat.get_member(target_arg[1:])
+            target_user_id = member.user.id
+        except Exception as e:
+            await message.answer("Ошибка: не удалось найти пользователя по нику.")
+            logging.error(f"[charity] Ошибка поиска по нику {target_arg}: {e}")
             return
     else:
-        await message.answer("Ошибка: укажите user_id (числом) или @username.")
-        return
+        try:
+            target_user_id = int(target_arg)
+        except ValueError:
+            await message.answer("Ошибка: user_id должен быть числом или укажите @nickname.")
+            return
 
-    # количество ситов
+    # Проверяем количество
     try:
-        amount = int(args[1])
+        amount = int(amount_arg)
     except ValueError:
         await message.answer("Ошибка: количество ситов должно быть числом.")
         return
@@ -812,12 +824,12 @@ async def charity_command(message: types.Message, command: CommandObject):
     # Начисляем ситы
     add_sits(message.chat.id, target_user_id, amount)
 
-    # Получаем имя пользователя
+    # Получаем имя пользователя для упоминания
     target_name = get_user_display_name(target_user_id, message.chat.id)
 
-    # Отвечаем в чат
-    await message.answer(f"Спасибо {target_name} за доброе дело! {amount} сита начислено 🐾")
+    await message.answer(f"Спасибо {target_name} за доброе дело! {amount} сита начислено")
     logging.info(f"[charity] Начислено {amount} сита пользователю {target_user_id} ({target_name})")
+
 
 
 
