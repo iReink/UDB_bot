@@ -763,34 +763,48 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
 
 @dp.message(Command("charity"))
-async def charity_command(message: types.Message):
-    import logging
-    from db import get_user_display_name
-
-    admin_ids = [6010666986, 884940984, 749027951]  # кто может использовать команду
+async def charity_command(message: types.Message, command: CommandObject):
+    admin_ids = [6010666986, 884940984, 749027951]  # список админов
 
     caller_id = message.from_user.id
     logging.info(f"[charity] Команда вызвана пользователем {caller_id} ({message.from_user.username})")
 
+    # Проверяем права
     if caller_id not in admin_ids:
         await message.answer("Команда только для администраторов доната")
         return
 
-    args = message.text.strip().split()
+    # Проверяем наличие аргументов
+    if not command.args:
+        await message.answer("Ошибка: нужно указать пользователя и количество ситов.\nПример: /charity 884940984 50 или /charity @nickname 50")
+        return
+
+    args = command.args.split()
     logging.info(f"[charity] Получены аргументы: {args}")
 
-    if len(args) < 3:
-        await message.answer("Ошибка: нужно указать user_id и количество ситов.\nПример: /charity 884940984 50")
+    if len(args) < 2:
+        await message.answer("Ошибка: нужно указать пользователя и количество ситов.\nПример: /charity 884940984 50 или /charity @nickname 50")
         return
 
-    try:
-        target_user_id = int(args[1])
-    except ValueError:
-        await message.answer("Ошибка: user_id должен быть числом.")
+    # Определяем target_user_id
+    target_arg = args[0]
+    target_user_id = None
+
+    if target_arg.isdigit():
+        target_user_id = int(target_arg)
+    elif target_arg.startswith("@"):
+        # ищем по username в БД
+        target_user_id = get_user_id_by_username(target_arg[1:], message.chat.id)
+        if not target_user_id:
+            await message.answer(f"Ошибка: пользователь {target_arg} не найден в базе.")
+            return
+    else:
+        await message.answer("Ошибка: укажите user_id (числом) или @username.")
         return
 
+    # количество ситов
     try:
-        amount = int(args[2])
+        amount = int(args[1])
     except ValueError:
         await message.answer("Ошибка: количество ситов должно быть числом.")
         return
@@ -798,10 +812,11 @@ async def charity_command(message: types.Message):
     # Начисляем ситы
     add_sits(message.chat.id, target_user_id, amount)
 
-    # Получаем имя пользователя для упоминания
+    # Получаем имя пользователя
     target_name = get_user_display_name(target_user_id, message.chat.id)
 
-    await message.answer(f"Спасибо {target_name} за доброе дело! {amount} сита начислено")
+    # Отвечаем в чат
+    await message.answer(f"Спасибо {target_name} за доброе дело! {amount} сита начислено 🐾")
     logging.info(f"[charity] Начислено {amount} сита пользователю {target_user_id} ({target_name})")
 
 
