@@ -214,6 +214,10 @@ async def start_group_event(message: types.Message, user_id: int):
     name = get_user_display_name(user_id, chat_id)
     state.names[user_id] = name
 
+    # ✅ Засчитываем участие в квесте group_part
+    from quest import update_quest_progress
+    await update_quest_progress(user_id, chat_id, "group_part", 1, bot=message.bot)
+
     await message.answer_sticker(STICKER_FILE_ID)
     await message.answer(f"С твоего счёта списано {EVENT_COST} сит за запуск ивента")
 
