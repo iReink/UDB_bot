@@ -3,7 +3,7 @@ from contextlib import closing
 import sqlite3
 from datetime import datetime, timedelta
 
-DB_PATH = "udb.sqlite3"  # укажи свой путь, если отличается
+DB_PATH = "stats.db"  # укажи свой путь, если отличается
 
 
 def insert_mock_dailies():
