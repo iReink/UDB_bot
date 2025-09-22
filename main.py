@@ -61,6 +61,9 @@ register_quest_handlers(dp)
 from hall import register_hall_handlers
 register_hall_handlers(dp)
 
+from daily import register_daily_handlers
+register_daily_handlers(dp)
+
 
 from dotenv import load_dotenv
 load_dotenv()
