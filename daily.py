@@ -19,7 +19,7 @@ admin_ids = [6010666986, 884940984, 749027951]
 # ==========================
 def format_daily_text(daily: dict, participants: List[dict]) -> str:
     dt_str = f"{daily['date']} - {daily['time']}"
-    dt_obj = datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M:%S")
+    dt_obj = datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")
     delta = dt_obj - datetime.now()
     hours, remainder = divmod(int(delta.total_seconds()), 3600)
     minutes = remainder // 60
