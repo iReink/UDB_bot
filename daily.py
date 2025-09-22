@@ -26,7 +26,7 @@ def format_daily_text(daily: dict, participants: List[dict]) -> str:
 
     text = [
         f"{dt_str}. До него осталось: {hours}ч {minutes}м",
-        f"{daily['title']} — {daily['description']}"
+        f"{daily['name']} — {daily['description']}"
     ]
     if daily.get('link'):
         text.append(daily['link'])
