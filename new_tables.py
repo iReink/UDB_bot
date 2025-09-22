@@ -2,7 +2,7 @@
 import sqlite3
 from contextlib import closing
 
-DB_PATH = "database.sqlite3"  # можно поменять под твой путь
+DB_PATH = "stats.db"  # можно поменять под твой путь
 
 
 def create_tables():
