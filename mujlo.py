@@ -22,8 +22,8 @@ async def handle_mujlo_message(message: types.Message):
     try:
         now = datetime.now()
         hour = now.hour
-        if not hour < 5:
-            return  # только между 22:00 и 03:00
+        if not 1 < hour < 5:
+            return
 
         chat_id = message.chat.id
         user_id = message.from_user.id
@@ -36,9 +36,9 @@ async def handle_mujlo_message(message: types.Message):
             if not row or row["sex"] != "m":
                 return
 
-        # Проверяем таймаут 3 минуты
+        # Проверяем таймаут 30 минут
         last_time = _last_mujlo_sent.get((chat_id, user_id))
-        if last_time and (now - last_time) < timedelta(minutes=3):
+        if last_time and (now - last_time) < timedelta(minutes=30):
             return
 
         # Проверяем, не купил ли пользователь право говорить до конца ночи
