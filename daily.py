@@ -4,14 +4,12 @@ from contextlib import closing
 from datetime import datetime
 from typing import List
 
-from aiogram import types, Bot
+from aiogram import types, Bot, Dispatcher
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters.command import Command
-from aiogram import Dispatcher
 
 DB_PATH = "stats.db"
-
 admin_ids = [6010666986, 884940984, 749027951]
 
 # ==========================
@@ -43,6 +41,7 @@ def format_daily_text(daily: dict, participants: List[dict]) -> str:
 
     return "\n".join(text)
 
+
 def get_daily_participants(daily_id: int, chat_id: int) -> List[dict]:
     with closing(sqlite3.connect(DB_PATH)) as conn:
         cur = conn.cursor()
@@ -54,6 +53,7 @@ def get_daily_participants(daily_id: int, chat_id: int) -> List[dict]:
         """, (chat_id, daily_id))
         rows = cur.fetchall()
     return [{'user_id': r[0], 'name': r[1], 'is_driver': bool(r[2])} for r in rows]
+
 
 def daily_buttons(user_id: int, daily_id: int, cars: str, participants: List[dict]) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
@@ -75,10 +75,12 @@ def daily_buttons(user_id: int, daily_id: int, cars: str, participants: List[dic
 
     return kb.as_markup()
 
+
 # ==========================
 # ОБРАБОТЧИКИ
 # ==========================
 def register_daily_handlers(dp: Dispatcher):
+
     @dp.message(Command("daily"))
     async def daily_menu(message: types.Message):
         chat_id = message.chat.id
@@ -92,7 +94,7 @@ def register_daily_handlers(dp: Dispatcher):
                 WHERE chat_id = ? AND date || ' ' || time >= ?
                 ORDER BY date || ' ' || time ASC
                 LIMIT 1
-            """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
             row = cur.fetchone()
             if not row:
                 await message.answer("Ближайших дейли нет.")
@@ -101,7 +103,6 @@ def register_daily_handlers(dp: Dispatcher):
 
         participants = get_daily_participants(daily['id'], chat_id)
         text = format_daily_text(daily, participants)
-
         kb = InlineKeyboardBuilder()
         kb.row(
             InlineKeyboardButton(text="🚩 Дейли, на которые я иду", callback_data="my_dailies"),
@@ -113,6 +114,7 @@ def register_daily_handlers(dp: Dispatcher):
         )
         await message.answer(text, reply_markup=kb.as_markup())
 
+
     # ==========================
     # CALLBACK-ОБРАБОТЧИКИ
     # ==========================
@@ -122,7 +124,7 @@ def register_daily_handlers(dp: Dispatcher):
         user_id = query.from_user.id
         data = query.data
 
-        # Получение дейлика
+        # Вспомогательная функция
         def get_daily(daily_id: int) -> dict | None:
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
@@ -131,6 +133,16 @@ def register_daily_handlers(dp: Dispatcher):
                 if row:
                     return dict(zip([column[0] for column in cur.description], row))
                 return None
+
+        async def refresh_message(daily_id: int):
+            daily = get_daily(daily_id)
+            if not daily:
+                await query.message.edit_text("Ошибка: дейлик не найден")
+                return
+            participants = get_daily_participants(daily_id, chat_id)
+            text = format_daily_text(daily, participants)
+            kb_markup = daily_buttons(user_id, daily_id, daily['cars'], participants)
+            await query.message.edit_text(text, reply_markup=kb_markup)
 
         if data.startswith("daily_join:"):
             daily_id = int(data.split(":")[1])
@@ -144,6 +156,7 @@ def register_daily_handlers(dp: Dispatcher):
                             (daily_id, user_id))
                 conn.commit()
             await query.answer("Вы присоединились к дейли!")
+            await refresh_message(daily_id)
 
         elif data.startswith("daily_leave:"):
             daily_id = int(data.split(":")[1])
@@ -153,6 +166,7 @@ def register_daily_handlers(dp: Dispatcher):
                             (daily_id, user_id))
                 conn.commit()
             await query.answer("Вы отказались от участия.")
+            await refresh_message(daily_id)
 
         elif data.startswith("daily_driver:"):
             daily_id = int(data.split(":")[1])
@@ -162,6 +176,7 @@ def register_daily_handlers(dp: Dispatcher):
                             (daily_id, user_id))
                 conn.commit()
             await query.answer("Вы теперь водитель с машиной!")
+            await refresh_message(daily_id)
 
         elif data.startswith("daily_nodriver:"):
             daily_id = int(data.split(":")[1])
@@ -171,39 +186,42 @@ def register_daily_handlers(dp: Dispatcher):
                             (daily_id, user_id))
                 conn.commit()
             await query.answer("Вы больше не водитель с машиной!")
+            await refresh_message(daily_id)
 
         elif data == "my_dailies":
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
                 cur.execute("""
-                    SELECT * FROM daily_events WHERE chat_id=? AND date || ' ' || time >= ?
+                    SELECT * FROM daily_events
+                    WHERE chat_id=? AND date || ' ' || time >= ?
                     ORDER BY date || ' ' || time ASC
-                """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 all_rows = cur.fetchall()
 
-            messages = []
             for row in all_rows:
                 daily = dict(zip([column[0] for column in cur.description], row))
                 participants = get_daily_participants(daily['id'], chat_id)
                 if any(p['user_id'] == user_id for p in participants):
                     text = format_daily_text(daily, participants)
-                    kb = daily_buttons(user_id, daily['id'], daily['cars'], participants)
-                    await query.message.answer(text, reply_markup=kb)
+                    kb_markup = daily_buttons(user_id, daily['id'], daily['cars'], participants)
+                    await query.message.answer(text, reply_markup=kb_markup)
 
         elif data == "all_dailies":
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
                 cur.execute("""
-                    SELECT * FROM daily_events WHERE chat_id=? AND date || ' ' || time >= ?
+                    SELECT * FROM daily_events
+                    WHERE chat_id=? AND date || ' ' || time >= ?
                     ORDER BY date || ' ' || time ASC
-                """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 all_rows = cur.fetchall()
+
             for row in all_rows:
                 daily = dict(zip([column[0] for column in cur.description], row))
                 participants = get_daily_participants(daily['id'], chat_id)
                 text = format_daily_text(daily, participants)
-                kb = daily_buttons(user_id, daily['id'], daily['cars'], participants)
-                await query.message.answer(text, reply_markup=kb)
+                kb_markup = daily_buttons(user_id, daily['id'], daily['cars'], participants)
+                await query.message.answer(text, reply_markup=kb_markup)
 
         elif data == "new_daily":
             await query.answer("Заглушка: создание нового дейлика")
@@ -215,7 +233,7 @@ def register_daily_handlers(dp: Dispatcher):
                 cur.execute("""
                     SELECT COUNT(*) FROM daily_events
                     WHERE creator_user_id=? AND chat_id=? AND date || ' ' || time >= ?
-                """, (user_id, chat_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                """, (user_id, chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 count = cur.fetchone()[0]
             if user_id in admin_ids or count > 0:
                 await query.answer("Кнопка нажата")
