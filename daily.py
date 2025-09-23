@@ -342,7 +342,7 @@ def register_daily_handlers(dp: Dispatcher):
             text = format_daily_text(daily, participants)
             kb = daily_buttons(user_id, daily_id, daily['cars'], participants)
             try:
-                await query.message.edit_text(text=text, reply_markup=kb, parse_mode="HTML")
+                await query.message.edit_text(text=text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
             except:
                 pass  # если сообщение не изменилось, пропускаем ошибку
 
