@@ -39,7 +39,7 @@ def format_daily_text(daily: dict, participants: List[dict]) -> str:
     lines = [
         f"{date_str} {daily['time']}. До него осталось: {remaining}",
         "",
-        f"<b>{daily['name']}</b> — {daily['description']}"
+        f"📆 <b>{daily['name']}</b> — {daily['description']}"
     ]
 
     if daily.get('link'):
@@ -48,7 +48,7 @@ def format_daily_text(daily: dict, participants: List[dict]) -> str:
     lines.append("")  # пустая строка перед участниками
 
     names = [p['name'] for p in participants]
-    lines.append("Участвуют: " + (", ".join(names) if names else "никого"))
+    lines.append("👨‍👩‍👦‍👦 Участвуют: " + (", ".join(names) if names else "никого"))
 
     if daily['cars'] in ('да', '1'):
         num_participants = len(participants)
