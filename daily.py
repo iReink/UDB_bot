@@ -135,18 +135,14 @@ def register_daily_handlers(dp: Dispatcher):
         link = State()
         cars = State()
 
-    @dp.message(Command(commands=None, prefixes=['/daily_']))
+    @dp.message(lambda m: re.match(r"^/daily_\d+$", m.text))
     async def daily_go_command(message: types.Message):
         user_id = message.from_user.id
         chat_id = message.chat.id
         command = message.text.strip()
 
         # извлекаем id дейлика из команды
-        try:
-            daily_id = int(command.split("_")[1])
-        except (IndexError, ValueError):
-            await message.answer("Неверная команда")
-            return
+        daily_id = int(command.split("_")[1])
 
         # проверяем, есть ли такой дейлик
         with closing(sqlite3.connect(DB_PATH)) as conn:
