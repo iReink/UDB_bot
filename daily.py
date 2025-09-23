@@ -289,7 +289,11 @@ def register_daily_handlers(dp: Dispatcher):
             """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
             row = cur.fetchone()
             if not row:
-                await message.answer("Ближайших дейли нет.")
+                keyboard = InlineKeyboardBuilder()
+                keyboard.add(
+                    InlineKeyboardButton(text="👾 Создать новый дейлик", callback_data="daily_new_daily")
+                )
+                await message.answer("Ближайших дейли нет.", reply_markup=keyboard.as_markup())
                 return
             daily = dict(zip([column[0] for column in cur.description], row))
 
