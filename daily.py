@@ -200,6 +200,9 @@ def register_daily_handlers(dp: Dispatcher):
                 """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 all_rows = cur.fetchall()
 
+            # 🔽 Добавляем заголовок
+            await query.message.answer("<b>Список дейликов, в которых ты принимаешь участие</b>", parse_mode="HTML")
+
             for row in all_rows:
                 daily = dict(zip([column[0] for column in cur.description], row))
                 participants = get_daily_participants(daily['id'], chat_id)
@@ -217,6 +220,9 @@ def register_daily_handlers(dp: Dispatcher):
                     ORDER BY date || ' ' || time ASC
                 """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 all_rows = cur.fetchall()
+
+            # 🔽 Добавляем заголовок
+            await query.message.answer("<b>Список всех запланированных дейликов</b>", parse_mode="HTML")
 
             for row in all_rows:
                 daily = dict(zip([column[0] for column in cur.description], row))
