@@ -190,29 +190,35 @@ def register_daily_handlers(dp: Dispatcher):
             await refresh_message(daily_id)
             await query.answer("Вы отказались от участия ❌")
 
+
         elif data.startswith("daily_driver:"):
             daily_id = int(data.split(":")[1])
+            participants = get_daily_participants(daily_id, chat_id)
+            if not any(p['user_id'] == user_id for p in participants):
+                await query.answer("Вы должны сначала участвовать в дейлике, чтобы стать водителем!", show_alert=True)
+                return
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
-                cur.execute(
-                    "UPDATE daily_participants SET is_driver=1 WHERE daily_id=? AND user_id=?",
-                    (daily_id, user_id)
-                )
+                cur.execute("UPDATE daily_participants SET is_driver=1 WHERE daily_id=? AND user_id=?",
+                            (daily_id, user_id))
                 conn.commit()
-            await refresh_message(daily_id)
-            await query.answer("Вы теперь водитель 🚗")
+            await query.answer("Вы теперь водитель с машиной!")
+            await refresh_message(daily_id)  # обновление текста и кнопок
+
 
         elif data.startswith("daily_nodriver:"):
             daily_id = int(data.split(":")[1])
+            participants = get_daily_participants(daily_id, chat_id)
+            if not any(p['user_id'] == user_id for p in participants):
+                await query.answer("Вы должны сначала участвовать в дейлике!", show_alert=True)
+                return
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
-                cur.execute(
-                    "UPDATE daily_participants SET is_driver=0 WHERE daily_id=? AND user_id=?",
-                    (daily_id, user_id)
-                )
+                cur.execute("UPDATE daily_participants SET is_driver=0 WHERE daily_id=? AND user_id=?",
+                            (daily_id, user_id))
                 conn.commit()
-            await refresh_message(daily_id)
-            await query.answer("Вы больше не водитель 🅿️")
+            await query.answer("Вы больше не водитель с машиной!")
+            await refresh_message(daily_id)  # обновление текста и кнопок
 
         elif data == "daily_my_dailies":
             with closing(sqlite3.connect(DB_PATH)) as conn:
