@@ -175,7 +175,7 @@ def register_daily_handlers(dp: Dispatcher):
         await message.answer("Введите дату и время (ДД.ММ ЧЧ:ММ):", reply_markup=cancel_kb)
         await state.set_state(DailyCreation.datetime)
 
-    @dp.message(lambda m: m.text != "❌ Отмена", state=DailyCreation.datetime)
+    @dp.message(lambda m: m.text != "❌ Отмена", StateFilter(DailyCreation.datetime))
     async def process_datetime(message: types.Message, state: FSMContext):
         try:
             dt = datetime.strptime(message.text, "%d.%m %H:%M")
