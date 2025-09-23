@@ -141,18 +141,26 @@ def register_daily_handlers(dp: Dispatcher):
         link = State()
         cars = State()
 
-    @dp.message(lambda m: re.match(r"^/daily_\d+$", m.text))
+    @dp.message(lambda m: m.text and m.text.startswith("/daily_"))
     async def daily_go_command(message: types.Message):
         user_id = message.from_user.id
         chat_id = message.chat.id
-        command = message.text.strip()
 
-        # извлекаем id дейлика из команды
-        daily_id = int(command.split("_")[1])
+        # Убираем суффикс @username, если есть
+        command_text = message.text.split('@')[0]  # /daily_11
 
-        # проверяем, есть ли такой дейлик
+        # Извлекаем ID дейлика
+        match = re.match(r"^/daily_(\d+)$", command_text)
+        if not match:
+            return  # если вдруг формат некорректный
+
+        daily_id = int(match.group(1))
+
+        # Работа с БД
         with closing(sqlite3.connect(DB_PATH)) as conn:
             cur = conn.cursor()
+
+            # Проверяем, есть ли такой дейлик
             cur.execute("SELECT name FROM daily_events WHERE id=?", (daily_id,))
             row = cur.fetchone()
             if not row:
@@ -160,7 +168,7 @@ def register_daily_handlers(dp: Dispatcher):
                 return
             daily_name = row[0]
 
-            # проверяем, участвует ли пользователь
+            # Проверяем, участвует ли пользователь
             cur.execute(
                 "SELECT 1 FROM daily_participants WHERE daily_id=? AND user_id=?",
                 (daily_id, user_id)
@@ -169,7 +177,7 @@ def register_daily_handlers(dp: Dispatcher):
                 await message.answer(f"Вы уже участвуете в дейлике {daily_name}", show_alert=True)
                 return
 
-            # добавляем пользователя в участники
+            # Добавляем пользователя в участники
             cur.execute(
                 "INSERT INTO daily_participants(daily_id, user_id, is_driver) VALUES (?, ?, 0)",
                 (daily_id, user_id)
