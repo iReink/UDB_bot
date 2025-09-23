@@ -135,18 +135,19 @@ def register_daily_handlers(dp: Dispatcher):
         link = State()
         cars = State()
 
-    # Клавиатура для отмены FSM
-    cancel_kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="❌ Отмена")]],
-        resize_keyboard=True,
-        one_time_keyboard=True
+    # Inline-кнопка отмены для FSM
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    cancel_inline_kb = InlineKeyboardBuilder()
+    cancel_inline_kb.add(
+        InlineKeyboardButton(text="❌ Отмена", callback_data="daily_cancel")
     )
 
-    # Inline-кнопки для выбора машины
+    # Inline-кнопки для выбора машины с отменой
     cars_kb = InlineKeyboardBuilder()
     cars_kb.row(
         InlineKeyboardButton(text="Да", callback_data="daily_cars_yes"),
-        InlineKeyboardButton(text="Нет", callback_data="daily_cars_no")
+        InlineKeyboardButton(text="Нет", callback_data="daily_cars_no"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="daily_cancel")
     )
 
     @dp.callback_query(lambda c: c.data == "daily_new_daily")
@@ -157,7 +158,10 @@ def register_daily_handlers(dp: Dispatcher):
         # Блокируем кнопку для пользователя
         await query.answer("Начинаем создание дейлика! Следуйте инструкциям. ❗️", show_alert=True)
 
-        await query.message.answer("Введите название дейлика:", reply_markup=cancel_kb)
+        await query.message.answer(
+            "Введите название дейлика:",
+            reply_markup=cancel_inline_kb.as_markup()
+        )
         await state.set_state(DailyCreation.name)
 
     # Обработка всех текстовых сообщений в FSM
@@ -165,14 +169,20 @@ def register_daily_handlers(dp: Dispatcher):
     @dp.message(StateFilter(DailyCreation.name), lambda m: m.text != "❌ Отмена")
     async def process_name(message: types.Message, state: FSMContext):
         await state.update_data(name=message.text)
-        await message.answer("Введите описание дейлика:", reply_markup=cancel_kb)
+        await message.answer(
+            "Введите описание дейлика:",
+            reply_markup=cancel_inline_kb.as_markup()
+        )
         await state.set_state(DailyCreation.description)
 
     from aiogram.filters.state import StateFilter
     @dp.message(lambda m: m.text != "❌ Отмена", StateFilter(DailyCreation.description))
     async def process_description(message: types.Message, state: FSMContext):
         await state.update_data(description=message.text)
-        await message.answer("Введите дату и время (ДД.ММ ЧЧ:ММ):", reply_markup=cancel_kb)
+        await message.answer(
+            "Введите дату и время (ДД.ММ ЧЧ:ММ):",
+            reply_markup=cancel_inline_kb.as_markup()
+        )
         await state.set_state(DailyCreation.datetime)
 
     @dp.message(lambda m: m.text != "❌ Отмена", StateFilter(DailyCreation.datetime))
@@ -189,7 +199,10 @@ def register_daily_handlers(dp: Dispatcher):
         except ValueError:
             await message.answer("Неверный формат. Введите дату и время в формате ДД.ММ ЧЧ:ММ, например 17.07 19:00")
             return
-        await message.answer("Введите ссылку на информацию или '-' если нет:", reply_markup=cancel_kb)
+        await message.answer(
+            "Введите ссылку на информацию или '-' если нет:",
+            reply_markup=cancel_inline_kb.as_markup()
+        )
         await state.set_state(DailyCreation.link)
 
     @dp.message(lambda m: m.text != "❌ Отмена", StateFilter(DailyCreation.link))
@@ -252,10 +265,14 @@ def register_daily_handlers(dp: Dispatcher):
         await query.answer("Дейлик успешно создан ✅")
 
     # Обработка отмены FSM
-    @dp.message(lambda m: m.text == "❌ Отмена", StateFilter("*"))
-    async def cancel_daily_creation(message: types.Message, state: FSMContext):
+    @dp.callback_query(lambda c: c.data == "daily_cancel", StateFilter("*"))
+    async def cancel_daily_creation(query: types.CallbackQuery, state: FSMContext):
         await state.clear()
-        await message.answer("Создание дейлика отменено ❌", reply_markup=types.ReplyKeyboardRemove())
+        await query.message.edit_text(
+            "Создание дейлика отменено ❌",
+            reply_markup=None
+        )
+        await query.answer()
 
     @dp.message(Command("daily"))
     async def daily_menu(message: types.Message):
