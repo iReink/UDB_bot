@@ -244,7 +244,7 @@ def register_daily_handlers(dp: Dispatcher):
             conn.commit()
             daily_id = cur.lastrowid
 
-        await query.message.answer("📆 Дейлик создан!", reply_markup=types.ReplyKeyboardRemove())
+        await query.message.answer("📆 Дейлик создан!", reply_markup=types.ReplyKeyboardRemove(), disable_web_page_preview=True)
 
         # Показываем дейлик как для обычного /daily
         participants = get_daily_participants(daily_id, chat_id)
@@ -293,7 +293,7 @@ def register_daily_handlers(dp: Dispatcher):
                 keyboard.add(
                     InlineKeyboardButton(text="👾 Создать новый дейлик", callback_data="daily_new_daily")
                 )
-                await message.answer("Ближайших дейли нет.", reply_markup=keyboard.as_markup())
+                await message.answer("Запланированных дейли нет.", reply_markup=keyboard.as_markup())
                 return
             daily = dict(zip([column[0] for column in cur.description], row))
 
@@ -307,9 +307,9 @@ def register_daily_handlers(dp: Dispatcher):
         )
         kb.row(
             InlineKeyboardButton(text="👾 Создать новый дейлик", callback_data="daily_new_daily"),
-            InlineKeyboardButton(text="✍️ Редактировать свой дейлик", callback_data="daily_edit_daily")
+            InlineKeyboardButton(text="✍️ Редактировать дейлик", callback_data="daily_edit_daily")
         )
-        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
 
     # ==========================
     # CALLBACK-ОБРАБОТЧИКИ
@@ -499,7 +499,7 @@ def register_daily_handlers(dp: Dispatcher):
 
                 )
 
-                await query.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+                await query.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
 
 
         elif data.startswith("daily_edit:"):
