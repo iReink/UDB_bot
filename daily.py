@@ -161,7 +161,8 @@ def register_daily_handlers(dp: Dispatcher):
         await state.set_state(DailyCreation.name)
 
     # Обработка всех текстовых сообщений в FSM
-    @dp.message(lambda m: m.text != "❌ Отмена", state=DailyCreation.name)
+    from aiogram.filters.state import StateFilter
+    @dp.message(StateFilter(DailyCreation.name), lambda m: m.text != "❌ Отмена")
     async def process_name(message: types.Message, state: FSMContext):
         await state.update_data(name=message.text)
         await message.answer("Введите описание дейлика:", reply_markup=cancel_kb)
