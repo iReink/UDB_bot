@@ -42,8 +42,8 @@ def format_daily_text(daily: dict, participants: List[dict]) -> str:
         f"<b>{daily['name']}</b> — {daily['description']}"
     ]
 
-    if daily.get("link"):
-        lines.append(f"[Информация]({daily['link']})")
+    if daily.get('link'):
+        lines.append(f'<a href="{daily["link"]}">Информация</a>')
 
     lines.append("")  # пустая строка перед участниками
 
