@@ -87,18 +87,25 @@ def daily_buttons(user_id: int, daily_id: int, cars: str, participants: List[dic
     is_participant = any(p['user_id'] == user_id for p in participants)
     is_driver = any(p['user_id'] == user_id and p['is_driver'] for p in participants)
 
-    if not is_participant:
-        kb.add(InlineKeyboardButton(text="Участвовать", callback_data=f"daily_join:{daily_id}"))
-    else:
-        kb.add(InlineKeyboardButton(text="Не участвовать", callback_data=f"daily_leave:{daily_id}"))
+    # Универсальная кнопка участия
+    kb.add(
+        InlineKeyboardButton(
+            text="👋 Присоединиться / Отказаться",
+            callback_data=f"daily_toggle_participation:{daily_id}"
+        )
+    )
 
+    # Универсальная кнопка водителя (если машины нужны)
     if cars in ('да', '1'):
-        if not is_driver:
-            kb.add(InlineKeyboardButton(text="Стать водителем с машиной", callback_data=f"daily_driver:{daily_id}"))
-        else:
-            kb.add(InlineKeyboardButton(text="Я не водитель с машиной", callback_data=f"daily_nodriver:{daily_id}"))
+        kb.add(
+            InlineKeyboardButton(
+                text="🚗 Я водитель / Я не водитель",
+                callback_data=f"daily_toggle_driver:{daily_id}"
+            )
+        )
 
     return kb.as_markup()
+
 
 # ==========================
 # CALLBACKS FSM
@@ -342,50 +349,48 @@ def register_daily_handlers(dp: Dispatcher):
         # ==========================
         # Работа с обычными кнопками
         # ==========================
-        if data.startswith("daily_join:"):
+        if data.startswith("daily_toggle_participation:"):
             daily_id = int(data.split(":")[1])
             participants = get_daily_participants(daily_id, chat_id)
             if any(p['user_id'] == user_id for p in participants):
-                await query.answer("Вы уже участвуете!")
-                return
-            with closing(sqlite3.connect(DB_PATH)) as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "INSERT INTO daily_participants(daily_id, user_id, is_driver) VALUES (?, ?, 0)",
-                    (daily_id, user_id)
-                )
-                conn.commit()
+                # Удаляем участие
+                with closing(sqlite3.connect(DB_PATH)) as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "DELETE FROM daily_participants WHERE daily_id=? AND user_id=?",
+                        (daily_id, user_id)
+                    )
+                    conn.commit()
+                await query.answer("Вы отказались от участия ❌")
+            else:
+                # Добавляем участие
+                with closing(sqlite3.connect(DB_PATH)) as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO daily_participants(daily_id, user_id, is_driver) VALUES (?, ?, 0)",
+                        (daily_id, user_id)
+                    )
+                    conn.commit()
+                await query.answer("Вы присоединились к дейли! ✅")
             await refresh_message(daily_id)
-            await query.answer("Вы присоединились к дейли! ✅")
 
-        elif data.startswith("daily_leave:"):
-            daily_id = int(data.split(":")[1])
-            with closing(sqlite3.connect(DB_PATH)) as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "DELETE FROM daily_participants WHERE daily_id=? AND user_id=?",
-                    (daily_id, user_id)
-                )
-                conn.commit()
-            await refresh_message(daily_id)
-            await query.answer("Вы отказались от участия ❌")
-
-        elif data.startswith("daily_driver:") or data.startswith("daily_nodriver:"):
+        elif data.startswith("daily_toggle_driver:"):
             daily_id = int(data.split(":")[1])
             participants = get_daily_participants(daily_id, chat_id)
             if not any(p['user_id'] == user_id for p in participants):
                 await query.answer("Сначала нужно участвовать!", show_alert=True)
                 return
-            is_driver = data.startswith("daily_driver:")
+            is_driver = next((p['is_driver'] for p in participants if p['user_id'] == user_id), False)
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
                 cur.execute(
                     "UPDATE daily_participants SET is_driver=? WHERE daily_id=? AND user_id=?",
-                    (1 if is_driver else 0, daily_id, user_id)
+                    (0 if is_driver else 1, daily_id, user_id)
                 )
                 conn.commit()
             await query.answer("Статус водителя обновлён!")
             await refresh_message(daily_id)
+
 
         elif data == "daily_my_dailies":
             with closing(sqlite3.connect(DB_PATH)) as conn:
