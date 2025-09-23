@@ -131,7 +131,6 @@ def register_daily_handlers(dp: Dispatcher):
         )
         await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
-
     # ==========================
     # CALLBACK-ОБРАБОТЧИКИ
     # ==========================
@@ -151,6 +150,18 @@ def register_daily_handlers(dp: Dispatcher):
                     return dict(zip([column[0] for column in cur.description], row))
                 return None
 
+        # 🔄 универсальная функция обновления текста и кнопок
+        async def refresh_message(daily_id: int):
+            daily = get_daily(daily_id)
+            participants = get_daily_participants(daily_id, chat_id)
+            text = format_daily_text(daily, participants)
+            kb = daily_buttons(user_id, daily_id, daily['cars'], participants)
+            await query.message.edit_text(
+                text=text,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+
         if data.startswith("daily_join:"):
             daily_id = int(data.split(":")[1])
             participants = get_daily_participants(daily_id, chat_id)
@@ -159,37 +170,49 @@ def register_daily_handlers(dp: Dispatcher):
                 return
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
-                cur.execute("INSERT INTO daily_participants(daily_id, user_id, is_driver) VALUES (?, ?, 0)",
-                            (daily_id, user_id))
+                cur.execute(
+                    "INSERT INTO daily_participants(daily_id, user_id, is_driver) VALUES (?, ?, 0)",
+                    (daily_id, user_id)
+                )
                 conn.commit()
-            await query.answer("Вы присоединились к дейли!")
+            await refresh_message(daily_id)
+            await query.answer("Вы присоединились к дейли! ✅")
 
         elif data.startswith("daily_leave:"):
             daily_id = int(data.split(":")[1])
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
-                cur.execute("DELETE FROM daily_participants WHERE daily_id=? AND user_id=?",
-                            (daily_id, user_id))
+                cur.execute(
+                    "DELETE FROM daily_participants WHERE daily_id=? AND user_id=?",
+                    (daily_id, user_id)
+                )
                 conn.commit()
-            await query.answer("Вы отказались от участия.")
+            await refresh_message(daily_id)
+            await query.answer("Вы отказались от участия ❌")
 
         elif data.startswith("daily_driver:"):
             daily_id = int(data.split(":")[1])
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
-                cur.execute("UPDATE daily_participants SET is_driver=1 WHERE daily_id=? AND user_id=?",
-                            (daily_id, user_id))
+                cur.execute(
+                    "UPDATE daily_participants SET is_driver=1 WHERE daily_id=? AND user_id=?",
+                    (daily_id, user_id)
+                )
                 conn.commit()
-            await query.answer("Вы теперь водитель с машиной!")
+            await refresh_message(daily_id)
+            await query.answer("Вы теперь водитель 🚗")
 
         elif data.startswith("daily_nodriver:"):
             daily_id = int(data.split(":")[1])
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
-                cur.execute("UPDATE daily_participants SET is_driver=0 WHERE daily_id=? AND user_id=?",
-                            (daily_id, user_id))
+                cur.execute(
+                    "UPDATE daily_participants SET is_driver=0 WHERE daily_id=? AND user_id=?",
+                    (daily_id, user_id)
+                )
                 conn.commit()
-            await query.answer("Вы больше не водитель с машиной!")
+            await refresh_message(daily_id)
+            await query.answer("Вы больше не водитель 🅿️")
 
         elif data == "daily_my_dailies":
             with closing(sqlite3.connect(DB_PATH)) as conn:
@@ -211,7 +234,6 @@ def register_daily_handlers(dp: Dispatcher):
                     kb = daily_buttons(user_id, daily['id'], daily['cars'], participants)
                     await query.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
-
         elif data == "daily_all_dailies":
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
@@ -230,7 +252,6 @@ def register_daily_handlers(dp: Dispatcher):
                 text = format_daily_text(daily, participants)
                 kb = daily_buttons(user_id, daily['id'], daily['cars'], participants)
                 await query.message.answer(text, reply_markup=kb, parse_mode="HTML")
-
 
         elif data == "daily_new_daily":
             await query.answer("Заглушка: создание нового дейлика")
