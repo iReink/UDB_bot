@@ -36,7 +36,7 @@ class CreateDaily(StatesGroup):
 # ==========================
 # УТИЛИТЫ
 # ==========================
-def format_daily_text(daily: dict, participants: List[dict]) -> str:
+def format_daily_text(daily: dict, participants: List[dict], with_turbo_link: bool = False) -> str:
     dt_obj = datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")
     date_str = dt_obj.strftime("%d.%m")
 
@@ -62,6 +62,10 @@ def format_daily_text(daily: dict, participants: List[dict]) -> str:
     if daily.get('link'):
         lines.append(f'<a href="{daily["link"]}">Информация</a>')
 
+    # Добавляем турбо-ссылку, если нужно
+    if with_turbo_link and daily.get("id"):
+        lines.append(f"\n🚀 Присоединиться одним кликом: /daily{daily['id']}")
+
     lines.append("")
     names = [p['name'] for p in participants]
     lines.append("👨‍👩‍👦‍👦 Участвуют: " + (", ".join(names) if names else "никого"))
@@ -74,6 +78,7 @@ def format_daily_text(daily: dict, participants: List[dict]) -> str:
             lines.append(f"\n⛔️ Не хватает машин! Участников {num_participants}, а мест только для {capacity}")
 
     return "\n".join(lines)
+
 
 def get_daily_participants(daily_id: int, chat_id: int) -> List[dict]:
     with closing(sqlite3.connect(DB_PATH)) as conn:
@@ -303,7 +308,7 @@ def register_daily_handlers(dp: Dispatcher):
             "time": data['datetime'].strftime("%H:%M"),
             "link": data['link'],
             "cars": cars
-        }, participants)
+        }, participants, with_turbo_link=True)
 
         kb = daily_buttons(query.from_user.id, daily_id, cars, participants)
         await query.message.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -345,7 +350,7 @@ def register_daily_handlers(dp: Dispatcher):
             daily = dict(zip([column[0] for column in cur.description], row))
 
         participants = get_daily_participants(daily['id'], chat_id)
-        text = format_daily_text(daily, participants)
+        text = format_daily_text(daily, participants, with_turbo_link=True)
 
         kb = InlineKeyboardBuilder()
         kb.row(
