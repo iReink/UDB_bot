@@ -37,9 +37,9 @@ def format_daily_text(daily: dict, participants: List[dict]) -> str:
         remaining = f"{minutes}м"
 
     lines = [
-        f"{date_str} {daily['time']}. До него осталось: {remaining}",
+        f"📆 {date_str} {daily['time']}. До него осталось: {remaining}",
         "",
-        f"📆 <b>{daily['name']}</b> — {daily['description']}"
+        f"🎉 <b>{daily['name']}</b> — {daily['description']}"
     ]
 
     if daily.get('link'):
