@@ -11,9 +11,13 @@ from aiogram.filters.command import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters.callback_data import CallbackData
+from aiogram import types
+from aiogram.filters import Command
+from contextlib import closing
+import sqlite3
 
 DB_PATH = "stats.db"
-admin_ids = [6010666986, 884940984]
+admin_ids = [6010666986, 884940984, 749027951]
 
 # Словарь для блокировки кнопки создания нового дейлика
 active_creators = {}
@@ -131,7 +135,46 @@ def register_daily_handlers(dp: Dispatcher):
         link = State()
         cars = State()
 
+    @dp.message(Command(commands=None, prefixes=['/daily_']))
+    async def daily_go_command(message: types.Message):
+        user_id = message.from_user.id
+        chat_id = message.chat.id
+        command = message.text.strip()
 
+        # извлекаем id дейлика из команды
+        try:
+            daily_id = int(command.split("_")[1])
+        except (IndexError, ValueError):
+            await message.answer("Неверная команда")
+            return
+
+        # проверяем, есть ли такой дейлик
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM daily_events WHERE id=?", (daily_id,))
+            row = cur.fetchone()
+            if not row:
+                await message.answer("Дейлик с таким ID не найден")
+                return
+            daily_name = row[0]
+
+            # проверяем, участвует ли пользователь
+            cur.execute(
+                "SELECT 1 FROM daily_participants WHERE daily_id=? AND user_id=?",
+                (daily_id, user_id)
+            )
+            if cur.fetchone():
+                await message.answer(f"Вы уже участвуете в дейлике {daily_name}", show_alert=True)
+                return
+
+            # добавляем пользователя в участники
+            cur.execute(
+                "INSERT INTO daily_participants(daily_id, user_id, is_driver) VALUES (?, ?, 0)",
+                (daily_id, user_id)
+            )
+            conn.commit()
+
+        await message.answer(f"Вы успешно присоединились к дейлику {daily_name} ✅", show_alert=True)
     # ==========================
     # FSM для создания дейлика
     # ==========================
