@@ -435,17 +435,78 @@ def register_daily_handlers(dp: Dispatcher):
             ))
             await state.set_state(CreateDaily.name)
 
+
         elif data == "daily_edit_daily":
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
-                cur.execute("""
-                    SELECT COUNT(*) FROM daily_events
-                    WHERE creator_user_id=? AND chat_id=? AND date || ' ' || time >= ?
-                """, (user_id, chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
-                count = cur.fetchone()[0]
-            if user_id in admin_ids or count > 0:
-                await query.answer("Кнопка нажата")
-            else:
+                # Админ видит все будущие дейлики
+                if user_id in admin_ids:
+                    cur.execute("""
+                        SELECT * FROM daily_events
+                        WHERE chat_id=? AND date || ' ' || time >= ?
+                        ORDER BY date || ' ' || time ASC
+                    """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
+                else:
+                    cur.execute("""
+                        SELECT * FROM daily_events
+                        WHERE creator_user_id=? AND chat_id=? AND date || ' ' || time >= ?
+                        ORDER BY date || ' ' || time ASC
+                    """, (user_id, chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
+                rows = cur.fetchall()
+            if not rows:
                 await query.answer("У вас нет дейликов для редактирования", show_alert=True)
+                return
+            await query.message.answer("<b>Все дейлики, доступные для редактирования</b>", parse_mode="HTML")
+            for row in rows:
+                daily = dict(zip([column[0] for column in cur.description], row))
+                participants = get_daily_participants(daily['id'], chat_id)
+                text = format_daily_text(daily, participants)
+                kb = InlineKeyboardBuilder()
+                kb.row(
+                    InlineKeyboardButton(text="✏️ Изменить данные", callback_data=f"daily_edit:{daily['id']}"),
+                    InlineKeyboardButton(text="🗑 Удалить", callback_data=f"daily_delete:{daily['id']}")
+                )
+                await query.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
+        elif data.startswith("daily_edit:"):
+            daily_id = int(data.split(":")[1])
+            # Заглушка для редактирования
+            await query.answer("Редактирование пока не реализовано", show_alert=True)
 
+        elif data.startswith("daily_delete:"):
+            daily_id = int(data.split(":")[1])
+            with closing(sqlite3.connect(DB_PATH)) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM daily_events WHERE id=?", (daily_id,))
+                row = cur.fetchone()
+            if not row:
+                await query.answer("Дейлик уже удалён", show_alert=True)
+                return
+
+            daily_name = row[0]
+            kb = InlineKeyboardBuilder()
+            kb.row(
+                InlineKeyboardButton(text="✅ Да", callback_data=f"daily_confirm_delete:{daily_id}"),
+                InlineKeyboardButton(text="❌ Нет", callback_data="daily_cancel_delete")
+            )
+            await query.message.answer(f"Уверен, что хочешь удалить дейлик <b>{daily_name}</b>?",
+                                       reply_markup=kb.as_markup(), parse_mode="HTML")
+
+        elif data.startswith("daily_confirm_delete:"):
+            daily_id = int(data.split(":")[1])
+            with closing(sqlite3.connect(DB_PATH)) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM daily_events WHERE id=?", (daily_id,))
+                row = cur.fetchone()
+                if row:
+                    daily_name = row[0]
+                    cur.execute("DELETE FROM daily_events WHERE id=?", (daily_id,))
+                    cur.execute("DELETE FROM daily_participants WHERE daily_id=?", (daily_id,))
+                    conn.commit()
+                    await query.message.edit_text(f"Дейлик <b>{daily_name}</b> удалён", parse_mode="HTML")
+                else:
+                    await query.answer("Дейлик уже удалён", show_alert=True)
+
+        elif data == "daily_cancel_delete":
+            await query.message.delete()
+            await query.answer()
