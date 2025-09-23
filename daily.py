@@ -64,7 +64,7 @@ def format_daily_text(daily: dict, participants: List[dict], with_turbo_link: bo
 
     # Добавляем турбо-ссылку, если нужно
     if with_turbo_link and daily.get("id"):
-        lines.append(f"\n🚀 Присоединиться одним кликом: /daily{daily['id']}")
+        lines.append(f"\n🚀 Присоединиться одним кликом: /daily_{daily['id']}")
 
     lines.append("")
     names = [p['name'] for p in participants]
