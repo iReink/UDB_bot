@@ -192,7 +192,7 @@ def register_daily_handlers(dp: Dispatcher):
         await message.answer("Введите ссылку на информацию или '-' если нет:", reply_markup=cancel_kb)
         await state.set_state(DailyCreation.link)
 
-    @dp.message(lambda m: m.text != "❌ Отмена", state=DailyCreation.link)
+    @dp.message(lambda m: m.text != "❌ Отмена", StateFilter(DailyCreation.link))
     async def process_link(message: types.Message, state: FSMContext):
         text = message.text.strip()
         if text in ("-", "–", "—"):
@@ -204,7 +204,7 @@ def register_daily_handlers(dp: Dispatcher):
         await state.set_state(DailyCreation.cars)
 
     # Обработка кнопок Да/Нет про машину
-    @dp.callback_query(lambda c: c.data in ("daily_cars_yes", "daily_cars_no"), state=DailyCreation.cars)
+    @dp.callback_query(lambda c: c.data in ("daily_cars_yes", "daily_cars_no"), StateFilter(DailyCreation.cars))
     async def process_cars(query: types.CallbackQuery, state: FSMContext):
         cars = "да" if query.data == "daily_cars_yes" else "нет"
         await state.update_data(cars=cars)
