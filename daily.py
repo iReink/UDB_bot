@@ -18,30 +18,47 @@ admin_ids = [6010666986, 884940984, 749027951]
 # УТИЛИТЫ
 # ==========================
 def format_daily_text(daily: dict, participants: List[dict]) -> str:
-    dt_str = f"{daily['date']} - {daily['time']}"
+    # формат даты
     dt_obj = datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")
+    date_str = dt_obj.strftime("%d.%m")  # только день и месяц
+
+    # сколько осталось
     delta = dt_obj - datetime.now()
-    hours, remainder = divmod(int(delta.total_seconds()), 3600)
+    total_seconds = int(delta.total_seconds())
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
     minutes = remainder // 60
 
-    text = [
-        f"{dt_str}. До него осталось: {hours}ч {minutes}м",
-        f"{daily['name']} — {daily['description']}"
+    if days > 0:
+        remaining = f"{days}д {hours}ч"
+    elif hours > 0:
+        remaining = f"{hours}ч {minutes}м"
+    else:
+        remaining = f"{minutes}м"
+
+    lines = [
+        f"{date_str} {daily['time']}. До него осталось: {remaining}",
+        "",
+        f"<b>{daily['name']}</b> — {daily['description']}"
     ]
-    if daily.get('link'):
-        text.append(daily['link'])
+
+    if daily.get("link"):
+        lines.append(f"[Информация]({daily['link']})")
+
+    lines.append("")  # пустая строка перед участниками
 
     names = [p['name'] for p in participants]
-    text.append("Участвуют: " + (", ".join(names) if names else "никого"))
+    lines.append("Участвуют: " + (", ".join(names) if names else "никого"))
 
     if daily['cars'] in ('да', '1'):
         num_participants = len(participants)
         num_drivers = sum(1 for p in participants if p['is_driver'])
         capacity = num_drivers * 5
         if num_participants > capacity:
-            text.append(f"⛔️ Не хватает машин! Участников {num_participants}, а мест только для {capacity}")
+            lines.append(f"\n⛔️ Не хватает машин! Участников {num_participants}, а мест только для {capacity}")
 
-    return "\n".join(text)
+    return "\n".join(lines)
+
 
 
 def get_daily_participants(daily_id: int, chat_id: int) -> List[dict]:
