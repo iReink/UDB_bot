@@ -129,7 +129,8 @@ def register_daily_handlers(dp: Dispatcher):
             InlineKeyboardButton(text="👾 Создать новый дейлик", callback_data="daily_new_daily"),
             InlineKeyboardButton(text="✍️ Редактировать свой дейлик", callback_data="daily_edit_daily")
         )
-        await message.answer(text, reply_markup=kb.as_markup())
+        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
 
     # ==========================
     # CALLBACK-ОБРАБОТЧИКИ
@@ -205,7 +206,8 @@ def register_daily_handlers(dp: Dispatcher):
                 if any(p['user_id'] == user_id for p in participants):
                     text = format_daily_text(daily, participants)
                     kb = daily_buttons(user_id, daily['id'], daily['cars'], participants)
-                    await query.message.answer(text, reply_markup=kb)
+                    await query.message.answer(text, reply_markup=kb, parse_mode="HTML")
+
 
         elif data == "daily_all_dailies":
             with closing(sqlite3.connect(DB_PATH)) as conn:
@@ -221,7 +223,8 @@ def register_daily_handlers(dp: Dispatcher):
                 participants = get_daily_participants(daily['id'], chat_id)
                 text = format_daily_text(daily, participants)
                 kb = daily_buttons(user_id, daily['id'], daily['cars'], participants)
-                await query.message.answer(text, reply_markup=kb)
+                await query.message.answer(text, reply_markup=kb, parse_mode="HTML")
+
 
         elif data == "daily_new_daily":
             await query.answer("Заглушка: создание нового дейлика")
