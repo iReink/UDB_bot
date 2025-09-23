@@ -252,7 +252,7 @@ def register_daily_handlers(dp: Dispatcher):
         await query.answer("Дейлик успешно создан ✅")
 
     # Обработка отмены FSM
-    @dp.message(lambda m: m.text == "❌ Отмена", state="*")
+    @dp.message(lambda m: m.text == "❌ Отмена", StateFilter("*"))
     async def cancel_daily_creation(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer("Создание дейлика отменено ❌", reply_markup=types.ReplyKeyboardRemove())
