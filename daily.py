@@ -13,7 +13,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters.callback_data import CallbackData
 
 DB_PATH = "stats.db"
-admin_ids = [6010666986, 884940984, 749027951]
+admin_ids = [6010666986, 884940984]
 
 # Словарь для блокировки кнопки создания нового дейлика
 active_creators = {}
