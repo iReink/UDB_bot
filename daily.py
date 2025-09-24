@@ -705,6 +705,29 @@ def register_daily_handlers(dp: Dispatcher):
             # Меняем клавиатуру под сообщением
             await query.message.edit_reply_markup(reply_markup=get_edit_daily_keyboard(daily_id))
 
+        elif data.startswith("daily_manage_back:"):
+            daily_id = int(data.split(":")[1])
+
+            # Проверка прав
+            with closing(sqlite3.connect(DB_PATH)) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT creator_user_id FROM daily_events WHERE id=? AND chat_id=?", (daily_id, chat_id))
+                row = cur.fetchone()
+
+            if not row:
+                await query.answer("Дейлик не найден", show_alert=True)
+                return
+
+            creator_id = row[0]
+            if user_id != creator_id and user_id not in admin_ids:
+                await query.answer("У вас нет прав для управления этим дейликом", show_alert=True)
+                return
+
+            # Возвращаем предыдущую клавиатуру
+            await query.message.edit_reply_markup(reply_markup=get_manage_daily_keyboard(daily_id))
+            await query.answer()
+
+
         elif data.startswith("daily_delete:"):
             daily_id = int(data.split(":")[1])
             with closing(sqlite3.connect(DB_PATH)) as conn:
