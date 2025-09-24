@@ -233,7 +233,14 @@ def register_daily_handlers(dp: Dispatcher):
     @dp.message(EditDailyStates.edit_datetime)
     async def process_edit_datetime(message: types.Message, state: FSMContext):
         try:
+            # Парсим ввод без года
             dt = datetime.strptime(message.text.strip(), "%d.%m %H:%M")
+            now = datetime.now()
+            # Подставляем текущий или следующий год
+            if dt.replace(year=now.year) < now:
+                dt = dt.replace(year=now.year + 1)
+            else:
+                dt = dt.replace(year=now.year)
         except ValueError:
             await message.answer("⚠ Неверный формат! Используй: дд.мм чч:мм")
             return
@@ -243,7 +250,10 @@ def register_daily_handlers(dp: Dispatcher):
 
         with closing(sqlite3.connect(DB_PATH)) as conn:
             cur = conn.cursor()
-            cur.execute("UPDATE daily_events SET date=? WHERE id=?", (dt.isoformat(), daily_id))
+            cur.execute(
+                "UPDATE daily_events SET date=?, time=? WHERE id=?",
+                (dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M"), daily_id)
+            )
             conn.commit()
 
         await message.answer("✅ Дата и время изменены")
