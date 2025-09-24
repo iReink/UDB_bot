@@ -23,6 +23,36 @@ admin_ids = [6010666986, 884940984, 749027951]
 # Словарь для блокировки кнопки создания нового дейлика
 active_creators = {}
 
+# --- Состояния редактирования ---
+class EditDailyStates(StatesGroup):
+    edit_name = State()
+    edit_description = State()
+    edit_datetime = State()
+    edit_link = State()
+    edit_cars = State()
+
+# --- Клавиатура для редактирования дейлика ---
+def get_edit_daily_keyboard(daily_id: int):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Изменить название", callback_data=f"edit_name:{daily_id}")],
+        [InlineKeyboardButton(text="Изменить описание", callback_data=f"edit_desc:{daily_id}")],
+        [InlineKeyboardButton(text="Изменить дату и время", callback_data=f"edit_dt:{daily_id}")],
+        [InlineKeyboardButton(text="Изменить ссылку", callback_data=f"edit_link:{daily_id}")],
+        [InlineKeyboardButton(text="Нужно ли ехать на машинах?", callback_data=f"edit_cars:{daily_id}")],
+        [InlineKeyboardButton(text="⬅ Назад", callback_data=f"edit_back:{daily_id}")]
+    ])
+    return kb
+
+
+def get_manage_daily_keyboard(daily_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text="✏️ Изменить данные", callback_data=f"daily_edit:{daily_id}"),
+        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"daily_delete:{daily_id}")
+    )
+    return kb.as_markup()
+
+
 # ==========================
 # FSM
 # ==========================
@@ -140,6 +170,132 @@ def register_daily_handlers(dp: Dispatcher):
         datetime = State()
         link = State()
         cars = State()
+
+    # --- Назад (возвращаем клавиатуру в предыдущее состояние) ---
+    @dp.callback_query(lambda c: c.data.startswith("edit_back:"))
+    async def edit_back_handler(callback: types.CallbackQuery):
+        daily_id = int(callback.data.split(":")[1])
+        # тут возвращаешь старую клавиатуру (которая была с "Изменить данные" и "Удалить")
+        await callback.message.edit_reply_markup(reply_markup=get_manage_daily_keyboard(daily_id))
+        await callback.answer()
+
+    # --- Изменить название ---
+    @dp.callback_query(lambda c: c.data.startswith("edit_name:"))
+    async def edit_name_handler(callback: types.CallbackQuery, state: FSMContext):
+        daily_id = int(callback.data.split(":")[1])
+        await state.update_data(daily_id=daily_id)
+        await state.set_state(EditDailyStates.edit_name)
+        await callback.message.answer("✏ Введите новое название:")
+        await callback.answer()
+
+    @dp.message(EditDailyStates.edit_name)
+    async def process_edit_name(message: types.Message, state: FSMContext):
+        data = await state.get_data()
+        daily_id = data["daily_id"]
+
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE daily_events SET name=? WHERE id=?", (message.text.strip(), daily_id))
+            conn.commit()
+
+        await message.answer("✅ Название изменено")
+        await state.clear()
+
+    @dp.callback_query(lambda c: c.data.startswith("edit_desc:"))
+    async def edit_desc_handler(callback: types.CallbackQuery, state: FSMContext):
+        daily_id = int(callback.data.split(":")[1])
+        await state.update_data(daily_id=daily_id)
+        await state.set_state(EditDailyStates.edit_description)
+        await callback.message.answer("✏ Введите новое описание:")
+        await callback.answer()
+
+    @dp.message(EditDailyStates.edit_description)
+    async def process_edit_description(message: types.Message, state: FSMContext):
+        data = await state.get_data()
+        daily_id = data["daily_id"]
+
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE daily_events SET description=? WHERE id=?", (message.text.strip(), daily_id))
+            conn.commit()
+
+        await message.answer("✅ Описание изменено")
+        await state.clear()
+
+    @dp.callback_query(lambda c: c.data.startswith("edit_dt:"))
+    async def edit_dt_handler(callback: types.CallbackQuery, state: FSMContext):
+        daily_id = int(callback.data.split(":")[1])
+        await state.update_data(daily_id=daily_id)
+        await state.set_state(EditDailyStates.edit_datetime)
+        await callback.message.answer("🕒 Введи новые дату и время в формате дд.мм чч:мм")
+        await callback.answer()
+
+    @dp.message(EditDailyStates.edit_datetime)
+    async def process_edit_datetime(message: types.Message, state: FSMContext):
+        try:
+            dt = datetime.strptime(message.text.strip(), "%d.%m %H:%M")
+        except ValueError:
+            await message.answer("⚠ Неверный формат! Используй: дд.мм чч:мм")
+            return
+
+        data = await state.get_data()
+        daily_id = data["daily_id"]
+
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE daily_events SET date=? WHERE id=?", (dt.isoformat(), daily_id))
+            conn.commit()
+
+        await message.answer("✅ Дата и время изменены")
+        await state.clear()
+
+    @dp.callback_query(lambda c: c.data.startswith("edit_link:"))
+    async def edit_link_handler(callback: types.CallbackQuery, state: FSMContext):
+        daily_id = int(callback.data.split(":")[1])
+        await state.update_data(daily_id=daily_id)
+        await state.set_state(EditDailyStates.edit_link)
+        await callback.message.answer("🔗 Введи новую ссылку на инфу или прочерк (-):")
+        await callback.answer()
+
+    @dp.message(EditDailyStates.edit_link)
+    async def process_edit_link(message: types.Message, state: FSMContext):
+        link = message.text.strip()
+        if link in ["-", "–", "—", "−"]:
+            link = None
+
+        data = await state.get_data()
+        daily_id = data["daily_id"]
+
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE daily_events SET link=? WHERE id=?", (link, daily_id))
+            conn.commit()
+
+        await message.answer("✅ Ссылка изменена")
+        await state.clear()
+
+    @dp.callback_query(lambda c: c.data.startswith("edit_cars:"))
+    async def edit_cars_handler(callback: types.CallbackQuery):
+        daily_id = int(callback.data.split(":")[1])
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Да", callback_data=f"cars_yes:{daily_id}")],
+            [InlineKeyboardButton(text="Нет", callback_data=f"cars_no:{daily_id}")]
+        ])
+        await callback.message.answer("🚗 Нужно ли ехать на машинах?", reply_markup=kb)
+        await callback.answer()
+
+    @dp.callback_query(lambda c: c.data.startswith("cars_yes:") or c.data.startswith("cars_no:"))
+    async def cars_choice_handler(callback: types.CallbackQuery):
+        daily_id = int(callback.data.split(":")[1])
+        need_cars = 1 if callback.data.startswith("cars_yes") else 0
+
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE daily_events SET need_cars=? WHERE id=?", (need_cars, daily_id))
+            conn.commit()
+
+        await callback.message.answer("✅ Настройка изменена")
+        await callback.answer()
 
     @dp.message(lambda m: m.text and m.text.startswith("/daily_"))
     async def daily_go_command(message: types.Message):
@@ -501,192 +657,107 @@ def register_daily_handlers(dp: Dispatcher):
 
 
         elif data == "daily_edit_daily":
-
             with closing(sqlite3.connect(DB_PATH)) as conn:
-
                 cur = conn.cursor()
-
                 # Админ видит все будущие дейлики
-
                 if user_id in admin_ids:
-
                     cur.execute("""
-
                         SELECT * FROM daily_events
-
                         WHERE chat_id=? AND date || ' ' || time >= ?
-
                         ORDER BY date || ' ' || time ASC
-
                     """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
-
                 else:
-
                     cur.execute("""
-
                         SELECT * FROM daily_events
-
                         WHERE creator_user_id=? AND chat_id=? AND date || ' ' || time >= ?
-
                         ORDER BY date || ' ' || time ASC
-
                     """, (user_id, chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
-
                 rows = cur.fetchall()
-
             if not rows:
                 await query.answer("У вас нет дейликов для редактирования", show_alert=True)
-
                 return
-
             await query.message.answer("<b>Все дейлики, доступные для редактирования</b>", parse_mode="HTML")
-
             for row in rows:
                 daily = dict(zip([column[0] for column in cur.description], row))
-
                 participants = get_daily_participants(daily['id'], chat_id)
-
                 text = format_daily_text(daily, participants)
-
-                kb = InlineKeyboardBuilder()
-
-                kb.row(
-
-                    InlineKeyboardButton(text="✏️ Изменить данные", callback_data=f"daily_edit:{daily['id']}"),
-
-                    InlineKeyboardButton(text="🗑 Удалить", callback_data=f"daily_delete:{daily['id']}")
-
+                await query.message.answer(
+                    text,
+                    reply_markup=get_manage_daily_keyboard(daily['id']),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
                 )
-
-                await query.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
 
 
         elif data.startswith("daily_edit:"):
-
             daily_id = int(data.split(":")[1])
-
             # Заглушка для редактирования
-
             await query.answer("Редактирование пока не реализовано", show_alert=True)
 
-
         elif data.startswith("daily_delete:"):
-
             daily_id = int(data.split(":")[1])
-
             with closing(sqlite3.connect(DB_PATH)) as conn:
-
                 cur = conn.cursor()
-
                 cur.execute("SELECT id, name, creator_user_id FROM daily_events WHERE id=?", (daily_id,))
-
                 row = cur.fetchone()
-
             if not row:
                 await query.answer("Дейлик уже удалён", show_alert=True)
-
                 return
-
             daily_id, daily_name, creator_id = row
-
             # Проверка прав
-
             if user_id != creator_id and user_id not in admin_ids:
                 await query.answer("Удалять может только создатель или админ", show_alert=True)
-
                 return
-
             kb = InlineKeyboardBuilder()
-
             kb.row(
-
                 InlineKeyboardButton(text="✅ Да", callback_data=f"daily_confirm_delete:{daily_id}"),
-
                 InlineKeyboardButton(text="❌ Нет", callback_data=f"daily_cancel_delete:{daily_id}")
-
             )
-
             await query.message.edit_text(
-
                 f"Уверен, что хочешь удалить дейлик <b>{daily_name}</b>?",
-
                 reply_markup=kb.as_markup(),
-
                 parse_mode="HTML"
-
             )
-
             await query.answer()
 
-
         elif data.startswith("daily_confirm_delete:"):
-
             daily_id = int(data.split(":")[1])
-
             with closing(sqlite3.connect(DB_PATH)) as conn:
-
                 cur = conn.cursor()
-
                 cur.execute("SELECT name, creator_user_id FROM daily_events WHERE id=?", (daily_id,))
-
                 row = cur.fetchone()
-
                 if not row:
                     await query.answer("Дейлик уже удалён", show_alert=True)
-
                     return
-
                 daily_name, creator_id = row
-
                 # Проверка прав
-
                 if user_id != creator_id and user_id not in admin_ids:
                     await query.answer("Удалять может только создатель или админ", show_alert=True)
-
                     return
-
                 cur.execute("DELETE FROM daily_events WHERE id=?", (daily_id,))
-
                 cur.execute("DELETE FROM daily_participants WHERE daily_id=?", (daily_id,))
-
                 conn.commit()
-
             await query.message.edit_text(f"Дейлик <b>{daily_name}</b> удалён ✅", parse_mode="HTML")
 
-
         elif data.startswith("daily_cancel_delete:"):
-
             daily_id = int(data.split(":")[1])
-
             with closing(sqlite3.connect(DB_PATH)) as conn:
-
                 cur = conn.cursor()
-
                 cur.execute("SELECT * FROM daily_events WHERE id=?", (daily_id,))
-
                 row = cur.fetchone()
 
             if not row:
                 await query.answer("Дейлик уже удалён", show_alert=True)
-
                 return
 
             daily = dict(zip([column[0] for column in cur.description], row))
-
             participants = get_daily_participants(daily['id'], chat_id)
-
             text = format_daily_text(daily, participants)
-
             kb = InlineKeyboardBuilder()
-
             kb.row(
-
                 InlineKeyboardButton(text="✏️ Изменить данные", callback_data=f"daily_edit:{daily['id']}"),
-
                 InlineKeyboardButton(text="🗑 Удалить", callback_data=f"daily_delete:{daily['id']}")
-
             )
 
             await query.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
-
             await query.answer("Удаление отменено")
