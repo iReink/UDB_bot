@@ -806,3 +806,64 @@ def register_daily_handlers(dp: Dispatcher):
 
             await query.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
             await query.answer("Удаление отменено")
+
+import asyncio
+from datetime import datetime, timedelta
+from contextlib import closing
+import sqlite3
+from aiogram import Bot, types
+from settings import get_setting  # функция из settings.py
+
+REMINDER_INTERVAL = 300  # проверка каждые 5 минут
+
+async def daily_reminder_loop(bot: Bot):
+    while True:
+        now = datetime.now()
+        with closing(sqlite3.connect(DB_PATH)) as conn:
+            cur = conn.cursor()
+            # Берём дейлики, где reminder не отправлен
+            cur.execute("""
+                SELECT d.id, d.name, d.date, d.time, d.chat_id
+                FROM daily_events d
+                WHERE d.reminded = 0
+            """)
+            rows = cur.fetchall()
+            for row in rows:
+                daily_id, daily_name, date_str, time_str, chat_id = row
+
+                # Проверка настройки чата: включены ли напоминания?
+                if not get_setting(chat_id, "notify_daily_reminders"):
+                    continue  # пропускаем этот чат
+
+                dt_obj = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+                delta = dt_obj - now
+                total_seconds = delta.total_seconds()
+
+                # Проверка интервала: 22–24 часа
+                if 22*3600 < total_seconds < 24*3600:
+                    # Получаем участников с nick
+                    cur.execute("""
+                        SELECT u.nick
+                        FROM daily_participants p
+                        JOIN users u ON u.user_id = p.user_id AND u.chat_id = ?
+                        WHERE p.daily_id = ?
+                    """, (chat_id, daily_id))
+                    participants = cur.fetchall()
+                    mentions = [f"@{p[0]}" for p in participants if p[0]]
+                    mentions_text = ", ".join(mentions) if mentions else "никого"
+
+                    text = (
+                        f"⏰ Напоминание о дейлике завтра!\n\n"
+                        f"🎉 <b>{daily_name}</b>\n"
+                        f"Участвуют: {mentions_text}"
+                    )
+                    try:
+                        await bot.send_message(chat_id, text, parse_mode="HTML")
+                        # Отмечаем, что напоминание отправлено
+                        cur.execute("UPDATE daily_events SET reminded = 1 WHERE id=?", (daily_id,))
+                        conn.commit()
+                    except Exception as e:
+                        print(f"Ошибка при отправке напоминания для дейлика {daily_id}: {e}")
+
+        await asyncio.sleep(REMINDER_INTERVAL)
+
