@@ -32,16 +32,16 @@ class EditDailyStates(StatesGroup):
     edit_cars = State()
 
 # --- Клавиатура для редактирования дейлика ---
-def get_edit_daily_keyboard(daily_id: int):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Изменить название", callback_data=f"edit_name:{daily_id}")],
-        [InlineKeyboardButton(text="Изменить описание", callback_data=f"edit_desc:{daily_id}")],
-        [InlineKeyboardButton(text="Изменить дату и время", callback_data=f"edit_dt:{daily_id}")],
-        [InlineKeyboardButton(text="Изменить ссылку", callback_data=f"edit_link:{daily_id}")],
-        [InlineKeyboardButton(text="Нужно ли ехать на машинах?", callback_data=f"edit_cars:{daily_id}")],
-        [InlineKeyboardButton(text="⬅ Назад", callback_data=f"edit_back:{daily_id}")]
-    ])
-    return kb
+def get_edit_daily_keyboard(daily_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="⬅ Назад", callback_data=f"daily_manage_back:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="✏️ Изменить название", callback_data=f"daily_edit_name:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="📝 Изменить описание", callback_data=f"daily_edit_desc:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="📅 Изменить дату и время", callback_data=f"daily_edit_datetime:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="🔗 Изменить ссылку", callback_data=f"daily_edit_link:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="🚗 Изменить машины", callback_data=f"daily_edit_cars:{daily_id}"))
+    return kb.as_markup()
+
 
 
 def get_manage_daily_keyboard(daily_id: int) -> InlineKeyboardMarkup:
@@ -688,11 +688,22 @@ def register_daily_handlers(dp: Dispatcher):
                     disable_web_page_preview=True
                 )
 
-
         elif data.startswith("daily_edit:"):
             daily_id = int(data.split(":")[1])
-            # Заглушка для редактирования
-            await query.answer("Редактирование пока не реализовано", show_alert=True)
+            # Проверка прав
+            with closing(sqlite3.connect(DB_PATH)) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT creator_user_id FROM daily_events WHERE id=? AND chat_id=?", (daily_id, chat_id))
+                row = cur.fetchone()
+            if not row:
+                await query.answer("Дейлик не найден", show_alert=True)
+                return
+            creator_id = row[0]
+            if user_id != creator_id and user_id not in admin_ids:
+                await query.answer("У вас нет прав для редактирования этого дейлика", show_alert=True)
+                return
+            # Меняем клавиатуру под сообщением
+            await query.message.edit_reply_markup(reply_markup=get_edit_daily_keyboard(daily_id))
 
         elif data.startswith("daily_delete:"):
             daily_id = int(data.split(":")[1])
