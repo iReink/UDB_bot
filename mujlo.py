@@ -22,7 +22,7 @@ async def handle_mujlo_message(message: types.Message):
     try:
         now = datetime.now()
         hour = now.hour
-        if not 1 < hour < 5:
+        if not 0 < hour < 5:
             return
 
         chat_id = message.chat.id

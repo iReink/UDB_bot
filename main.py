@@ -45,6 +45,7 @@ from sosalsa import register_sos_handlers
 
 from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 
+from daily import daily_reminder_loop
 
 dp = Dispatcher()
 register_sos_handlers(dp)
@@ -1466,7 +1467,6 @@ async def main():
     asyncio.create_task(daily_punish_task())  # Ежедневное наказание за кофе
     asyncio.create_task(silence_checker_task())
     asyncio.create_task(reset_mujlo_daily())  # сброс покупок мужла по утру
-    from daily import daily_reminder_loop
     asyncio.create_task(daily_reminder_loop(bot))
 
     # Цикл polling с автоперезапуском при ошибках
