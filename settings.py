@@ -1,7 +1,7 @@
 # settings.py
 import sqlite3
 from contextlib import closing
-
+from aiogram.filters import Command
 from aiogram import Dispatcher, types
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 
@@ -57,7 +57,7 @@ def get_settings_keyboard(chat_id: int) -> types.InlineKeyboardMarkup:
 # --- Регистрация хендлеров ---
 def register_settings_handlers(dp: Dispatcher):
 
-    @dp.message(commands=["settings"])
+    @dp.message(Command("settings"))
     async def settings_command(message: types.Message):
         chat_id = message.chat.id
         kb = get_settings_keyboard(chat_id)
