@@ -832,7 +832,7 @@ async def daily_reminder_loop(bot: Bot):
                 daily_id, daily_name, date_str, time_str, chat_id = row
 
                 # Проверка настройки чата: включены ли напоминания?
-                if not get_setting(chat_id, "notify_daily_reminders"):
+                if not get_setting(chat_id, "daily_reminders"):
                     continue  # пропускаем этот чат
 
                 dt_obj = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
