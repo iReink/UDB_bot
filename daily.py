@@ -35,11 +35,11 @@ class EditDailyStates(StatesGroup):
 def get_edit_daily_keyboard(daily_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="⬅ Назад", callback_data=f"daily_manage_back:{daily_id}"))
-    kb.row(InlineKeyboardButton(text="✏️ Изменить название", callback_data=f"daily_edit_name:{daily_id}"))
-    kb.row(InlineKeyboardButton(text="📝 Изменить описание", callback_data=f"daily_edit_desc:{daily_id}"))
-    kb.row(InlineKeyboardButton(text="📅 Изменить дату и время", callback_data=f"daily_edit_datetime:{daily_id}"))
-    kb.row(InlineKeyboardButton(text="🔗 Изменить ссылку", callback_data=f"daily_edit_link:{daily_id}"))
-    kb.row(InlineKeyboardButton(text="🚗 Изменить машины", callback_data=f"daily_edit_cars:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="✏️ Изменить название", callback_data=f"edit_name:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="📝 Изменить описание", callback_data=f"edit_desc:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="📅 Изменить дату и время", callback_data=f"edit_dt:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="🔗 Изменить ссылку", callback_data=f"edit_link:{daily_id}"))
+    kb.row(InlineKeyboardButton(text="🚗 Изменить машины", callback_data=f"edit_cars:{daily_id}"))
     return kb.as_markup()
 
 
