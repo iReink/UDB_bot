@@ -274,6 +274,7 @@ def register_daily_handlers(dp: Dispatcher):
         await message.answer("✅ Ссылка изменена")
         await state.clear()
 
+
     @dp.callback_query(lambda c: c.data.startswith("edit_cars:"))
     async def edit_cars_handler(callback: types.CallbackQuery):
         daily_id = int(callback.data.split(":")[1])
