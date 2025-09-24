@@ -285,17 +285,17 @@ def register_daily_handlers(dp: Dispatcher):
         await callback.message.answer("🚗 Нужно ли ехать на машинах?", reply_markup=kb)
         await callback.answer()
 
-    @dp.callback_query(lambda c: c.data.startswith("cars_yes:") or c.data.startswith("cars_no:"))
+    @dp.callback_query(lambda c: c.data.startswith("daily_edit_cars_yes:") or c.data.startswith("daily_edit_cars_no:"))
     async def cars_choice_handler(callback: types.CallbackQuery):
         daily_id = int(callback.data.split(":")[1])
-        need_cars = 1 if callback.data.startswith("cars_yes") else 0
+        cars_value = "да" if callback.data.startswith("daily_edit_cars_yes") else "нет"
 
         with closing(sqlite3.connect(DB_PATH)) as conn:
             cur = conn.cursor()
-            cur.execute("UPDATE daily_events SET need_cars=? WHERE id=?", (need_cars, daily_id))
+            cur.execute("UPDATE daily_events SET cars=? WHERE id=?", (cars_value, daily_id))
             conn.commit()
 
-        await callback.message.answer("✅ Настройка изменена")
+        await callback.answer(f"✅ Настройка обновлена: машины = {cars_value}")
         await callback.answer()
 
     @dp.message(lambda m: m.text and m.text.startswith("/daily_"))
