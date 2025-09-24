@@ -64,6 +64,9 @@ register_hall_handlers(dp)
 from daily import register_daily_handlers
 register_daily_handlers(dp)
 
+from settings import register_settings_handlers
+register_settings_handlers(dp)
+
 
 from dotenv import load_dotenv
 load_dotenv()
