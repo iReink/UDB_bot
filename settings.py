@@ -51,8 +51,14 @@ def get_settings_keyboard(chat_id: int) -> types.InlineKeyboardMarkup:
     for opt in SETTINGS_OPTIONS:
         current_value = get_setting(chat_id, opt["name"])
         button_text = opt["text_on"] if current_value else opt["text_off"]
-        kb.add(InlineKeyboardButton(text=button_text, callback_data=f"setting_toggle:{opt['name']}"))
+        kb.row(
+            InlineKeyboardButton(
+                text=button_text,
+                callback_data=f"setting_toggle:{opt['name']}"
+            )
+        )
     return kb.as_markup()
+
 
 # --- Регистрация хендлеров ---
 def register_settings_handlers(dp: Dispatcher):
