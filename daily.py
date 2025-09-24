@@ -319,7 +319,7 @@ def register_daily_handlers(dp: Dispatcher):
         }, participants, with_turbo_link=True)
 
         kb = daily_buttons(query.from_user.id, daily_id, cars, participants)
-        await query.message.answer(text, reply_markup=kb, parse_mode="HTML")
+        await query.message.answer(text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
 
         await state.clear()
         await query.answer("Дейлик успешно создан ✅")
