@@ -836,7 +836,7 @@ def register_daily_handlers(dp: Dispatcher):
             for p in participants:
                 user_data = get_user(p['user_id'], chat_id)
                 if user_data and user_data['nick']:
-                    mentions.append(f"@{user_data['nick']}")
+                    mentions.append(f"{user_data['nick']}") # Убираем лишний @
                 else:
                     # Если нет ника, можно использовать имя из Telegram или просто ID
                     mentions.append(f"<a href=\"tg://user?id={p['user_id']}\">{p['name']}</a>")
