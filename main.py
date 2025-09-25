@@ -1475,7 +1475,7 @@ async def main():
     asyncio.create_task(daily_reminder_loop(bot))
 
     # Задачи для гейзера
-    asyncio.create_task(geyser.schedule_daily_geysers(bot)) # Ежедневное планирование гейзеров
+    asyncio.create_task(geyser.schedule_daily_geysers(bot)) # Ежедневное планирование гейзеров (долгоживущая корутина)
     asyncio.create_task(geyser.geyser_loop_task(bot)) # Непрерывный цикл для запуска гейзеров
 
     # Цикл polling с автоперезапуском при ошибках
