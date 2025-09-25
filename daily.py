@@ -16,6 +16,7 @@ from aiogram import types
 from aiogram.filters import Command
 from contextlib import closing
 import sqlite3
+from db import get_user # Импортирую get_user для получения ника
 
 DB_PATH = "stats.db"
 admin_ids = [6010666986, 884940984, 749027951]
@@ -128,7 +129,7 @@ def daily_buttons(user_id: int, daily_id: int, cars: str, participants: List[dic
     is_driver = any(p['user_id'] == user_id and p['is_driver'] for p in participants)
 
     # Универсальная кнопка участия
-    kb.add(
+    kb.row(
         InlineKeyboardButton(
             text="👋 Присоединиться / Отказаться",
             callback_data=f"daily_toggle_participation:{daily_id}"
@@ -137,12 +138,20 @@ def daily_buttons(user_id: int, daily_id: int, cars: str, participants: List[dic
 
     # Универсальная кнопка водителя (если машины нужны)
     if cars in ('да', '1'):
-        kb.add(
+        kb.row(
             InlineKeyboardButton(
                 text="🚗 Я водитель / Я не водитель",
                 callback_data=f"daily_toggle_driver:{daily_id}"
             )
         )
+    
+    # Кнопка "Тегнуть участников"
+    kb.row(
+        InlineKeyboardButton(
+            text="Тегнуть участников",
+            callback_data=f"daily_tag_participants:{daily_id}"
+        )
+    )
 
     return kb.as_markup()
 
@@ -810,6 +819,40 @@ def register_daily_handlers(dp: Dispatcher):
 
             await query.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
             await query.answer("Удаление отменено")
+        
+        elif data.startswith("daily_tag_participants:"):
+            daily_id = int(data.split(":")[1])
+            daily = get_daily(daily_id)
+
+            if not daily:
+                await query.answer("Дейлик не найден", show_alert=True)
+                return
+            
+            # Получаем ник пользователя, который нажал кнопку
+            clicked_user_name = query.from_user.full_name or str(query.from_user.id)
+
+            participants = get_daily_participants(daily_id, chat_id)
+            mentions = []
+            for p in participants:
+                user_data = get_user(p['user_id'], chat_id)
+                if user_data and user_data['nick']:
+                    mentions.append(f"@{user_data['nick']}")
+                else:
+                    # Если нет ника, можно использовать имя из Telegram или просто ID
+                    mentions.append(f"<a href=\"tg://user?id={p['user_id']}\">{p['name']}</a>")
+
+            if not mentions:
+                await query.answer("В этом дейлике пока нет участников.", show_alert=True)
+                return
+            
+            mentions_text = ", ".join(mentions)
+            message_text = (
+                f"{clicked_user_name} тегает всех участников дейлика <b>{daily['name']}</b>:\n\n"
+                f"{mentions_text}"
+            )
+            
+            await query.message.answer(message_text, parse_mode="HTML", disable_web_page_preview=True)
+            await query.answer("Участники отмечены!")
 
 import asyncio
 from datetime import datetime, timedelta
