@@ -68,6 +68,8 @@ register_daily_handlers(dp)
 from settings import register_settings_handlers
 register_settings_handlers(dp)
 
+import mujlo
+mujlo.register_mujlo_handlers(dp)
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -1456,9 +1458,9 @@ weekly_awards.bot = bot
 weekly_awards.add_sits = add_sits
 
 # сообщения
-dp.message.register(handle_mujlo_message)
-# inline-кнопка
-dp.callback_query.register(handle_mujlo_buy, lambda c: c.data.startswith("mujlo_buy:"))
+# dp.message.register(handle_mujlo_message)
+# # inline-кнопка
+# dp.callback_query.register(handle_mujlo_buy, lambda c: c.data.startswith("mujlo_buy:"))
 
 async def main():
     # Запускаем фоновые задачи
@@ -1466,7 +1468,7 @@ async def main():
     asyncio.create_task(weekly_awards.weekly_awards_task())  # еженедельные награды
     asyncio.create_task(daily_punish_task())  # Ежедневное наказание за кофе
     asyncio.create_task(silence_checker_task())
-    asyncio.create_task(reset_mujlo_daily())  # сброс покупок мужла по утру
+    asyncio.create_task(mujlo.reset_mujlo_daily())  # сброс покупок мужла по утру
     asyncio.create_task(daily_reminder_loop(bot))
 
     # Цикл polling с автоперезапуском при ошибках

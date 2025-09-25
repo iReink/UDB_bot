@@ -4,11 +4,13 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from aiogram import types, Bot
+from aiogram import types, Bot, Dispatcher, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+# import re # Удаляем импорт re
 
 from db import get_connection, add_or_update_user, get_user
+from settings import get_setting  # Импортируем get_setting
 # или лучше сделать отдельный импорт bot через общий модуль, если есть
 
 MUJLO = "CAACAgIAAyEFAASixe81AAEBo3posMDwzO10nION2l0m2Rzk7L_UJAACcl4AAq0s-Uufvzuo1oaf2jYE"
@@ -16,16 +18,25 @@ MUJLO = "CAACAgIAAyEFAASixe81AAEBo3posMDwzO10nION2l0m2Rzk7L_UJAACcl4AAq0s-Uufvzu
 # --- Внутреннее состояние ---
 _last_mujlo_sent: dict[tuple[int, int], datetime] = {}  # ключ (chat_id, user_id) -> время последнего стикера
 
+# Функция для регистрации хендлеров
+def register_mujlo_handlers(dp: Dispatcher):
+    dp.message.register(handle_mujlo_message, F.text.lower().contains("мужло"))
+    dp.callback_query.register(handle_mujlo_buy, F.data.startswith("mujlo_buy:"))
+
 async def handle_mujlo_message(message: types.Message):
     """Обрабатываем сообщение пользователя для MUJLO-стикера."""
 
     try:
+        chat_id = message.chat.id
+        # Новая проверка: если функция "forbid_mujlo" выключена, выходим
+        if not get_setting(chat_id, "forbid_mujlo"):
+            return
+
         now = datetime.now()
         hour = now.hour
         if not 0 < hour < 5:
             return
 
-        chat_id = message.chat.id
         user_id = message.from_user.id
 
         # Проверяем пол пользователя
