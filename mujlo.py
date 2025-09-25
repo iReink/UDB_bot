@@ -34,7 +34,7 @@ async def handle_mujlo_message(message: types.Message):
 
         now = datetime.now()
         hour = now.hour
-        if not 0 < hour < 5:
+        if not (15 <= hour < 16): # Изменено на 15:00 - 16:00
             return
 
         user_id = message.from_user.id
@@ -134,7 +134,7 @@ async def handle_mujlo_buy(callback: types.CallbackQuery):
 async def reset_mujlo_daily():
     while True:
         now = datetime.now()
-        reset_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        reset_time = now.replace(hour=16, minute=0, second=0, microsecond=0) # Изменено на 16:00
         if now >= reset_time:
             reset_time += timedelta(days=1)
         wait_seconds = (reset_time - now).total_seconds()
