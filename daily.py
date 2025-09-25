@@ -529,11 +529,15 @@ def register_daily_handlers(dp: Dispatcher):
 
         kb = InlineKeyboardBuilder()
         kb.row(
-            InlineKeyboardButton(text="🚩 Дейли, на которые я иду", callback_data="daily_my_dailies"),
+            InlineKeyboardButton(text="🚩 Дейли, на которые я иду", callback_data="daily_my_dailies")
+        )
+        kb.row(
             InlineKeyboardButton(text="📆 Все дейли", callback_data="daily_all_dailies")
         )
         kb.row(
-            InlineKeyboardButton(text="👾 Создать новый дейлик", callback_data="daily_new_daily"),
+            InlineKeyboardButton(text="👾 Создать новый дейлик", callback_data="daily_new_daily")
+        )
+        kb.row(
             InlineKeyboardButton(text="✍️ Редактировать дейлик", callback_data="daily_edit_daily")
         )
         await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
