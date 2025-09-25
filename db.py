@@ -14,6 +14,22 @@ def get_connection():
     conn.row_factory = sqlite3.Row  # строки будут как словари
     return conn
 
+def initialize_db():
+    with closing(get_connection()) as conn:
+        cursor = conn.cursor()
+        # Таблица для отслеживания гейзеров (обновленная структура)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS geyser_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                scheduled_time TEXT NOT NULL, # Время, когда гейзер должен появиться (ЧЧ:ММ)
+                status TEXT DEFAULT 'pending', # pending, sent, caught, expired
+                message_id INTEGER, # ID сообщения, которое отправит бот
+                UNIQUE(chat_id, date, scheduled_time)
+            )
+        """)
+        conn.commit()
 
 # -------------------------------
 # Работа с пользователями
@@ -293,3 +309,34 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
     if row and row[0]:
         return row[0]
     return str(user_id)  # fallback
+
+# --- Функции для работы с гейзером ---
+def add_geyser_event(chat_id: int, date_str: str, scheduled_time: str, status: str = 'pending'):
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO geyser_events (chat_id, date, scheduled_time, status)
+            VALUES (?, ?, ?, ?)
+        """, (chat_id, date_str, scheduled_time, status))
+        conn.commit()
+
+def get_pending_geyser_events(date_str: str) -> List[sqlite3.Row]:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM geyser_events WHERE date=? AND status='pending'", (date_str,))
+        return cur.fetchall()
+
+def update_geyser_event_status(event_id: int, new_status: str):
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE geyser_events SET status=? WHERE id=?", (new_status, event_id))
+        conn.commit()
+
+def update_geyser_event_message_id(event_id: int, message_id: int):
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE geyser_events SET message_id=? WHERE id=?", (message_id, event_id))
+        conn.commit()
+
+# Вызываем инициализацию при загрузке модуля
+initialize_db()

@@ -65,11 +65,14 @@ register_hall_handlers(dp)
 from daily import register_daily_handlers
 register_daily_handlers(dp)
 
-from settings import register_settings_handlers
+from settings import register_settings_handlers, ADMIN_IDS
 register_settings_handlers(dp)
 
 import mujlo
 mujlo.register_mujlo_handlers(dp)
+
+import geyser
+geyser.register_geyser_handlers(dp) # Регистрируем хэндлеры гейзера
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -1470,6 +1473,10 @@ async def main():
     asyncio.create_task(silence_checker_task())
     asyncio.create_task(mujlo.reset_mujlo_daily())  # сброс покупок мужла по утру
     asyncio.create_task(daily_reminder_loop(bot))
+
+    # Задачи для гейзера
+    asyncio.create_task(geyser.schedule_daily_geysers(bot)) # Ежедневное планирование гейзеров
+    asyncio.create_task(geyser.geyser_loop_task(bot)) # Непрерывный цикл для запуска гейзеров
 
     # Цикл polling с автоперезапуском при ошибках
     while True:
