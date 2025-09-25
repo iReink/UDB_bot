@@ -5,6 +5,8 @@ from aiogram.filters import Command
 from aiogram import Dispatcher, types
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 
+from main import ADMIN_IDS # Импортируем список админов
+
 DB_PATH = "stats.db"
 
 # --- Настройки ---
@@ -65,6 +67,10 @@ def register_settings_handlers(dp: Dispatcher):
 
     @dp.message(Command("settings"))
     async def settings_command(message: types.Message):
+        if message.from_user.id not in ADMIN_IDS:
+            await message.answer("❌ У вас нет прав для вызова этой команды.", show_alert=True)
+            return
+
         chat_id = message.chat.id
         kb = get_settings_keyboard(chat_id)
         await message.answer(f"Настройки бота для чата {message.chat.title or chat_id}", reply_markup=kb)
