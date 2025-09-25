@@ -304,10 +304,10 @@ def register_daily_handlers(dp: Dispatcher):
         await callback.message.answer("🚗 Нужно ли ехать на машинах?", reply_markup=kb)
         await callback.answer()
 
-    @dp.callback_query(lambda c: c.data.startswith("daily_edit_cars_yes:") or c.data.startswith("daily_edit_cars_no:"))
+    @dp.callback_query(lambda c: c.data.startswith("cars_yes:") or c.data.startswith("cars_no:")) # Исправлен фильтр callback_data
     async def cars_choice_handler(callback: types.CallbackQuery):
         daily_id = int(callback.data.split(":")[1])
-        cars_value = "да" if callback.data.startswith("daily_edit_cars_yes") else "нет"
+        cars_value = "да" if callback.data.startswith("cars_yes") else "нет"
 
         with closing(sqlite3.connect(DB_PATH)) as conn:
             cur = conn.cursor()
