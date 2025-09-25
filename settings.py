@@ -5,7 +5,8 @@ from aiogram.filters import Command
 from aiogram import Dispatcher, types
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 
-from main import ADMIN_IDS # Импортируем список админов
+# from main import ADMIN_IDS # Импортируем список админов - Эту строку удаляем
+ADMIN_IDS = {6010666986, 884940984, 749027951} # Переносим определение ADMIN_IDS сюда
 
 DB_PATH = "stats.db"
 

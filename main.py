@@ -783,7 +783,7 @@ async def charity_command(message: types.Message):
     import logging
     from db import get_user_display_name
 
-    admin_ids = [6010666986, 884940984, 749027951]  # кто может использовать команду
+    admin_ids = ADMIN_IDS  # Используем импортированный ADMIN_IDS
 
     caller_id = message.from_user.id
     logging.info(f"[charity] Команда вызвана пользователем {caller_id} ({message.from_user.username})")
@@ -1200,8 +1200,8 @@ def spend_sits(chat_id: int, user_id: int, amount: int) -> tuple[bool, int]:
         return False, 0
 
 # Разрешённые user_id для использования команды
-ADMIN_IDS = {6010666986, 884940984, 749027951}
-
+# ADMIN_IDS = {6010666986, 884940984, 749027951} # Удаляем старое определение
+from settings import ADMIN_IDS # Импортируем ADMIN_IDS из settings.py
 
 #клавиатура магазина сита
 def build_shop_keyboard() -> InlineKeyboardMarkup:
