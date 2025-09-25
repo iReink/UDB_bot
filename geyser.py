@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from contextlib import closing
 
-from db import get_connection, get_all_chats, add_or_update_user, add_geyser_event, get_pending_geyser_events, update_geyser_event_status, update_geyser_event_message_id
+from db import get_connection, get_all_chats, add_or_update_user, add_geyser_event, get_pending_geyser_events, update_geyser_event_status, update_geyser_event_message_id, add_sits # Добавляем add_sits
 from settings import get_setting # Для проверки включения гейзера
 
 # --- Константы ---
@@ -109,12 +109,13 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
 
     # Увеличиваем баланс сит
     # add_or_update_user, но только для sits
-    with closing(get_connection()) as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE users SET sits = sits + ? WHERE user_id = ? AND chat_id = ?
-        """, (GEYSER_SIT_REWARD, user_id, chat_id))
-        conn.commit()
+    # with closing(get_connection()) as conn:
+    #     cur = conn.cursor()
+    #     cur.execute("""
+    #         UPDATE users SET sits = sits + ? WHERE user_id = ? AND chat_id = ?
+    #     """, (GEYSER_SIT_REWARD, user_id, chat_id))
+    #     conn.commit()
+    add_sits(chat_id, user_id, GEYSER_SIT_REWARD) # Используем новую функцию add_sits
 
     logging.info(f"[Geyser] Пользователь {user_name} ({user_id}) поймал гейзер в чате {chat_id}, event_id: {event_id}")
     del active_geysers[message_id] # Удаляем из активных гейзеров

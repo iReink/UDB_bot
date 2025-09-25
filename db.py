@@ -310,6 +310,18 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
         return row[0]
     return str(user_id)  # fallback
 
+def add_sits(chat_id: int, user_id: int, amount: int):
+    """Добавляет или вычитает сит для пользователя."""
+    # Убеждаемся, что пользователь существует
+    user = get_user(user_id, chat_id)
+    if user is None:
+        # Если пользователя нет, создаем его с указанным количеством сит
+        add_or_update_user(user_id, chat_id, name="", sits=amount)
+    else:
+        # Если пользователь есть, обновляем его количество сит
+        new_sits = (user["sits"] or 0) + amount
+        add_or_update_user(user_id, chat_id, name=user["name"], sits=new_sits)
+
 # --- Функции для работы с гейзером ---
 def add_geyser_event(chat_id: int, date_str: str, scheduled_time: str, status: str = 'pending'):
     with closing(get_connection()) as conn:
