@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from contextlib import closing
 
-from db import get_connection, get_all_chats, add_or_update_user, add_geyser_event, get_pending_geyser_events, update_geyser_event_status, update_geyser_event_message_id, add_sits # Добавляем add_sits
+from db import get_connection, get_all_chats, add_or_update_user, add_geyser_event, get_pending_geyser_events, update_geyser_event_status, update_geyser_event_message_id, add_sits, get_user # Добавляем get_user
 from settings import get_setting # Для проверки включения гейзера
 
 # --- Константы ---
@@ -35,59 +35,68 @@ def increment_geyser_count(chat_id: int, date_str: str):
         conn.commit()
 
 # --- Логика планирования гейзеров ---
+async def _plan_geysers_for_date(bot: Bot, target_date: date):
+    """Планирует гейзеры на указанную дату для всех включенных чатов."""
+    target_date_str = target_date.isoformat()
+    chats = get_all_chats() # Получаем все чаты из БД
+
+    for chat_id in chats:
+        if get_setting(chat_id, "enable_geyser"):
+            # Проверяем, были ли уже запланированы гейзеры на эту дату для этого чата
+            with closing(get_connection()) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM geyser_events WHERE chat_id=? AND date=? AND status IN ('pending', 'sent')", (chat_id, target_date_str))
+                existing_geysers_count = cur.fetchone()[0]
+            
+            if existing_geysers_count == 0: # Если нет запланированных гейзеров на эту дату
+                # Генерируем 3 случайных времени с 8 до 24, не чаще чем раз в час
+                scheduled_times = []
+                for _ in range(3):
+                    while True:
+                        random_hour = random.randint(8, 23) # С 8 до 23 включительно
+                        random_minute = random.randint(0, 59)
+                        new_time = time(random_hour, random_minute)
+
+                        is_valid = True
+                        for sch_time in scheduled_times:
+                            # Проверяем, чтобы разница была не менее 1 часа (3600 секунд)
+                            dt1 = datetime.combine(target_date, new_time)
+                            dt2 = datetime.combine(target_date, sch_time)
+                            if abs((dt1 - dt2).total_seconds()) < 3600:
+                                is_valid = False
+                                break
+                        if is_valid:
+                            scheduled_times.append(new_time)
+                            break
+                
+                scheduled_times.sort()
+                for t in scheduled_times:
+                    add_geyser_event(chat_id, target_date_str, t.strftime("%H:%M"), 'pending')
+                logging.info(f"[Geyser] Запланированы гейзеры для чата {chat_id} на {target_date_str}: {[t.strftime('%H:%M') for t in scheduled_times]}")
+
+
 async def schedule_daily_geysers(bot: Bot):
+    # Сначала пытаемся запланировать гейзеры на текущий день при запуске бота
+    logging.info("[Geyser Scheduler] Попытка запланировать гейзеры на текущий день при старте бота...")
+    await _plan_geysers_for_date(bot, date.today())
+
     while True: # Добавляем бесконечный цикл
         now = datetime.now()
         # Время для планирования - 07:00
         planning_time = now.replace(hour=7, minute=0, second=0, microsecond=0)
 
         # Если текущее время уже после 07:00, планируем на завтра
-        if now >= planning_time:
+        # Иначе, планируем на сегодня, если еще не запланировано (это уже сделано выше), а затем ждем до 07:00 завтра
+        if now >= planning_time: # Если уже прошло 07:00 сегодня, ждем до 07:00 завтра
             planning_time += timedelta(days=1)
-
-        # Ожидаем до следующего времени планирования
+        
         wait_seconds = (planning_time - now).total_seconds()
-        logging.info(f"[Geyser Scheduler] Следующее планирование гейзеров через {timedelta(seconds=int(wait_seconds))}")
+        logging.info(f"[Geyser Scheduler] Следующее ежедневное планирование гейзеров через {timedelta(seconds=int(wait_seconds))}")
         await asyncio.sleep(wait_seconds)
 
-        # После пробуждения, планируем гейзеры на текущий день
-        today_str = date.today().isoformat()
-        chats = get_all_chats() # Получаем все чаты из БД
-
-        for chat_id in chats:
-            if get_setting(chat_id, "enable_geyser"):
-                # Проверяем, были ли уже запланированы гейзеры на сегодня для этого чата
-                # Если есть записи со статусом 'pending' или 'sent' на сегодня, не планируем новые
-                with closing(get_connection()) as conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT COUNT(*) FROM geyser_events WHERE chat_id=? AND date=? AND status IN ('pending', 'sent')", (chat_id, today_str))
-                    existing_geysers_count = cur.fetchone()[0]
-                
-                if existing_geysers_count == 0: # Если нет запланированных гейзеров на сегодня
-                    # Генерируем 3 случайных времени с 8 до 24, не чаще чем раз в час
-                    scheduled_times = []
-                    for _ in range(3):
-                        while True:
-                            random_hour = random.randint(8, 23) # С 8 до 23 включительно
-                            random_minute = random.randint(0, 59)
-                            new_time = time(random_hour, random_minute)
-
-                            is_valid = True
-                            for sch_time in scheduled_times:
-                                # Проверяем, чтобы разница была не менее 1 часа (3600 секунд)
-                                dt1 = datetime.combine(date.today(), new_time)
-                                dt2 = datetime.combine(date.today(), sch_time)
-                                if abs((dt1 - dt2).total_seconds()) < 3600:
-                                    is_valid = False
-                                    break
-                            if is_valid:
-                                scheduled_times.append(new_time)
-                                break
-                    
-                    scheduled_times.sort()
-                    for t in scheduled_times:
-                        add_geyser_event(chat_id, today_str, t.strftime("%H:%M"), 'pending')
-                    logging.info(f"[Geyser] Запланированы гейзеры для чата {chat_id} на {today_str}: {[t.strftime('%H:%M') for t in scheduled_times]}")
+        # После пробуждения, планируем гейзеры на новый текущий день
+        logging.info(f"[Geyser Scheduler] Запускаю ежедневное планирование гейзеров для {date.today().isoformat()}...")
+        await _plan_geysers_for_date(bot, date.today())
 
 # --- Хэндлеры для гейзера ---
 async def handle_geyser_catch(callback: types.CallbackQuery):
@@ -115,10 +124,16 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
     # Обновляем статус в БД на 'caught'
     update_geyser_event_status(event_id, 'caught')
 
+    # Определяем окончание глагола в зависимости от пола пользователя
+    user_data = get_user(user_id, chat_id)
+    user_sex = user_data["sex"] if user_data and "sex" in user_data else None
+    
+    caught_verb = "поймала" if user_sex == 'f' else "поймал"
+
     # Удаляем кнопку и отправляем сообщение о победе
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer(f"@{user_name} успешно поймал {GEYSER_SIT_REWARD} сита в ведёрко!")
+        await callback.message.answer(f"{user_name} успешно {caught_verb} {GEYSER_SIT_REWARD} сита в ведёрко!") # Убираем @ и добавляем окончание
     except Exception as e:
         logging.error(f"[Geyser] Ошибка при обновлении сообщения гейзера или отправке победы: {e}")
 
