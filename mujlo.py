@@ -34,7 +34,7 @@ async def handle_mujlo_message(message: types.Message):
 
         now = datetime.now()
         hour = now.hour
-        if not (15 <= hour < 16): # Изменено на 15:00 - 16:00
+        if not (0 < hour < 5): # Возвращено на 01:00 - 05:00
             return
 
         user_id = message.from_user.id
@@ -47,9 +47,9 @@ async def handle_mujlo_message(message: types.Message):
             if not row or row["sex"] != "m":
                 return
 
-        # Проверяем таймаут 30 секунд
+        # Проверяем таймаут 15 минут
         last_time = _last_mujlo_sent.get((chat_id, user_id))
-        if last_time and (now - last_time) < timedelta(seconds=30): # Изменено на 30 секунд
+        if last_time and (now - last_time) < timedelta(minutes=15): # Изменено на 15 минут
             return
 
         # Проверяем, не купил ли пользователь право говорить до конца ночи
@@ -134,7 +134,7 @@ async def handle_mujlo_buy(callback: types.CallbackQuery):
 async def reset_mujlo_daily():
     while True:
         now = datetime.now()
-        reset_time = now.replace(hour=16, minute=0, second=0, microsecond=0) # Изменено на 16:00
+        reset_time = now.replace(hour=5, minute=0, second=0, microsecond=0) # Возвращено на 05:00
         if now >= reset_time:
             reset_time += timedelta(days=1)
         wait_seconds = (reset_time - now).total_seconds()
