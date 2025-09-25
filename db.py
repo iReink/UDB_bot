@@ -23,9 +23,9 @@ def initialize_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id INTEGER NOT NULL,
                 date TEXT NOT NULL,
-                scheduled_time TEXT NOT NULL, # Время, когда гейзер должен появиться (ЧЧ:ММ)
-                status TEXT DEFAULT 'pending', # pending, sent, caught, expired
-                message_id INTEGER, # ID сообщения, которое отправит бот
+                scheduled_time TEXT NOT NULL, -- Время, когда гейзер должен появиться (ЧЧ:ММ)
+                status TEXT DEFAULT 'pending', -- pending, sent, caught, expired
+                message_id INTEGER, -- ID сообщения, которое отправит бот
                 UNIQUE(chat_id, date, scheduled_time)
             )
         """)
