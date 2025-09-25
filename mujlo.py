@@ -47,9 +47,9 @@ async def handle_mujlo_message(message: types.Message):
             if not row or row["sex"] != "m":
                 return
 
-        # Проверяем таймаут 30 минут
+        # Проверяем таймаут 30 секунд
         last_time = _last_mujlo_sent.get((chat_id, user_id))
-        if last_time and (now - last_time) < timedelta(minutes=30):
+        if last_time and (now - last_time) < timedelta(seconds=30): # Изменено на 30 секунд
             return
 
         # Проверяем, не купил ли пользователь право говорить до конца ночи
