@@ -314,8 +314,18 @@ def register_daily_handlers(dp: Dispatcher):
             cur.execute("UPDATE daily_events SET cars=? WHERE id=?", (cars_value, daily_id))
             conn.commit()
 
+        # Редактируем сообщение: убираем кнопки и показываем подтверждение
+        try:
+            await callback.message.edit_text(
+                f"🚗 Настройка машин обновлена: <b>{cars_value}</b>",
+                reply_markup=None, # Убираем кнопки
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            # Возможно, сообщение уже было изменено или удалено
+            print(f"Ошибка при редактировании сообщения о машинах: {e}")
+
         await callback.answer(f"✅ Настройка обновлена: машины = {cars_value}")
-        await callback.answer()
 
     @dp.message(lambda m: m.text and m.text.startswith("/daily_"))
     async def daily_go_command(message: types.Message):
