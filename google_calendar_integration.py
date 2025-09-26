@@ -1,5 +1,6 @@
 import os
 import datetime
+import pytz # Добавляем импорт pytz
 import logging
 
 from google.oauth2 import service_account
@@ -68,11 +69,11 @@ async def create_calendar_event(
         'description': "\n".join(description_parts),
         'start': {
             'dateTime': start_time.isoformat(),
-            'timeZone': 'Europe/Moscow', # Или другой часовой пояс сервера, если он отличается
+            'timeZone': 'Asia/Yekaterinburg', # Меняем на GMT+5
         },
         'end': {
             'dateTime': end_time.isoformat(),
-            'timeZone': 'Europe/Moscow',
+            'timeZone': 'Asia/Yekaterinburg', # Меняем на GMT+5
         },
     }
 

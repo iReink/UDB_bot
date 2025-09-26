@@ -4,6 +4,7 @@ from contextlib import closing
 from datetime import datetime
 from typing import List
 import re
+import pytz # Добавляем импорт pytz
 
 from aiogram import types, Bot, Dispatcher
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
@@ -249,12 +250,15 @@ def register_daily_handlers(dp: Dispatcher):
         try:
             # Парсим ввод без года
             dt = datetime.strptime(message.text.strip(), "%d.%m %H:%M")
-            now = datetime.now()
-            # Подставляем текущий или следующий год
+            now = datetime.now(pytz.timezone('Asia/Yekaterinburg')) # Делаем now aware
+            # Если дата раньше текущей, переносим на следующий год
             if dt.replace(year=now.year) < now:
                 dt = dt.replace(year=now.year + 1)
             else:
                 dt = dt.replace(year=now.year)
+            # Добавляем часовой пояс к объекту datetime
+            dt = pytz.timezone('Asia/Yekaterinburg').localize(dt)
+            await state.update_data(datetime=dt)
         except ValueError:
             await message.answer("⚠ Неверный формат! Используй: дд.мм чч:мм")
             return
@@ -440,12 +444,14 @@ def register_daily_handlers(dp: Dispatcher):
     async def process_datetime(message: types.Message, state: FSMContext):
         try:
             dt = datetime.strptime(message.text, "%d.%m %H:%M")
-            now = datetime.now()
+            now = datetime.now(pytz.timezone('Asia/Yekaterinburg')) # Делаем now aware
             # Если дата раньше текущей, переносим на следующий год
             if dt.replace(year=now.year) < now:
                 dt = dt.replace(year=now.year + 1)
             else:
                 dt = dt.replace(year=now.year)
+            # Добавляем часовой пояс к объекту datetime
+            dt = pytz.timezone('Asia/Yekaterinburg').localize(dt)
             await state.update_data(datetime=dt)
         except ValueError:
             await message.answer("Неверный формат. Введите дату и время в формате ДД.ММ ЧЧ:ММ, например 17.07 19:00")
