@@ -496,17 +496,15 @@ def register_daily_handlers(dp: Dispatcher):
             daily_id = cur.lastrowid
 
         # --- Интеграция с Google Календарем ---
-        if Bot.get_current(): # Используем Bot.get_current()
-            # Запускаем создание события в календаре в фоновом режиме
-            asyncio.create_task(create_calendar_event(
-                chat_id=chat_id,
-                daily_name=data['name'],
-                daily_description=data['description'],
-                daily_datetime=data['datetime'],
-                daily_link=data['link'],
-                daily_id=daily_id,
-                bot_instance=Bot.get_current() # Передаем экземпляр бота
-            ))
+        asyncio.create_task(create_calendar_event(
+            chat_id=chat_id,
+            daily_name=data['name'],
+            daily_description=data['description'],
+            daily_datetime=data['datetime'],
+            daily_link=data['link'],
+            daily_id=daily_id,
+            bot_instance=query.bot  # Передаем экземпляр бота
+        ))
 
         await query.message.answer("📆 Дейлик создан!", reply_markup=types.ReplyKeyboardRemove(), disable_web_page_preview=True)
 
