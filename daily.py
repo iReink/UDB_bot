@@ -17,9 +17,13 @@ from aiogram.filters import Command
 from contextlib import closing
 import sqlite3
 from db import get_user # Импортирую get_user для получения ника
+from google_calendar_integration import create_calendar_event, TARGET_CHAT_ID # Импорт для интеграции с Google Calendar
 
 DB_PATH = "stats.db"
 admin_ids = [6010666986, 884940984, 749027951]
+
+# Глобальный экземпляр бота для использования в асинхронных функциях
+bot_instance: Bot = None
 
 # Словарь для блокировки кнопки создания нового дейлика
 active_creators = {}
@@ -166,6 +170,8 @@ class CarsCallback(CallbackData, prefix="cars"):
 # ОБРАБОТЧИКИ
 # ==========================
 def register_daily_handlers(dp: Dispatcher):
+    global bot_instance
+    bot_instance = dp.bot # Присваиваем экземпляр бота
     # ==========================
     # FSM для создания дейлика
     # ==========================
@@ -489,6 +495,19 @@ def register_daily_handlers(dp: Dispatcher):
             )
             conn.commit()
             daily_id = cur.lastrowid
+
+        # --- Интеграция с Google Календарем ---
+        if bot_instance:
+            # Запускаем создание события в календаре в фоновом режиме
+            asyncio.create_task(create_calendar_event(
+                chat_id=chat_id,
+                daily_name=data['name'],
+                daily_description=data['description'],
+                daily_datetime=data['datetime'],
+                daily_link=data['link'],
+                daily_id=daily_id,
+                bot_instance=bot_instance # Передаем экземпляр бота
+            ))
 
         await query.message.answer("📆 Дейлик создан!", reply_markup=types.ReplyKeyboardRemove(), disable_web_page_preview=True)
 
