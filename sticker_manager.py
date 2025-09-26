@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from db import get_connection  # твоя функция подключения к SQLite
 from aiogram import Bot
 
@@ -27,7 +27,7 @@ async def silence_checker_task():
 
     while True:
         try:
-            now = datetime.now(timezone(timedelta(hours=3)))  # локальное время +3
+            now = datetime.now()  # Используем локальное время сервера
             if WINDOW_START_HOUR <= now.hour < WINDOW_END_HOUR:
                 with get_connection() as conn:
                     cur = conn.cursor()
@@ -36,17 +36,16 @@ async def silence_checker_task():
 
                     for chat_id in chat_ids:
                         cur.execute(
-                            "SELECT MAX(timestamp) FROM messages_reactions WHERE chat_id = ?",
+                            "SELECT MAX(date) FROM messages_reactions WHERE chat_id = ?", # Использование поля 'date'
                             (chat_id,)
                         )
-                        last_msg_utc = cur.fetchone()[0]
+                        last_msg_str = cur.fetchone()[0]
 
-                        if last_msg_utc is None:
+                        if last_msg_str is None:
                             continue  # сообщений нет
 
-                        # преобразуем UTC → локальное время
-                        last_msg_utc = datetime.fromisoformat(last_msg_utc).replace(tzinfo=timezone.utc)
-                        last_msg_local = last_msg_utc.astimezone(timezone(timedelta(hours=3)))
+                        # Парсим строку даты/времени из БД как локальное время
+                        last_msg_local = datetime.fromisoformat(last_msg_str)
 
                         if now - last_msg_local < SILENCE_DELTA:
                             continue

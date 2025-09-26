@@ -1023,7 +1023,7 @@ async def handle_message(message: types.Message):
             message.from_user.id,
             message.text or "",
             0,
-            message.date.isoformat()
+            datetime.now().isoformat() # Записываем локальное время сервера
         ))
         conn.commit()
 
