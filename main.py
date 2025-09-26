@@ -45,7 +45,7 @@ from sosalsa import register_sos_handlers
 
 from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 
-from daily import daily_reminder_loop
+# from daily import daily_reminder_loop
 
 dp = Dispatcher()
 register_sos_handlers(dp)
@@ -63,8 +63,6 @@ from hall import register_hall_handlers
 register_hall_handlers(dp)
 
 from daily import register_daily_handlers
-register_daily_handlers(dp, bot)
-
 from settings import register_settings_handlers, ADMIN_IDS
 register_settings_handlers(dp)
 
@@ -77,6 +75,10 @@ geyser.register_geyser_handlers(dp) # Регистрируем хэндлеры 
 from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
+
+
+bot = Bot(token=TOKEN)
+sticker_manager.bot = bot
 
 
 STATS_FILE = "stats.json"
@@ -140,11 +142,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
-
-
-bot = Bot(token=TOKEN)
-sticker_manager.bot = bot
-
 
 
 #переменная для счётчика количества лайков, за которые Виталик получил запрлату
