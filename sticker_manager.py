@@ -45,7 +45,7 @@ async def silence_checker_task():
                             continue  # сообщений нет
 
                         # Парсим строку даты/времени из БД как локальное время
-                        last_msg_local = datetime.fromisoformat(last_msg_str)
+                        last_msg_local = datetime.fromisoformat(last_msg_str).replace(tzinfo=None)
 
                         if now - last_msg_local < SILENCE_DELTA:
                             continue
