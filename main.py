@@ -63,6 +63,7 @@ from hall import register_hall_handlers
 register_hall_handlers(dp)
 
 from daily import register_daily_handlers, daily_reminder_loop
+register_daily_handlers(dp)
 
 from settings import register_settings_handlers, ADMIN_IDS
 register_settings_handlers(dp)
