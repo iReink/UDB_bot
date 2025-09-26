@@ -249,18 +249,21 @@ def register_daily_handlers(dp: Dispatcher):
     async def process_edit_datetime(message: types.Message, state: FSMContext):
         try:
             # Парсим ввод без года
-            dt = datetime.strptime(message.text.strip(), "%d.%m %H:%M")
-            # Локализуем dt сразу после парсинга
-            dt = pytz.timezone('Asia/Yekaterinburg').localize(dt)
-            now = datetime.now(pytz.timezone('Asia/Yekaterinburg')) # Делаем now aware
-            # Если дата раньше текущей, переносим на следующий год
-            if dt.replace(year=now.year) < now:
-                dt = dt.replace(year=now.year + 1)
+            dt_naive = datetime.strptime(message.text.strip(), "%d.%m %H:%M")
+
+            tz = pytz.timezone('Asia/Yekaterinburg')
+            now_aware = datetime.now(tz)
+
+            # Определяем год
+            dt_candidate_aware = tz.localize(dt_naive.replace(year=now_aware.year))
+
+            if dt_candidate_aware < now_aware:
+                # Если дата с текущим годом в прошлом, устанавливаем следующий год
+                dt_final_aware = tz.localize(dt_naive.replace(year=now_aware.year + 1))
             else:
-                dt = dt.replace(year=now.year)
-            # Добавляем часовой пояс к объекту datetime
-            dt = pytz.timezone('Asia/Yekaterinburg').localize(dt)
-            await state.update_data(datetime=dt)
+                dt_final_aware = dt_candidate_aware
+
+            await state.update_data(datetime=dt_final_aware)
         except ValueError:
             await message.answer("⚠ Неверный формат! Используй: дд.мм чч:мм")
             return
@@ -272,7 +275,7 @@ def register_daily_handlers(dp: Dispatcher):
             cur = conn.cursor()
             cur.execute(
                 "UPDATE daily_events SET date=?, time=? WHERE id=?",
-                (dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M"), daily_id)
+                (dt_final_aware.strftime("%Y-%m-%d"), dt_final_aware.strftime("%H:%M"), daily_id)
             )
             conn.commit()
 
@@ -445,18 +448,18 @@ def register_daily_handlers(dp: Dispatcher):
     @dp.message(lambda m: m.text != "❌ Отмена", StateFilter(DailyCreation.datetime))
     async def process_datetime(message: types.Message, state: FSMContext):
         try:
-            dt = datetime.strptime(message.text, "%d.%m %H:%M")
-            # Локализуем dt сразу после парсинга
-            dt = pytz.timezone('Asia/Yekaterinburg').localize(dt)
-            now = datetime.now(pytz.timezone('Asia/Yekaterinburg')) # Делаем now aware
-            # Если дата раньше текущей, переносим на следующий год
-            if dt.replace(year=now.year) < now:
-                dt = dt.replace(year=now.year + 1)
+            dt_naive = datetime.strptime(message.text, "%d.%m %H:%M")
+
+            tz = pytz.timezone('Asia/Yekaterinburg')
+            now_aware = datetime.now(tz)
+
+            dt_candidate_aware = tz.localize(dt_naive.replace(year=now_aware.year))
+
+            if dt_candidate_aware < now_aware:
+                dt_final_aware = tz.localize(dt_naive.replace(year=now_aware.year + 1))
             else:
-                dt = dt.replace(year=now.year)
-            # Добавляем часовой пояс к объекту datetime
-            dt = pytz.timezone('Asia/Yekaterinburg').localize(dt)
-            await state.update_data(datetime=dt)
+                dt_final_aware = dt_candidate_aware
+            await state.update_data(datetime=dt_final_aware)
         except ValueError:
             await message.answer("Неверный формат. Введите дату и время в формате ДД.ММ ЧЧ:ММ, например 17.07 19:00")
             return
