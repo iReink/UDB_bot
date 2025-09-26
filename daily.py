@@ -875,7 +875,7 @@ def register_daily_handlers(dp: Dispatcher):
             for p in participants:
                 user_data = get_user(p['user_id'], chat_id)
                 if user_data and user_data['nick']:
-                    mentions.append(f"{user_data['nick']}") # Убираем лишний @
+                    mentions.append(f"@{user_data['nick'].lstrip('@')}") # Убираем лишний @ из начала, чтобы не дублировать
                 else:
                     # Если нет ника, можно использовать имя из Telegram или просто ID
                     mentions.append(f"<a href=\"tg://user?id={p['user_id']}\">{p['name']}</a>")
@@ -935,7 +935,7 @@ async def daily_reminder_loop(bot: Bot):
                         WHERE p.daily_id = ?
                     """, (chat_id, daily_id))
                     participants = cur.fetchall()
-                    mentions = [f"@{p[0]}" for p in participants if p[0]]
+                    mentions = [f"@{p[0].lstrip('@')}" for p in participants if p[0]]
                     mentions_text = ", ".join(mentions) if mentions else "никого"
 
                     text = (
