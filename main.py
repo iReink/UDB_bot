@@ -37,7 +37,7 @@ from aiogram.types import Message
 
 
 from aiogram.types import MessageReactionUpdated, MessageReactionCountUpdated
-from sticker_manager import silence_checker_task, bot as sm_bot
+from sticker_manager import silence_checker_task
 from mujlo import handle_mujlo_message, handle_mujlo_buy, reset_mujlo_daily
 from quest import update_quest_progress
 
@@ -143,7 +143,7 @@ logging.basicConfig(
 
 
 bot = Bot(token=TOKEN)
-sm_bot = bot
+sticker_manager.bot = bot
 
 
 
@@ -1498,4 +1498,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 

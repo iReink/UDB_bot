@@ -8,7 +8,7 @@ from aiogram import Bot
 SILENCE_STICKER_ID = "CAACAgIAAyEFAASixe81AAEBKBZonrxM7qEb65AQWLINQj-igCqgZQACjHYAAu1RQErYR3VajrrA1TYE"
 WINDOW_START_HOUR = 11
 WINDOW_END_HOUR = 21
-SILENCE_DELTA = timedelta(hours=2)
+SILENCE_DELTA = timedelta(hours=1)
 CHECK_INTERVAL_SECONDS = 300  # 5 минут
 
 # ====== ВНУТРЕННЕЕ СОСТОЯНИЕ ======
