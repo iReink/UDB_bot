@@ -169,9 +169,8 @@ class CarsCallback(CallbackData, prefix="cars"):
 # ==========================
 # ОБРАБОТЧИКИ
 # ==========================
-def register_daily_handlers(dp: Dispatcher, bot: Bot): # Добавляем параметр bot
-    global bot_instance
-    bot_instance = bot # Присваиваем переданный экземпляр бота
+def register_daily_handlers(dp: Dispatcher):
+    # Удаляю глобальный bot_instance и второй аргумент
     # ==========================
     # FSM для создания дейлика
     # ==========================
@@ -497,7 +496,7 @@ def register_daily_handlers(dp: Dispatcher, bot: Bot): # Добавляем па
             daily_id = cur.lastrowid
 
         # --- Интеграция с Google Календарем ---
-        if bot_instance:
+        if Bot.get_current(): # Используем Bot.get_current()
             # Запускаем создание события в календаре в фоновом режиме
             asyncio.create_task(create_calendar_event(
                 chat_id=chat_id,
@@ -506,7 +505,7 @@ def register_daily_handlers(dp: Dispatcher, bot: Bot): # Добавляем па
                 daily_datetime=data['datetime'],
                 daily_link=data['link'],
                 daily_id=daily_id,
-                bot_instance=bot_instance # Передаем экземпляр бота
+                bot_instance=Bot.get_current() # Передаем экземпляр бота
             ))
 
         await query.message.answer("📆 Дейлик создан!", reply_markup=types.ReplyKeyboardRemove(), disable_web_page_preview=True)
