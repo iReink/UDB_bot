@@ -169,9 +169,9 @@ class CarsCallback(CallbackData, prefix="cars"):
 # ==========================
 # ОБРАБОТЧИКИ
 # ==========================
-def register_daily_handlers(dp: Dispatcher):
+def register_daily_handlers(dp: Dispatcher, bot: Bot): # Добавляем параметр bot
     global bot_instance
-    bot_instance = dp.bot # Присваиваем экземпляр бота
+    bot_instance = bot # Присваиваем переданный экземпляр бота
     # ==========================
     # FSM для создания дейлика
     # ==========================
