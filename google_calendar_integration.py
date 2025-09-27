@@ -11,9 +11,9 @@ from googleapiclient.errors import HttpError
 # Путь к файлу ключа сервисного аккаунта
 SERVICE_ACCOUNT_FILE = 'udb-calendar-473312-a903afa9b42d.json'
 # ID чата, для которого будет работать интеграция (для начала)
-TARGET_CHAT_ID = -1002737417162
+TARGET_CHAT_ID = -1002730880821
 # ID календаря, в который будут добавляться события
-GOOGLE_CALENDAR_ID = '50f3fcd4b16b3168141db528c2b51843620dd5360b4d808f649dbd691c3b93cb@group.calendar.google.com'
+GOOGLE_CALENDAR_ID = '71f44119c5e84deb3e8737b295c7ee6e7fcdad56d1fde6a38201ca526619f4ab@group.calendar.google.com'
 
 # Области доступа (scopes) для Google Calendar API
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
