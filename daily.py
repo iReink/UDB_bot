@@ -18,7 +18,7 @@ from aiogram.filters import Command
 from contextlib import closing
 import sqlite3
 from db import get_user # Импортирую get_user для получения ника
-from google_calendar_integration import create_calendar_event, TARGET_CHAT_ID # Импорт для интеграции с Google Calendar
+from google_calendar_integration import create_calendar_event, update_calendar_event, TARGET_CHAT_ID # Импорт для интеграции с Google Calendar
 
 DB_PATH = "stats.db"
 admin_ids = [6010666986, 884940984, 749027951]
@@ -213,6 +213,22 @@ def register_daily_handlers(dp: Dispatcher):
             cur.execute("UPDATE daily_events SET name=? WHERE id=?", (message.text.strip(), daily_id))
             conn.commit()
 
+            # После обновления в БД, обновляем событие в Google Календаре
+            cur.execute("SELECT * FROM daily_events WHERE id = ?", (daily_id,))
+            daily = dict(zip([col[0] for col in cur.description], cur.fetchone()))
+
+            if daily.get('calendar_event_id'):
+                asyncio.create_task(update_calendar_event(
+                    calendar_event_id=daily['calendar_event_id'],
+                    chat_id=daily['chat_id'],
+                    daily_name=message.text.strip(), # Новое название
+                    daily_description=daily['description'],
+                    daily_datetime=pytz.timezone('Asia/Yekaterinburg').localize(datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")),
+                    daily_link=daily['link'],
+                    daily_id=daily_id,
+                    bot_instance=message.bot
+                ))
+
         await message.answer("✅ Название изменено")
         await state.clear()
 
@@ -233,6 +249,22 @@ def register_daily_handlers(dp: Dispatcher):
             cur = conn.cursor()
             cur.execute("UPDATE daily_events SET description=? WHERE id=?", (message.text.strip(), daily_id))
             conn.commit()
+
+            # После обновления в БД, обновляем событие в Google Календаре
+            cur.execute("SELECT * FROM daily_events WHERE id = ?", (daily_id,))
+            daily = dict(zip([col[0] for col in cur.description], cur.fetchone()))
+
+            if daily.get('calendar_event_id'):
+                asyncio.create_task(update_calendar_event(
+                    calendar_event_id=daily['calendar_event_id'],
+                    chat_id=daily['chat_id'],
+                    daily_name=daily['name'],
+                    daily_description=message.text.strip(), # Новое описание
+                    daily_datetime=pytz.timezone('Asia/Yekaterinburg').localize(datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")),
+                    daily_link=daily['link'],
+                    daily_id=daily_id,
+                    bot_instance=message.bot
+                ))
 
         await message.answer("✅ Описание изменено")
         await state.clear()
@@ -279,6 +311,22 @@ def register_daily_handlers(dp: Dispatcher):
             )
             conn.commit()
 
+            # После обновления в БД, обновляем событие в Google Календаре
+            cur.execute("SELECT * FROM daily_events WHERE id = ?", (daily_id,))
+            daily = dict(zip([col[0] for col in cur.description], cur.fetchone()))
+
+            if daily.get('calendar_event_id'):
+                asyncio.create_task(update_calendar_event(
+                    calendar_event_id=daily['calendar_event_id'],
+                    chat_id=daily['chat_id'],
+                    daily_name=daily['name'],
+                    daily_description=daily['description'],
+                    daily_datetime=dt_final_aware, # Новая дата и время (уже aware)
+                    daily_link=daily['link'],
+                    daily_id=daily_id,
+                    bot_instance=message.bot
+                ))
+
         await message.answer("✅ Дата и время изменены")
         await state.clear()
 
@@ -304,6 +352,22 @@ def register_daily_handlers(dp: Dispatcher):
             cur.execute("UPDATE daily_events SET link=? WHERE id=?", (link, daily_id))
             conn.commit()
 
+            # После обновления в БД, обновляем событие в Google Календаре
+            cur.execute("SELECT * FROM daily_events WHERE id = ?", (daily_id,))
+            daily = dict(zip([col[0] for col in cur.description], cur.fetchone()))
+
+            if daily.get('calendar_event_id'):
+                asyncio.create_task(update_calendar_event(
+                    calendar_event_id=daily['calendar_event_id'],
+                    chat_id=daily['chat_id'],
+                    daily_name=daily['name'],
+                    daily_description=daily['description'],
+                    daily_datetime=pytz.timezone('Asia/Yekaterinburg').localize(datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")),
+                    daily_link=link, # Новая ссылка
+                    daily_id=daily_id,
+                    bot_instance=message.bot
+                ))
+
         await message.answer("✅ Ссылка изменена")
         await state.clear()
 
@@ -327,6 +391,22 @@ def register_daily_handlers(dp: Dispatcher):
             cur = conn.cursor()
             cur.execute("UPDATE daily_events SET cars=? WHERE id=?", (cars_value, daily_id))
             conn.commit()
+
+            # После обновления в БД, обновляем событие в Google Календаре
+            cur.execute("SELECT * FROM daily_events WHERE id = ?", (daily_id,))
+            daily = dict(zip([col[0] for col in cur.description], cur.fetchone()))
+
+            if daily.get('calendar_event_id'):
+                asyncio.create_task(update_calendar_event(
+                    calendar_event_id=daily['calendar_event_id'],
+                    chat_id=daily['chat_id'],
+                    daily_name=daily['name'],
+                    daily_description=daily['description'],
+                    daily_datetime=pytz.timezone('Asia/Yekaterinburg').localize(datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")),
+                    daily_link=daily['link'],
+                    daily_id=daily_id,
+                    bot_instance=callback.bot
+                ))
 
         # Редактируем сообщение: убираем кнопки и показываем подтверждение
         try:
@@ -508,8 +588,10 @@ def register_daily_handlers(dp: Dispatcher):
             conn.commit()
             daily_id = cur.lastrowid
 
+        calendar_event_id = None
         # --- Интеграция с Google Календарем ---
-        asyncio.create_task(create_calendar_event(
+        # Запускаем создание события в календаре в фоновом режиме
+        event_id = await create_calendar_event(
             chat_id=chat_id,
             daily_name=data['name'],
             daily_description=data['description'],
@@ -517,7 +599,14 @@ def register_daily_handlers(dp: Dispatcher):
             daily_link=data['link'],
             daily_id=daily_id,
             bot_instance=query.bot  # Передаем экземпляр бота
-        ))
+        )
+
+        if event_id:
+            calendar_event_id = event_id
+            with closing(sqlite3.connect(DB_PATH)) as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE daily_events SET calendar_event_id = ? WHERE id = ?", (calendar_event_id, daily_id))
+                conn.commit()
 
         await query.message.answer("📆 Дейлик создан!", reply_markup=types.ReplyKeyboardRemove(), disable_web_page_preview=True)
 
