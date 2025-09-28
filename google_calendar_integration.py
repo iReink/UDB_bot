@@ -92,7 +92,7 @@ async def create_calendar_event(
         await bot_instance.send_message(
             chat_id,
             f"❌ Не удалось добавить дейлик в Google Календарь. Ошибка: {error}",
-            parse_mode="HTML"
+            disable_web_page_preview=True
         )
         return None
     except Exception as e:
@@ -164,7 +164,7 @@ async def update_calendar_event(
         await bot_instance.send_message(
             chat_id,
             f"❌ Не удалось обновить дейлик в Google Календаре. Ошибка: {error}",
-            parse_mode="HTML"
+            disable_web_page_preview=True
         )
         return False
     except Exception as e:
