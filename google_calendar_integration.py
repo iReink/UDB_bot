@@ -100,7 +100,7 @@ async def create_calendar_event(
         await bot_instance.send_message(
             chat_id,
             f"❌ Произошла непредвиденная ошибка при добавлении в Google Календарь: {e}",
-            parse_mode="HTML"
+            disable_web_page_preview=True
         )
         return None
 
