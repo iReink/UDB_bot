@@ -178,3 +178,55 @@ async def update_calendar_event(
 
 # Инициализируем логгер
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+async def delete_calendar_event(
+    calendar_event_id: str,
+    chat_id: int,
+    bot_instance # Передаем экземпляр бота для отправки сообщений
+) -> bool:
+    """
+    Удаляет событие из Google Календаря по его ID.
+    """
+    if chat_id != TARGET_CHAT_ID:
+        logger.info(f"Дейлик не из целевого чата {TARGET_CHAT_ID}, пропускаем удаление из Google Календаря.")
+        return False
+
+    service = get_calendar_service()
+    if not service:
+        logger.error("Не удалось получить сервис Google Календаря. Пропускаем удаление события.")
+        return False
+
+    try:
+        service.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=calendar_event_id).execute()
+        logger.info(f"Событие {calendar_event_id} успешно удалено из Google Календаря.")
+        await bot_instance.send_message(
+            chat_id,
+            f"🗑️ Дейлик удалён из Google Календаря.",
+            disable_web_page_preview=True
+        )
+        return True
+    except HttpError as error:
+        if error.resp.status == 404:
+            logger.warning(f"Попытка удалить несуществующее событие {calendar_event_id} из Google Календаря.")
+            await bot_instance.send_message(
+                chat_id,
+                f"⚠️ Дейлик уже был удалён из Google Календаря или не найден (ID: {calendar_event_id}).",
+                disable_web_page_preview=True
+            )
+            return True # Считаем удаление успешным, если события уже нет
+        else:
+            logger.error(f"Ошибка при удалении события {calendar_event_id} из Google Календаря: {error}")
+            await bot_instance.send_message(
+                chat_id,
+                f"❌ Не удалось удалить дейлик из Google Календаря. Ошибка: {error}",
+                disable_web_page_preview=True
+            )
+            return False
+    except Exception as e:
+        logger.error(f"Непредвиденная ошибка при удалении из Google Календаря: {e}")
+        await bot_instance.send_message(
+            chat_id,
+            f"❌ Произошла непредвиденная ошибка при удалении из Google Календаря: {e}",
+            disable_web_page_preview=True
+        )
+        return False
