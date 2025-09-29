@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List
 import re
 import pytz # Добавляем импорт pytz
+import asyncio # Добавляем импорт asyncio для create_task
 
 from aiogram import types, Bot, Dispatcher
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
@@ -18,7 +19,7 @@ from aiogram.filters import Command
 from contextlib import closing
 import sqlite3
 from db import get_user # Импортирую get_user для получения ника
-from google_calendar_integration import create_calendar_event, update_calendar_event, TARGET_CHAT_ID # Импорт для интеграции с Google Calendar
+from google_calendar_integration import create_calendar_event, update_calendar_event, delete_calendar_event, TARGET_CHAT_ID # Импорт для интеграции с Google Calendar
 
 DB_PATH = "stats.db"
 admin_ids = [6010666986, 884940984, 749027951]
@@ -910,16 +911,26 @@ def register_daily_handlers(dp: Dispatcher):
             daily_id = int(data.split(":")[1])
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
-                cur.execute("SELECT name, creator_user_id FROM daily_events WHERE id=?", (daily_id,))
+                # Получаем calendar_event_id перед удалением дейлика
+                cur.execute("SELECT name, creator_user_id, calendar_event_id FROM daily_events WHERE id=?", (daily_id,))
                 row = cur.fetchone()
                 if not row:
                     await query.answer("Дейлик уже удалён", show_alert=True)
                     return
-                daily_name, creator_id = row
+                daily_name, creator_id, calendar_event_id = row
                 # Проверка прав
                 if user_id != creator_id and user_id not in admin_ids:
                     await query.answer("Удалять может только создатель или админ", show_alert=True)
                     return
+                
+                # Удаляем событие из Google Календаря, если оно есть
+                if calendar_event_id:
+                    asyncio.create_task(delete_calendar_event(
+                        calendar_event_id=calendar_event_id,
+                        chat_id=chat_id,
+                        bot_instance=query.bot
+                    ))
+
                 cur.execute("DELETE FROM daily_events WHERE id=?", (daily_id,))
                 cur.execute("DELETE FROM daily_participants WHERE daily_id=?", (daily_id,))
                 conn.commit()
