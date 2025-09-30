@@ -18,9 +18,9 @@ INITIAL_HEALTH = 100
 MIN_DAMAGE = 16
 MAX_DAMAGE = 24
 CRIT_CHANCE = 5 # Процент
-BET_COST = 10 # Стоимость вызова/принятия в сита
-WIN_SITS_MIN = 2
-WIN_SITS_MAX = 8
+BET_COST = 1 # Стоимость вызова/принятия в сита
+WIN_SITS_MIN = 1
+WIN_SITS_MAX = 2
 CHALLENGE_TIMEOUT_MINUTES = 10 # Таймаут на принятие вызова
 
 # --- ФРАЗЫ ДЛЯ АТАКИ ---
@@ -62,7 +62,7 @@ async def get_current_sits(user_id: int, chat_id: int) -> int:
 def get_target_name(target_key: str) -> str:
     mapping = {
         "head": "голову",
-        "body": "туловище",
+        "body": "тело",
         "legs": "ноги"
     }
     return mapping.get(target_key, target_key)
@@ -251,7 +251,7 @@ def register_fight_club_handlers(dp: Dispatcher):
     async def ask_for_attack_choice(bot: Bot, chat_id: int, user_id: int, user_name: str, state: FSMContext):
         kb = InlineKeyboardBuilder()
         kb.row(InlineKeyboardButton(text="🎯 Голова", callback_data=f"fight_attack:head:{user_id}"))
-        kb.row(InlineKeyboardButton(text="💪 Туловище", callback_data=f"fight_attack:body:{user_id}"))
+        kb.row(InlineKeyboardButton(text="💪 Тело", callback_data=f"fight_attack:body:{user_id}"))
         kb.row(InlineKeyboardButton(text="🦵 Ноги", callback_data=f"fight_attack:legs:{user_id}"))
         
         message_text = f"Раунд { (await state.get_data()).get('current_round', 1) }. Игрок {user_name}, выберите цель для атаки!"
@@ -324,7 +324,7 @@ def register_fight_club_handlers(dp: Dispatcher):
     async def ask_for_defense_choice(bot: Bot, chat_id: int, user_id: int, user_name: str, state: FSMContext):
         kb = InlineKeyboardBuilder()
         kb.row(InlineKeyboardButton(text="🛡️ Голова", callback_data=f"fight_defense:head:{user_id}"))
-        kb.row(InlineKeyboardButton(text="🛡️ Туловище", callback_data=f"fight_defense:body:{user_id}"))
+        kb.row(InlineKeyboardButton(text="🛡️ Тело", callback_data=f"fight_defense:body:{user_id}"))
         kb.row(InlineKeyboardButton(text="🛡️ Ноги", callback_data=f"fight_defense:legs:{user_id}"))
         
         message_text = f"Игрок {user_name}, выберите, какую часть тела защищать!"
