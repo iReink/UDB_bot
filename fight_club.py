@@ -15,8 +15,8 @@ from db import get_user, add_sits, get_user_display_name # Импорт функ
 
 # --- КОНСТАНТЫ ИГРЫ ---
 INITIAL_HEALTH = 100
-MIN_DAMAGE = 8
-MAX_DAMAGE = 12
+MIN_DAMAGE = 16
+MAX_DAMAGE = 24
 CRIT_CHANCE = 5 # Процент
 BET_COST = 10 # Стоимость вызова/принятия в сита
 WIN_SITS_MIN = 2
@@ -474,7 +474,7 @@ def register_fight_club_handlers(dp: Dispatcher):
             
             await bot.send_message(
                 chat_id=chat_id,
-                text=f"💰 {await get_user_display_name(winner_id, chat_id)} получает {BET_COST + win_sits_amount} сита!"
+                text=f"💰 {get_user_display_name(winner_id, chat_id)} получает {BET_COST + win_sits_amount} сита!"
                      f" (Возвращена ставка: {BET_COST}, Выигрыш: {win_sits_amount})\n"
                      f"Текущий баланс: {await get_current_sits(winner_id, chat_id)} сита.",
                 parse_mode="HTML"
