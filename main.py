@@ -48,6 +48,8 @@ from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 # from daily import daily_reminder_loop
 
 dp = Dispatcher()
+import fight_club
+dp.include_router(fight_club.router) # Регистрируем роутер бойцовского клуба
 register_sos_handlers(dp)
 
 import group
@@ -74,8 +76,6 @@ mujlo.register_mujlo_handlers(dp)
 import geyser
 geyser.register_geyser_handlers(dp) # Регистрируем хэндлеры гейзера
 
-import fight_club
-dp.include_router(fight_club.router) # Регистрируем роутер бойцовского клуба
 
 from dotenv import load_dotenv
 load_dotenv()
