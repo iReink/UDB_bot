@@ -240,18 +240,18 @@ async def ask_for_choices(bot: Bot, chat_id: int, user_id: int, user_name: str, 
     # Сообщение для атаки
     kb_attack = InlineKeyboardBuilder()
     kb_attack.row(
-        InlineKeyboardButton("🎯 Голова", callback_data=f"fight_attack:head:{user_id}"),
-        InlineKeyboardButton("💪 Тело", callback_data=f"fight_attack:body:{user_id}"),
-        InlineKeyboardButton("🦵 Ноги", callback_data=f"fight_attack:legs:{user_id}")
+        InlineKeyboardButton(text="🎯 Голова", callback_data=f"fight_attack:head:{user_id}"),
+        InlineKeyboardButton(text="💪 Тело", callback_data=f"fight_attack:body:{user_id}"),
+        InlineKeyboardButton(text="🦵 Ноги", callback_data=f"fight_attack:legs:{user_id}")
     )
     await bot.send_message(chat_id, f"Игрок {user_name}, выберите цель для атаки:", reply_markup=kb_attack.as_markup())
 
     # Сообщение для защиты
     kb_defense = InlineKeyboardBuilder()
     kb_defense.row(
-        InlineKeyboardButton("🛡️ Голова", callback_data=f"fight_defense:head:{user_id}"),
-        InlineKeyboardButton("🛡️ Тело", callback_data=f"fight_defense:body:{user_id}"),
-        InlineKeyboardButton("🛡️ Ноги", callback_data=f"fight_defense:legs:{user_id}")
+        InlineKeyboardButton(text="🛡️ Голова", callback_data=f"fight_defense:head:{user_id}"),
+        InlineKeyboardButton(text="🛡️ Тело", callback_data=f"fight_defense:body:{user_id}"),
+        InlineKeyboardButton(text="🛡️ Ноги", callback_data=f"fight_defense:legs:{user_id}")
     )
     await bot.send_message(chat_id, f"Игрок {user_name}, выберите цель для защиты:", reply_markup=kb_defense.as_markup())
 
