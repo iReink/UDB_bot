@@ -1,8 +1,7 @@
 import sqlite3
 import asyncio
 import random
-import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from aiogram import Bot, types, F, Dispatcher
 from aiogram.filters.command import Command
@@ -10,8 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.exceptions import TelegramRetryAfter
+from aiogram.types import InlineKeyboardButton
 
 from db import get_user, add_sits, get_user_display_name
 
@@ -19,13 +17,13 @@ from db import get_user, add_sits, get_user_display_name
 INITIAL_HEALTH = 100
 MIN_DAMAGE = 16
 MAX_DAMAGE = 24
-CRIT_CHANCE = 5  # Процент
-BET_COST = 10  # Стоимость вызова/принятия в сита
+CRIT_CHANCE = 5
+BET_COST = 10
 WIN_SITS_MIN = 2
 WIN_SITS_MAX = 8
-CHALLENGE_TIMEOUT_MINUTES = 10  # Таймаут на принятие вызова
+CHALLENGE_TIMEOUT_MINUTES = 10
 
-# --- ФРАЗЫ ДЛЯ АТАКИ ---
+# --- ФРАЗЫ ---
 ATTACK_PHRASES = [
     "{attacker_name} бьёт ногой с разворота в {target} {defender_name}!",
     "{attacker_name} со всей дури колошматит по {target} {defender_name}!",
@@ -35,7 +33,6 @@ ATTACK_PHRASES = [
     "{attacker_name} финтом отправляет кулак в {target} {defender_name}!"
 ]
 
-# --- ФРАЗЫ ДЛЯ ЗАЩИТЫ ---
 DEFENSE_PHRASES = [
     "{defender_name} прикрывает {target}.",
     "{defender_name} не даёт в обиду {target}.",
@@ -45,27 +42,13 @@ DEFENSE_PHRASES = [
     "{defender_name} принимает удар в {target} на защиту!"
 ]
 
-# --- СОСТОЯНИЯ FSM ДЛЯ БОЯ ---
+# --- FSM СОСТОЯНИЯ ---
 class FightClubStates(StatesGroup):
     waiting_for_challenge_acceptance = State()
-    choosing_attack_challenger = State()
-    choosing_defense_challenger = State()
-    choosing_attack_accepter = State()
-    choosing_defense_accepter = State()
-
+    choosing_attack = State()
+    choosing_defense = State()
 
 # --- УТИЛИТЫ ---
-async def safe_send_message(bot, chat_id, text, **kwargs):
-    """Безопасная отправка сообщений с защитой от flood control"""
-    try:
-        return await bot.send_message(chat_id, text, **kwargs)
-    except TelegramRetryAfter as e:
-        logging.warning(f"Flood control: ждём {e.retry_after} секунд")
-        await asyncio.sleep(e.retry_after)
-        return await bot.send_message(chat_id, text, **kwargs)
-    except Exception as ex:
-        logging.error(f"Ошибка при отправке сообщения: {ex}")
-
 async def get_current_sits(user_id: int, chat_id: int) -> int:
     user = get_user(user_id, chat_id)
     return user["sits"] if user and user["sits"] else 0
@@ -78,8 +61,10 @@ def get_target_name(target_key: str) -> str:
     }
     return mapping.get(target_key, target_key)
 
+# --- РЕГИСТРАЦИЯ ХЕНДЛЕРОВ ---
 def register_fight_club_handlers(dp: Dispatcher):
-    # --- ГЛАВНОЕ МЕНЮ ---
+
+    # Главное меню
     @dp.message(Command("fight"))
     async def fight_menu(message: types.Message, state: FSMContext):
         kb = InlineKeyboardBuilder()
@@ -89,16 +74,16 @@ def register_fight_club_handlers(dp: Dispatcher):
             reply_markup=kb.as_markup()
         )
 
-    # --- ВЫЗОВ ---
+    # Бросок вызова
     @dp.callback_query(F.data == "fight_challenge")
     async def process_fight_challenge(callback: types.CallbackQuery, state: FSMContext):
         challenger_id = callback.from_user.id
         chat_id = callback.message.chat.id
         challenger_name = get_user_display_name(challenger_id, chat_id)
-
         current_sits = await get_current_sits(challenger_id, chat_id)
+
         if current_sits < BET_COST:
-            await callback.answer(f"Недостаточно сита (нужно {BET_COST})", show_alert=True)
+            await callback.answer(f"Недостаточно сита! Нужно {BET_COST}.", show_alert=True)
             return
 
         add_sits(chat_id, challenger_id, -BET_COST)
@@ -109,13 +94,11 @@ def register_fight_club_handlers(dp: Dispatcher):
             callback_data=f"fight_accept_challenge:{challenger_id}"
         ))
 
-        sent_message = await safe_send_message(
-            callback.bot,
-            chat_id,
-            f"<b>{challenger_name}</b> бросил вызов! 💪\nСтоимость участия: {BET_COST} сита\n\n"
+        sent_message = await callback.message.answer(
+            f"<b>{challenger_name}</b> бросил вызов! Стоимость: {BET_COST} сита.\n"
             f"Вызов активен {CHALLENGE_TIMEOUT_MINUTES} минут.",
-            reply_markup=kb.as_markup(),
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=kb.as_markup()
         )
 
         await state.set_state(FightClubStates.waiting_for_challenge_acceptance)
@@ -124,200 +107,259 @@ def register_fight_club_handlers(dp: Dispatcher):
             challenger_name=challenger_name,
             chat_id=chat_id,
             challenge_message_id=sent_message.message_id,
-            challenge_timestamp=datetime.now(),
             challenger_sits_at_challenge=current_sits - BET_COST,
             is_challenge_accepted=False
         )
-        await callback.answer("Вызов брошен!")
 
-        asyncio.create_task(challenge_timeout_check(
-            callback.bot, challenger_id, chat_id, sent_message.message_id, challenger_name, state
-        ))
+        await callback.answer("Вызов брошен!", show_alert=False)
+        asyncio.create_task(challenge_timeout_check(callback.bot, challenger_id, chat_id, sent_message.message_id, challenger_name, state))
 
     async def challenge_timeout_check(bot: Bot, challenger_id: int, chat_id: int, message_id: int, challenger_name: str, state: FSMContext):
         await asyncio.sleep(CHALLENGE_TIMEOUT_MINUTES * 60)
-        current_data = await state.get_data()
-        if current_data.get("is_challenge_accepted", False):
+        data = await state.get_data()
+        if data.get("is_challenge_accepted", False):
             return
-        if current_data.get("challenger_id") == challenger_id and \
-           current_data.get("challenge_message_id") == message_id and \
-           await state.get_state() == FightClubStates.waiting_for_challenge_acceptance:
+        if data.get("challenger_id") == challenger_id and data.get("challenge_message_id") == message_id:
             add_sits(chat_id, challenger_id, BET_COST)
-            await safe_send_message(
-                bot, chat_id,
-                f"<b>{challenger_name}</b> ждал соперника, но никто не вышел! 😥\nСтавка возвращена.",
-                parse_mode="HTML"
-            )
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=f"<b>{challenger_name}</b> бросал вызов, но никто не принял. Ставка возвращена.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
             await state.clear()
 
-    # --- ПРИНЯТИЕ ВЫЗОВА ---
+    # Принятие вызова
     @dp.callback_query(F.data.startswith("fight_accept_challenge:"))
     async def process_accept_challenge(callback: types.CallbackQuery, state: FSMContext):
         accepter_id = callback.from_user.id
         chat_id = callback.message.chat.id
-        challenger_id = int(callback.data.split(":")[1])
+        _, challenger_id_str = callback.data.split(":")
+        challenger_id = int(challenger_id_str)
 
         if accepter_id == challenger_id:
-            await callback.answer("Нельзя драться с самим собой!", show_alert=True)
+            await callback.answer("Нельзя принимать свой вызов!", show_alert=True)
+            return
+
+        # FSM Challenger
+        challenger_state = FSMContext(
+            storage=state.storage,
+            key=StorageKey(bot_id=callback.bot.id, chat_id=chat_id, user_id=challenger_id)
+        )
+        challenger_data = await challenger_state.get_data()
+
+        if challenger_data.get("is_challenge_accepted", False):
+            await callback.answer("Этот вызов уже принят.", show_alert=True)
             return
 
         accepter_name = get_user_display_name(accepter_id, chat_id)
         current_sits = await get_current_sits(accepter_id, chat_id)
         if current_sits < BET_COST:
-            await callback.answer("Недостаточно сита!", show_alert=True)
+            await callback.answer(f"Недостаточно сита! Нужно {BET_COST}.", show_alert=True)
             return
 
         add_sits(chat_id, accepter_id, -BET_COST)
 
-        challenger_name = get_user_display_name(challenger_id, chat_id)
+        challenger_name = challenger_data["challenger_name"]
+
+        try:
+            await callback.message.edit_text(
+                f"<b>{challenger_name}</b> бросил вызов!\n"
+                f"<b>{accepter_name}</b> принял его! 🤩 Бой начинается!",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        # Инициализация боя
         fight_data = {
+            "chat_id": chat_id,
             "player1_id": challenger_id,
-            "player1_name": challenger_name,
-            "player1_health": INITIAL_HEALTH,
             "player2_id": accepter_id,
+            "player1_name": challenger_name,
             "player2_name": accepter_name,
+            "player1_health": INITIAL_HEALTH,
             "player2_health": INITIAL_HEALTH,
             "current_round": 1,
             "player1_action": {},
-            "player2_action": {},
-            "chat_id": chat_id
+            "player2_action": {}
         }
 
-        await state.update_data(**fight_data)
-        await state.set_state(FightClubStates.choosing_attack_accepter)
+        await challenger_state.update_data(fight=fight_data, is_challenge_accepted=True)
+        await challenger_state.set_state(FightClubStates.choosing_attack)
 
-        await callback.message.edit_text(
-            f"<b>{challenger_name}</b> и <b>{accepter_name}</b> выходят на бой! ⚔️",
-            parse_mode="HTML"
-        )
+        await state.update_data(fight=fight_data)
+        await state.set_state(FightClubStates.choosing_attack)
 
-        await ask_for_actions(callback.bot, chat_id, fight_data)
+        # Отправляем оба запроса одному сообщению с горизонтальными кнопками
+        await ask_choices(callback.bot, fight_data, challenger_id)
+        await ask_choices(callback.bot, fight_data, accepter_id)
 
-    # --- ВЫБОР АТАКИ/ЗАЩИТЫ ---
-    async def ask_for_actions(bot: Bot, chat_id: int, fight_data: dict):
-        round_num = fight_data["current_round"]
+        await callback.answer("Бой начинается!", show_alert=False)
 
-        atk_kb = InlineKeyboardMarkup(
-            inline_keyboard=[[
-                InlineKeyboardButton(text="🎯 Голова", callback_data="fight_attack:head"),
-                InlineKeyboardButton(text="💪 Тело", callback_data="fight_attack:body"),
-                InlineKeyboardButton(text="🦵 Ноги", callback_data="fight_attack:legs"),
-            ]]
-        )
-        def_kb = InlineKeyboardMarkup(
-            inline_keyboard=[[
-                InlineKeyboardButton(text="🛡️ Голова", callback_data="fight_defense:head"),
-                InlineKeyboardButton(text="🛡️ Тело", callback_data="fight_defense:body"),
-                InlineKeyboardButton(text="🛡️ Ноги", callback_data="fight_defense:legs"),
-            ]]
-        )
+# --- Функции для выбора атаки и защиты ---
+async def ask_choices(bot: Bot, fight_data: dict, user_id: int):
+    chat_id = fight_data["chat_id"]
+    user_name = fight_data["player1_name"] if user_id == fight_data["player1_id"] else fight_data["player2_name"]
 
-        await safe_send_message(bot, chat_id, f"Раунд {round_num}. Выберите куда атаковать:", reply_markup=atk_kb)
-        await safe_send_message(bot, chat_id, f"Раунд {round_num}. Выберите что защитить:", reply_markup=def_kb)
+    kb_attack = InlineKeyboardBuilder()
+    kb_attack.row(
+        InlineKeyboardButton(text="🎯 Голова", callback_data=f"fight_attack:head:{user_id}"),
+        InlineKeyboardButton(text="💪 Тело", callback_data=f"fight_attack:body:{user_id}"),
+        InlineKeyboardButton(text="🦵 Ноги", callback_data=f"fight_attack:legs:{user_id}")
+    )
 
-    @dp.callback_query(F.data.startswith("fight_attack:"))
-    async def process_attack_choice(callback: types.CallbackQuery, state: FSMContext):
-        target = callback.data.split(":")[1]
-        fight_data = await state.get_data()
-        user_id = callback.from_user.id
+    kb_defense = InlineKeyboardBuilder()
+    kb_defense.row(
+        InlineKeyboardButton(text="🛡️ Голова", callback_data=f"fight_defense:head:{user_id}"),
+        InlineKeyboardButton(text="🛡️ Тело", callback_data=f"fight_defense:body:{user_id}"),
+        InlineKeyboardButton(text="🛡️ Ноги", callback_data=f"fight_defense:legs:{user_id}")
+    )
 
-        if user_id not in [fight_data["player1_id"], fight_data["player2_id"]]:
-            await callback.answer("Ты не в этом бою!", show_alert=True)
-            return
+    try:
+        await bot.send_message(chat_id, f"Раунд {fight_data['current_round']}. {user_name}, выберите атаку:", reply_markup=kb_attack.as_markup())
+        await bot.send_message(chat_id, f"{user_name}, выберите защиту:", reply_markup=kb_defense.as_markup())
+    except Exception:
+        pass
 
-        key = "player1_action" if user_id == fight_data["player1_id"] else "player2_action"
-        fight_data[key]["attack"] = target
-        await state.update_data(**fight_data)
-        await callback.answer(f"Атака: {get_target_name(target)}")
+# --- Обработка выбора атаки ---
+async def process_attack_choice(callback: types.CallbackQuery, state: FSMContext):
+    parts = callback.data.split(":")
+    target = parts[1]
+    user_id = int(parts[2])
 
-        await check_round_end(callback.bot, state, fight_data)
+    data = await state.get_data()
+    fight = data.get("fight", {})
 
-    @dp.callback_query(F.data.startswith("fight_defense:"))
-    async def process_defense_choice(callback: types.CallbackQuery, state: FSMContext):
-        target = callback.data.split(":")[1]
-        fight_data = await state.get_data()
-        user_id = callback.from_user.id
+    if not fight or user_id not in [fight["player1_id"], fight["player2_id"]]:
+        await callback.answer("Это не ваш ход!", show_alert=True)
+        return
 
-        if user_id not in [fight_data["player1_id"], fight_data["player2_id"]]:
-            await callback.answer("Ты не в этом бою!", show_alert=True)
-            return
+    key = "player1_action" if user_id == fight["player1_id"] else "player2_action"
+    fight.setdefault(key, {})
+    fight[key]["attack"] = target
+    await state.update_data(fight=fight)
 
-        key = "player1_action" if user_id == fight_data["player1_id"] else "player2_action"
-        fight_data[key]["defense"] = target
-        await state.update_data(**fight_data)
-        await callback.answer(f"Защита: {get_target_name(target)}")
+    await callback.answer(f"Атака выбрана: {get_target_name(target)}", show_alert=False)
+    try:
+        await callback.message.edit_text(f"{get_user_display_name(user_id, fight['chat_id'])} выбрал цель для атаки.", reply_markup=None)
+    except Exception:
+        pass
 
-        await check_round_end(callback.bot, state, fight_data)
+    # Проверка готовности обоих игроков
+    await try_calculate_round(callback.bot, fight, state)
 
-    async def check_round_end(bot: Bot, state: FSMContext, fight_data: dict):
-        p1 = fight_data["player1_action"]
-        p2 = fight_data["player2_action"]
+# --- Обработка выбора защиты ---
+async def process_defense_choice(callback: types.CallbackQuery, state: FSMContext):
+    parts = callback.data.split(":")
+    target = parts[1]
+    user_id = int(parts[2])
 
-        if "attack" in p1 and "defense" in p1 and "attack" in p2 and "defense" in p2:
-            await calculate_round_results(bot, state, fight_data)
+    data = await state.get_data()
+    fight = data.get("fight", {})
 
-    async def calculate_round_results(bot: Bot, state: FSMContext, fight_data: dict):
-        p1_name = fight_data["player1_name"]
-        p2_name = fight_data["player2_name"]
-        p1_health = fight_data["player1_health"]
-        p2_health = fight_data["player2_health"]
-        p1_action = fight_data["player1_action"]
-        p2_action = fight_data["player2_action"]
+    if not fight or user_id not in [fight["player1_id"], fight["player2_id"]]:
+        await callback.answer("Это не ваш ход!", show_alert=True)
+        return
 
-        dmg2, desc1 = calculate_damage(p1_name, p2_name, p1_action["attack"], p2_action["defense"])
-        dmg1, desc2 = calculate_damage(p2_name, p1_name, p2_action["attack"], p1_action["defense"])
+    key = "player1_action" if user_id == fight["player1_id"] else "player2_action"
+    fight.setdefault(key, {})
+    fight[key]["defense"] = target
+    await state.update_data(fight=fight)
 
-        p1_health -= dmg1
-        p2_health -= dmg2
+    await callback.answer(f"Защита выбрана: {get_target_name(target)}", show_alert=False)
+    try:
+        await callback.message.edit_text(f"{get_user_display_name(user_id, fight['chat_id'])} выбрал что защищать.", reply_markup=None)
+    except Exception:
+        pass
 
-        text = (
-            f"<b>--- Раунд {fight_data['current_round']} ---</b>\n\n"
-            f"{desc1}\n{desc2}\n\n"
-            f"{p1_name}: {max(0, p1_health)} ❤️\n"
-            f"{p2_name}: {max(0, p2_health)} ❤️"
-        )
-        await safe_send_message(bot, fight_data["chat_id"], text, parse_mode="HTML")
+    await try_calculate_round(callback.bot, fight, state)
 
-        if p1_health <= 0 or p2_health <= 0:
-            winner, loser = None, None
-            if p1_health <= 0 and p2_health <= 0:
-                winner = fight_data["player1_id"]
-                await safe_send_message(bot, fight_data["chat_id"], f"Оба пали! Победа {p1_name}")
-            elif p1_health <= 0:
-                winner = fight_data["player2_id"]
-                await safe_send_message(bot, fight_data["chat_id"], f"{p1_name} пал! Победа {p2_name}")
-            elif p2_health <= 0:
-                winner = fight_data["player1_id"]
-                await safe_send_message(bot, fight_data["chat_id"], f"{p2_name} пал! Победа {p1_name}")
+# --- Проверка и расчет раунда ---
+async def try_calculate_round(bot: Bot, fight: dict, state: FSMContext):
+    p1_action = fight.get("player1_action", {})
+    p2_action = fight.get("player2_action", {})
 
-            if winner:
-                prize = BET_COST + random.randint(WIN_SITS_MIN, WIN_SITS_MAX)
-                add_sits(fight_data["chat_id"], winner, prize)
-                await safe_send_message(bot, fight_data["chat_id"], f"💰 Победитель получает {prize} сита!")
-            await state.clear()
-        else:
-            fight_data["player1_health"] = p1_health
-            fight_data["player2_health"] = p2_health
-            fight_data["player1_action"] = {}
-            fight_data["player2_action"] = {}
-            fight_data["current_round"] += 1
-            await state.update_data(**fight_data)
-            await ask_for_actions(bot, fight_data["chat_id"], fight_data)
+    if "attack" in p1_action and "defense" in p1_action and "attack" in p2_action and "defense" in p2_action:
+        await calculate_round_results(bot, fight, state)
 
+# --- Расчет результатов ---
+async def calculate_round_results(bot: Bot, fight: dict, state: FSMContext):
+    p1_id = fight["player1_id"]
+    p2_id = fight["player2_id"]
+    p1_name = fight["player1_name"]
+    p2_name = fight["player2_name"]
+    p1_health = fight["player1_health"]
+    p2_health = fight["player2_health"]
 
-def calculate_damage(attacker_name: str, defender_name: str, attack_target: str, defense_target: str):
-    base_damage = random.randint(MIN_DAMAGE, MAX_DAMAGE)
-    is_crit = random.randint(1, 100) <= CRIT_CHANCE
-    damage = base_damage * 2 if is_crit else base_damage
+    damage_to_p2, p1_desc = calculate_damage(p1_name, p2_name, fight["player1_action"]["attack"], fight["player2_action"]["defense"])
+    damage_to_p1, p2_desc = calculate_damage(p2_name, p1_name, fight["player2_action"]["attack"], fight["player1_action"]["defense"])
 
-    desc = f"{random.choice(ATTACK_PHRASES).format(attacker_name=attacker_name, target=get_target_name(attack_target), defender_name=defender_name)}"
-    if is_crit:
+    p1_health -= damage_to_p1
+    p2_health -= damage_to_p2
+
+    fight["player1_health"] = p1_health
+    fight["player2_health"] = p2_health
+
+    fight_summary = (
+        f"<b>--- Раунд {fight['current_round']} ---</b>\n\n"
+        f"{p1_desc}\n{p2_desc}\n\n"
+        f"{p1_name}: {max(0,p1_health)} ❤️\n{p2_name}: {max(0,p2_health)} ❤️"
+    )
+    try:
+        await bot.send_message(fight["chat_id"], fight_summary, parse_mode="HTML")
+    except Exception:
+        pass
+
+    # Проверка победителя
+    winner_id = None
+    loser_id = None
+    if p1_health <= 0 and p2_health <= 0:
+        winner_id, loser_id = p1_id, p2_id
+        text = f"Оба пали! Победитель: {p1_name}"
+    elif p1_health <= 0:
+        winner_id, loser_id = p2_id, p1_id
+        text = f"{p1_name} повержен! Победитель: {p2_name}"
+    elif p2_health <= 0:
+        winner_id, loser_id = p1_id, p2_id
+        text = f"{p2_name} повержен! Победитель: {p1_name}"
+    else:
+        winner_id = None
+
+    if winner_id:
+        win_sits = random.randint(WIN_SITS_MIN, WIN_SITS_MAX)
+        add_sits(fight["chat_id"], winner_id, BET_COST + win_sits)
+        text += f"\n💰 {get_user_display_name(winner_id, fight['chat_id'])} получает {BET_COST+win_sits} сита!"
+
+        try:
+            await bot.send_message(fight["chat_id"], text, parse_mode="HTML")
+        except Exception:
+            pass
+        await state.clear()
+        return
+
+    # Продолжаем бой
+    fight["current_round"] += 1
+    fight["player1_action"] = {}
+    fight["player2_action"] = {}
+    await state.update_data(fight=fight)
+    await ask_choices(bot, fight, p1_id)
+    await ask_choices(bot, fight, p2_id)
+
+# --- Расчет урона ---
+def calculate_damage(attacker_name, defender_name, attack_target, defense_target):
+    base = random.randint(MIN_DAMAGE, MAX_DAMAGE)
+    crit = random.randint(1,100) <= CRIT_CHANCE
+    damage = base*2 if crit else base
+    desc = f"{random.choice(ATTACK_PHRASES).format(attacker_name=attacker_name,target=get_target_name(attack_target),defender_name=defender_name)}"
+    if crit:
         desc = "💥 " + desc + f" (КРИТ! {damage})"
     else:
-        desc = desc + f" (Урон: {damage})"
-
+        desc += f" (Урон: {damage})"
     if attack_target == defense_target:
-        damage //= 2
-        desc += f"\n{random.choice(DEFENSE_PHRASES).format(defender_name=defender_name, target=get_target_name(defense_target))} (Урон снижен до {damage})"
-
+        damage //=2
+        desc += f"\n{random.choice(DEFENSE_PHRASES).format(defender_name=defender_name,target=get_target_name(defense_target))} (Урон снижен до {damage})"
     return damage, desc
