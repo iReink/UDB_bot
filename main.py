@@ -49,7 +49,7 @@ from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 
 dp = Dispatcher()
 import fight_club
-dp.include_router(fight_club.router) # Регистрируем роутер бойцовского клуба
+fight_club.register_fight_club_handlers(dp) # Регистрируем хэндлеры бойцовского клуба
 register_sos_handlers(dp)
 
 import group
