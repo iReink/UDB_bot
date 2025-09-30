@@ -86,7 +86,7 @@ def register_fight_club_handlers(dp: Dispatcher):
     async def process_fight_challenge(callback: types.CallbackQuery, state: FSMContext):
         challenger_id = callback.from_user.id
         chat_id = callback.message.chat.id
-        challenger_name = await get_user_display_name(challenger_id, chat_id)
+        challenger_name = get_user_display_name(challenger_id, chat_id)
         
         current_sits = await get_current_sits(challenger_id, chat_id)
         
