@@ -170,7 +170,7 @@ def register_fight_club_handlers(dp: Dispatcher):
         # Создаем FSMContext для Challenger'а
         # Это позволит нам работать с состоянием Challenger'а
         challenger_fsm_context = FSMContext(
-            bot=callback.bot,
+            storage=state.storage, # Используем то же хранилище
             chat_id=chat_id,
             user_id=original_challenger_id
         )
@@ -288,8 +288,8 @@ def register_fight_club_handlers(dp: Dispatcher):
             chat_id = fight_data["chat_id"]
 
             # Создаем контексты для обоих игроков
-            state_p1 = FSMContext(callback.bot, chat_id, player1_id)
-            state_p2 = FSMContext(callback.bot, chat_id, player2_id)
+            state_p1 = FSMContext(storage=state.storage, chat_id=chat_id, user_id=player1_id)
+            state_p2 = FSMContext(storage=state.storage, chat_id=chat_id, user_id=player2_id)
 
             # Обновляем fight_data в обоих состояниях
             await state_p1.update_data(fight_data)
@@ -344,8 +344,8 @@ def register_fight_club_handlers(dp: Dispatcher):
             chat_id = fight_data["chat_id"]
 
             # Создаем контексты для обоих игроков
-            state_p1 = FSMContext(callback.bot, chat_id, player1_id)
-            state_p2 = FSMContext(callback.bot, chat_id, player2_id)
+            state_p1 = FSMContext(storage=state.storage, chat_id=chat_id, user_id=player1_id)
+            state_p2 = FSMContext(storage=state.storage, chat_id=chat_id, user_id=player2_id)
 
             # Обновляем fight_data в обоих состояниях
             await state_p1.update_data(fight_data)
