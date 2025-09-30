@@ -10,7 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from db import get_user, add_sits, get_user_display_name, DB_PATH # Импорт функций для работы с БД
+from db import get_user, add_sits, get_user_display_name # Импорт функций для работы с БД
 
 router = Router()
 
