@@ -223,8 +223,8 @@ def register_fight_club_handlers(dp: Dispatcher):
             "player2_name": accepter_name,
             "player2_health": INITIAL_HEALTH,
             "current_round": 1,
-            "player1_action": None,
-            "player2_action": None,
+            "player1_action": {}, # Initialize as empty dict
+            "player2_action": {}, # Initialize as empty dict
             "last_message_id": callback.message.message_id,
             "chat_id": chat_id # Важно сохранить chat_id в fight_data
         }
@@ -239,8 +239,11 @@ def register_fight_club_handlers(dp: Dispatcher):
         await state.set_state(FightClubStates.choosing_attack_accepter) # Устанавливаем состояние для Accepter'а
         
         # Отправляем запросы на выбор действия обоим игрокам
+        # Теперь запрашиваем атаку и защиту одновременно
         await ask_for_attack_choice(callback.bot, chat_id, original_challenger_id, challenger_name, challenger_fsm_context)
-        await ask_for_attack_choice(callback.bot, chat_id, accepter_id, accepter_name, state) # state здесь - accepter's FSMContext
+        await ask_for_defense_choice(callback.bot, chat_id, original_challenger_id, challenger_name, challenger_fsm_context)
+        await ask_for_attack_choice(callback.bot, chat_id, accepter_id, accepter_name, state)
+        await ask_for_defense_choice(callback.bot, chat_id, accepter_id, accepter_name, state)
         
         await callback.answer("Вызов принят! Приготовьтесь к бою! В личных сообщениях бот ждет ваших команд.", show_alert=False)
 
@@ -278,36 +281,33 @@ def register_fight_club_handlers(dp: Dispatcher):
         await state.update_data(fight_data)
         
         await callback.answer(f"Вы выбрали цель для атаки: {get_target_name(target)}", show_alert=False)
-        await callback.message.edit_text(f"Игрок {await get_user_display_name(player_id, callback.message.chat.id)} выбрал цель для атаки.", reply_markup=None) # Удаляем кнопки
+        await callback.message.edit_text(f"Игрок {get_user_display_name(player_id, callback.message.chat.id)} выбрал цель для атаки.", reply_markup=None) # Удаляем кнопки
         
-        # Проверяем, сделали ли оба игрока свой выбор атаки
+        # Проверяем, сделаны ли все 4 действия
         if fight_data.get("player1_action", {}).get("attack") and \
-           fight_data.get("player2_action", {}).get("attack"):
+           fight_data.get("player1_action", {}).get("defense") and \
+           fight_data.get("player2_action", {}).get("attack") and \
+           fight_data.get("player2_action", {}).get("defense"):
             
-            await state.set_state(FightClubStates.choosing_defense_challenger) # Переходим к выбору защиты
+            # Определяем, кто текущий игрок (P1 или P2)
+            is_player1 = (player_id == fight_data["player1_id"])
             
-            # Определяем FSMContext для каждого игрока
-            player1_id = fight_data["player1_id"]
-            player2_id = fight_data["player2_id"]
-            chat_id = fight_data["chat_id"]
-
-            # Создаем контексты для обоих игроков
-            fsm_context_p1 = FSMContext(
+            # Создаем FSMContext для другого игрока
+            other_player_id = fight_data["player2_id"] if is_player1 else fight_data["player1_id"]
+            other_fsm_context = FSMContext(
                 storage=state.storage,
-                key=StorageKey(bot_id=callback.bot.id, chat_id=chat_id, user_id=player1_id)
+                key=StorageKey(bot_id=callback.bot.id, chat_id=fight_data["chat_id"], user_id=other_player_id)
             )
-            fsm_context_p2 = FSMContext(
-                storage=state.storage,
-                key=StorageKey(bot_id=callback.bot.id, chat_id=chat_id, user_id=player2_id)
-            )
-
-            # Обновляем fight_data в обоих состояниях
-            await fsm_context_p1.update_data(fight_data)
-            await fsm_context_p2.update_data(fight_data)
-
-            # Запрашиваем выбор защиты у обоих игроков
-            await ask_for_defense_choice(callback.bot, chat_id, player1_id, fight_data["player1_name"], fsm_context_p1)
-            await ask_for_defense_choice(callback.bot, chat_id, player2_id, fight_data["player2_name"], fsm_context_p2)
+            
+            # Вызываем расчет результатов раунда, передавая контексты обоих игроков
+            if is_player1:
+                await calculate_round_results(callback.bot, fight_data["chat_id"], state, other_fsm_context)
+            else:
+                await calculate_round_results(callback.bot, fight_data["chat_id"], other_fsm_context, state)
+            
+            # Здесь не нужно устанавливать состояние choosing_defense_challenger,
+            # так как выбор защиты уже должен был быть запрошен ранее.
+            # FSM-состояние будет очищено в calculate_round_results после завершения боя.
 
     async def ask_for_defense_choice(bot: Bot, chat_id: int, user_id: int, user_name: str, state: FSMContext):
         kb = InlineKeyboardBuilder()
@@ -342,33 +342,29 @@ def register_fight_club_handlers(dp: Dispatcher):
         await state.update_data(fight_data)
         
         await callback.answer(f"Вы выбрали защиту: {get_target_name(target)}", show_alert=False)
-        await callback.message.edit_text(f"Игрок {await get_user_display_name(player_id, callback.message.chat.id)} выбрал что хочет защитить.", reply_markup=None) # Удаляем кнопки
+        await callback.message.edit_text(f"Игрок {get_user_display_name(player_id, callback.message.chat.id)} выбрал что хочет защитить.", reply_markup=None) # Удаляем кнопки
         
-        # Проверяем, сделали ли оба игрока свой выбор защиты
-        if fight_data.get("player1_action", {}).get("defense") and \
+        # Проверяем, сделаны ли все 4 действия
+        if fight_data.get("player1_action", {}).get("attack") and \
+           fight_data.get("player1_action", {}).get("defense") and \
+           fight_data.get("player2_action", {}).get("attack") and \
            fight_data.get("player2_action", {}).get("defense"):
             
-            # Определяем FSMContext для каждого игрока
-            player1_id = fight_data["player1_id"]
-            player2_id = fight_data["player2_id"]
-            chat_id = fight_data["chat_id"]
-
-            # Создаем контексты для обоих игроков
-            fsm_context_p1 = FSMContext(
+            # Определяем, кто текущий игрок (P1 или P2)
+            is_player1 = (player_id == fight_data["player1_id"])
+            
+            # Создаем FSMContext для другого игрока
+            other_player_id = fight_data["player2_id"] if is_player1 else fight_data["player1_id"]
+            other_fsm_context = FSMContext(
                 storage=state.storage,
-                key=StorageKey(bot_id=callback.bot.id, chat_id=chat_id, user_id=player1_id)
+                key=StorageKey(bot_id=callback.bot.id, chat_id=fight_data["chat_id"], user_id=other_player_id)
             )
-            fsm_context_p2 = FSMContext(
-                storage=state.storage,
-                key=StorageKey(bot_id=callback.bot.id, chat_id=chat_id, user_id=player2_id)
-            )
-
-            # Обновляем fight_data в обоих состояниях
-            await fsm_context_p1.update_data(fight_data)
-            await fsm_context_p2.update_data(fight_data)
-
-            # Вызываем расчет результатов раунда с обоими FSMContext
-            await calculate_round_results(callback.bot, chat_id, fsm_context_p1, fsm_context_p2)
+            
+            # Вызываем расчет результатов раунда, передавая контексты обоих игроков
+            if is_player1:
+                await calculate_round_results(callback.bot, fight_data["chat_id"], state, other_fsm_context)
+            else:
+                await calculate_round_results(callback.bot, fight_data["chat_id"], other_fsm_context, state)
 
     async def calculate_round_results(bot: Bot, chat_id: int, state_p1: FSMContext, state_p2: FSMContext):
         fight_data_p1 = await state_p1.get_data() # Получаем данные из FSM первого игрока
@@ -465,15 +461,17 @@ def register_fight_club_handlers(dp: Dispatcher):
         else:
             # Продолжаем бой
             fight_data_p1["current_round"] += 1
-            fight_data_p1["player1_action"] = None
-            fight_data_p2["player2_action"] = None
+            fight_data_p1["player1_action"] = {} # Сбрасываем действия для нового раунда
+            fight_data_p2["player2_action"] = {} # Сбрасываем действия для нового раунда
             await state_p1.update_data(**fight_data_p1) # Обновляем данные в FSM первого игрока
             await state_p2.update_data(**fight_data_p2) # Обновляем данные в FSM второго игрока
             
             await state_p1.set_state(FightClubStates.choosing_attack_challenger) # Устанавливаем состояние для Challenger (Player 1)
             await state_p2.set_state(FightClubStates.choosing_attack_accepter) # Устанавливаем состояние для Accepter (Player 2)
             await ask_for_attack_choice(bot, chat_id, p1_id, p1_name, state_p1) # Запрашиваем атаку у первого игрока
+            await ask_for_defense_choice(bot, chat_id, p1_id, p1_name, state_p1) # Запрашиваем защиту у первого игрока
             await ask_for_attack_choice(bot, chat_id, p2_id, p2_name, state_p2) # Запрашиваем атаку у второго игрока
+            await ask_for_defense_choice(bot, chat_id, p2_id, p2_name, state_p2) # Запрашиваем защиту у второго игрока
             
 def calculate_damage(attacker_name: str, defender_name: str, attack_target: str, defense_target: str):
     base_damage = random.randint(MIN_DAMAGE, MAX_DAMAGE)
