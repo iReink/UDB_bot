@@ -163,30 +163,41 @@ def register_fight_club_handlers(dp: Dispatcher):
         accepter_id = callback.from_user.id
         chat_id = callback.message.chat.id
         
-        data = await state.get_data()
-        challenger_id = data.get("challenger_id")
-        challenge_message_id = data.get("challenge_message_id")
+        # Извлекаем challenger_id из callback.data
+        _, _, original_challenger_id_str = callback.data.split(":")
+        original_challenger_id = int(original_challenger_id_str)
+
+        # Создаем FSMContext для Challenger'а
+        # Это позволит нам работать с состоянием Challenger'а
+        challenger_fsm_context = FSMContext(
+            bot=callback.bot,
+            chat_id=chat_id,
+            user_id=original_challenger_id
+        )
+        challenger_data = await challenger_fsm_context.get_data()
         
-        if accepter_id == challenger_id:
+        if accepter_id == original_challenger_id:
             await callback.answer("Нельзя принимать свой собственный вызов, хитрец! 😉", show_alert=True)
             return
             
-        if await state.get_state() != FightClubStates.waiting_for_challenge_acceptance or \
-           challenge_message_id != callback.message.message_id:
+        # Проверки состояния вызова через состояние Challenger'а
+        if challenger_data.get("is_challenge_accepted", False) or \
+           await challenger_fsm_context.get_state() != FightClubStates.waiting_for_challenge_acceptance or \
+           challenger_data.get("challenge_message_id") != callback.message.message_id: # Проверяем ID сообщения вызова
             await callback.answer("Этот вызов уже неактивен или был принят.", show_alert=True)
             return
             
-        accepter_name = await get_user_display_name(accepter_id, chat_id)
+        accepter_name = get_user_display_name(accepter_id, chat_id)
         current_sits = await get_current_sits(accepter_id, chat_id)
         
         if current_sits < BET_COST:
             await callback.answer(f"Недостаточно сита для принятия вызова! Нужно {BET_COST} сита.", show_alert=True)
             return
             
-        add_sits(chat_id, accepter_id, -BET_COST) # Снимаем ставку
+        add_sits(chat_id, accepter_id, -BET_COST) # Снимаем ставку с принимающего
         
-        # Обновляем сообщение о вызове
-        challenger_name = data.get("challenger_name")
+        # Обновляем сообщение о вызове (от имени бота)
+        challenger_name = challenger_data.get("challenger_name") # Используем имя из состояния challenger'а
         new_message_text = (
             f"<b>{challenger_name}</b> бросил вызов!\n"
             f"<b>{accepter_name}</b> отважно принял его! 🤩 Бой начинается!\n\n"
@@ -199,29 +210,34 @@ def register_fight_club_handlers(dp: Dispatcher):
             parse_mode="HTML"
         )
         
-        # Инициализируем бой
+        # Инициализируем бой, используя данные challenger_data и accepter_id
         fight_data = {
-            "player1_id": challenger_id,
+            "player1_id": original_challenger_id,
             "player1_name": challenger_name,
             "player1_health": INITIAL_HEALTH,
             "player2_id": accepter_id,
             "player2_name": accepter_name,
             "player2_health": INITIAL_HEALTH,
             "current_round": 1,
-            "player1_action": None, # {'attack': 'head', 'defense': 'body'}
+            "player1_action": None,
             "player2_action": None,
-            "last_message_id": callback.message.message_id # Сохраняем id сообщения для последующих обновлений
+            "last_message_id": callback.message.message_id
         }
         
-        await state.update_data(fight_data)
-        await state.update_data(is_challenge_accepted=True) # Вызов принят
-        await state.set_state(FightClubStates.choosing_attack_challenger)
+        # Обновляем состояние Challenger'а, помечая вызов как принятый
+        await challenger_fsm_context.update_data(is_challenge_accepted=True)
+        # Переводим состояние Challenger'а в выбор атаки
+        await challenger_fsm_context.set_state(FightClubStates.choosing_attack_challenger)
+
+        # Обновляем состояние Accepter'а для начала боя
+        await state.update_data(fight_data) # state здесь - это состояние accepter'а
+        await state.set_state(FightClubStates.choosing_attack_accepter) # Устанавливаем состояние для Accepter'а
         
         # Отправляем запросы на выбор действия обоим игрокам
-        await ask_for_attack_choice(callback.bot, chat_id, challenger_id, challenger_name, state)
-        await ask_for_attack_choice(callback.bot, chat_id, accepter_id, accepter_name, state)
+        await ask_for_attack_choice(callback.bot, chat_id, original_challenger_id, challenger_name, challenger_fsm_context)
+        await ask_for_attack_choice(callback.bot, chat_id, accepter_id, accepter_name, state) # state здесь - accepter's FSMContext
         
-        await callback.answer("Вызов принят! Приготовьтесь к бою!", show_alert=False)
+        await callback.answer("Вызов принят! Приготовьтесь к бою! В личных сообщениях бот ждет ваших команд.", show_alert=False)
 
     # --- ФУНКЦИИ ДЛЯ ПОШАГОВОГО БОЯ ---
     async def ask_for_attack_choice(bot: Bot, chat_id: int, user_id: int, user_name: str, state: FSMContext):
