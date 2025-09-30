@@ -74,6 +74,9 @@ mujlo.register_mujlo_handlers(dp)
 import geyser
 geyser.register_geyser_handlers(dp) # Регистрируем хэндлеры гейзера
 
+import fight_club
+dp.include_router(fight_club.router) # Регистрируем роутер бойцовского клуба
+
 from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")

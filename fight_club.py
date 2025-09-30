@@ -30,7 +30,7 @@ ATTACK_PHRASES = [
     "{attacker_name} со всей дури колошматит по {target} {defender_name}!",
     "{attacker_name} деликатно тыкает в {target} {defender_name}!",
     "{attacker_name} наносит сокрушительный удар в {target} {defender_name}!",
-    "{attacker_name} мастерски пробивает защиту {defender_name} в {target}!",
+    "{attacker_name} мастерски пробивает {defender_name} в {target}!",
     "{attacker_name} финтом отправляет кулак в {target} {defender_name}!"
 ]
 
