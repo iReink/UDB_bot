@@ -252,8 +252,8 @@ def register_fight_club_handlers(dp: Dispatcher):
         kb.row(InlineKeyboardButton(text="🦵 Ноги", callback_data=f"fight_attack:legs:{user_id}"))
         
         await bot.send_message(
-            chat_id=user_id, # Отправляем в личные сообщения игроку
-            text=f"Раунд { (await state.get_data()).get('current_round', 1) }. {user_name}, выберите цель для атаки:",
+            chat_id=chat_id, # Отправляем в общий чат
+            text=f"Раунд { (await state.get_data()).get('current_round', 1) }. {user_name}, выберите цель для атаки!",
             reply_markup=kb.as_markup()
         )
 
@@ -316,8 +316,8 @@ def register_fight_club_handlers(dp: Dispatcher):
         kb.row(InlineKeyboardButton(text="🛡️ Ноги", callback_data=f"fight_defense:legs:{user_id}"))
         
         await bot.send_message(
-            chat_id=user_id, # Отправляем в личные сообщения игроку
-            text=f"{user_name}, выберите, какую часть тела защищать:",
+            chat_id=chat_id, # Отправляем в общий чат
+            text=f"{user_name}, выберите, какую часть тела защищать!",
             reply_markup=kb.as_markup()
         )
 
