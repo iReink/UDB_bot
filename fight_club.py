@@ -254,9 +254,10 @@ def register_fight_club_handlers(dp: Dispatcher):
         kb.row(InlineKeyboardButton(text="💪 Туловище", callback_data=f"fight_attack:body:{user_id}"))
         kb.row(InlineKeyboardButton(text="🦵 Ноги", callback_data=f"fight_attack:legs:{user_id}"))
         
+        message_text = f"Раунд { (await state.get_data()).get('current_round', 1) }. Игрок {user_name}, выберите цель для атаки!"
         await bot.send_message(
-            chat_id=chat_id, # Отправляем в общий чат
-            text=f"Раунд { (await state.get_data()).get('current_round', 1) }. {user_name}, выберите цель для атаки!",
+            chat_id=chat_id,
+            text=message_text,
             reply_markup=kb.as_markup()
         )
 
@@ -272,6 +273,11 @@ def register_fight_club_handlers(dp: Dispatcher):
             await callback.answer("Это не ваш ход!", show_alert=True)
             return
             
+        # Проверяем, что кнопку нажал тот игрок, для которого она предназначена
+        if player_id != callback.from_user.id:
+            await callback.answer("Сейчас сражаешься не ты!", show_alert=True)
+            return
+            
         player_key = "player1_action" if player_id == fight_data["player1_id"] else "player2_action"
         
         # Обновляем данные FSM
@@ -283,21 +289,27 @@ def register_fight_club_handlers(dp: Dispatcher):
         await callback.answer(f"Вы выбрали цель для атаки: {get_target_name(target)}", show_alert=False)
         await callback.message.edit_text(f"Игрок {get_user_display_name(player_id, callback.message.chat.id)} выбрал цель для атаки.", reply_markup=None) # Удаляем кнопки
         
-        # Проверяем, сделаны ли все 4 действия
-        if fight_data.get("player1_action", {}).get("attack") and \
-           fight_data.get("player1_action", {}).get("defense") and \
-           fight_data.get("player2_action", {}).get("attack") and \
-           fight_data.get("player2_action", {}).get("defense"):
-            
-            # Определяем, кто текущий игрок (P1 или P2)
-            is_player1 = (player_id == fight_data["player1_id"])
-            
-            # Создаем FSMContext для другого игрока
-            other_player_id = fight_data["player2_id"] if is_player1 else fight_data["player1_id"]
-            other_fsm_context = FSMContext(
-                storage=state.storage,
-                key=StorageKey(bot_id=callback.bot.id, chat_id=fight_data["chat_id"], user_id=other_player_id)
-            )
+        # Определяем, кто текущий игрок (P1 или P2)
+        is_player1 = (player_id == fight_data["player1_id"])
+        
+        # Определяем ID другого игрока
+        other_player_id = fight_data["player2_id"] if is_player1 else fight_data["player1_id"]
+        
+        # Создаем FSMContext для другого игрока
+        other_fsm_context = FSMContext(
+            storage=state.storage,
+            key=StorageKey(bot_id=callback.bot.id, chat_id=fight_data["chat_id"], user_id=other_player_id)
+        )
+        
+        # Получаем актуальные данные обоих игроков
+        p1_state_data = await state.get_data() if is_player1 else await other_fsm_context.get_data()
+        p2_state_data = await state.get_data() if not is_player1 else await other_fsm_context.get_data()
+
+        # Проверяем, сделаны ли все 4 действия для текущего раунда
+        if p1_state_data.get("player1_action", {}).get("attack") and \
+           p1_state_data.get("player1_action", {}).get("defense") and \
+           p2_state_data.get("player2_action", {}).get("attack") and \
+           p2_state_data.get("player2_action", {}).get("defense"):
             
             # Вызываем расчет результатов раунда, передавая контексты обоих игроков
             if is_player1:
@@ -315,9 +327,10 @@ def register_fight_club_handlers(dp: Dispatcher):
         kb.row(InlineKeyboardButton(text="🛡️ Туловище", callback_data=f"fight_defense:body:{user_id}"))
         kb.row(InlineKeyboardButton(text="🛡️ Ноги", callback_data=f"fight_defense:legs:{user_id}"))
         
+        message_text = f"Игрок {user_name}, выберите, какую часть тела защищать!"
         await bot.send_message(
-            chat_id=chat_id, # Отправляем в общий чат
-            text=f"{user_name}, выберите, какую часть тела защищать!",
+            chat_id=chat_id,
+            text=message_text,
             reply_markup=kb.as_markup()
         )
 
@@ -333,6 +346,11 @@ def register_fight_club_handlers(dp: Dispatcher):
             await callback.answer("Это не ваш ход!", show_alert=True)
             return
             
+        # Проверяем, что кнопку нажал тот игрок, для которого она предназначена
+        if player_id != callback.from_user.id:
+            await callback.answer("Сейчас сражаешься не ты!", show_alert=True)
+            return
+            
         player_key = "player1_action" if player_id == fight_data["player1_id"] else "player2_action"
         
         # Обновляем данные FSM
@@ -344,21 +362,27 @@ def register_fight_club_handlers(dp: Dispatcher):
         await callback.answer(f"Вы выбрали защиту: {get_target_name(target)}", show_alert=False)
         await callback.message.edit_text(f"Игрок {get_user_display_name(player_id, callback.message.chat.id)} выбрал что хочет защитить.", reply_markup=None) # Удаляем кнопки
         
-        # Проверяем, сделаны ли все 4 действия
-        if fight_data.get("player1_action", {}).get("attack") and \
-           fight_data.get("player1_action", {}).get("defense") and \
-           fight_data.get("player2_action", {}).get("attack") and \
-           fight_data.get("player2_action", {}).get("defense"):
-            
-            # Определяем, кто текущий игрок (P1 или P2)
-            is_player1 = (player_id == fight_data["player1_id"])
-            
-            # Создаем FSMContext для другого игрока
-            other_player_id = fight_data["player2_id"] if is_player1 else fight_data["player1_id"]
-            other_fsm_context = FSMContext(
-                storage=state.storage,
-                key=StorageKey(bot_id=callback.bot.id, chat_id=fight_data["chat_id"], user_id=other_player_id)
-            )
+        # Определяем, кто текущий игрок (P1 или P2)
+        is_player1 = (player_id == fight_data["player1_id"])
+        
+        # Определяем ID другого игрока
+        other_player_id = fight_data["player2_id"] if is_player1 else fight_data["player1_id"]
+        
+        # Создаем FSMContext для другого игрока
+        other_fsm_context = FSMContext(
+            storage=state.storage,
+            key=StorageKey(bot_id=callback.bot.id, chat_id=fight_data["chat_id"], user_id=other_player_id)
+        )
+        
+        # Получаем актуальные данные обоих игроков
+        p1_state_data = await state.get_data() if is_player1 else await other_fsm_context.get_data()
+        p2_state_data = await state.get_data() if not is_player1 else await other_fsm_context.get_data()
+
+        # Проверяем, сделаны ли все 4 действия для текущего раунда
+        if p1_state_data.get("player1_action", {}).get("attack") and \
+           p1_state_data.get("player1_action", {}).get("defense") and \
+           p2_state_data.get("player2_action", {}).get("attack") and \
+           p2_state_data.get("player2_action", {}).get("defense"):
             
             # Вызываем расчет результатов раунда, передавая контексты обоих игроков
             if is_player1:
