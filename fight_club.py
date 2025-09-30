@@ -3,7 +3,7 @@ import asyncio
 import random
 from datetime import datetime, timedelta
 
-from aiogram import types, F, Router
+from aiogram import Bot, types, F, Router
 from aiogram.filters.command import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -132,7 +132,7 @@ async def process_fight_challenge(callback: types.CallbackQuery, state: FSMConte
         callback.bot, challenger_id, chat_id, sent_message.message_id, challenger_name, state
     ))
 
-async def challenge_timeout_check(bot: types.Bot, challenger_id: int, chat_id: int, message_id: int, challenger_name: str, state: FSMContext):
+async def challenge_timeout_check(bot: Bot, challenger_id: int, chat_id: int, message_id: int, challenger_name: str, state: FSMContext):
     await asyncio.sleep(CHALLENGE_TIMEOUT_MINUTES * 60) # Ждем 10 минут
     
     current_data = await state.get_data()
@@ -228,7 +228,7 @@ async def process_accept_challenge(callback: types.CallbackQuery, state: FSMCont
     await callback.answer("Вызов принят! Приготовьтесь к бою!", show_alert=False)
 
 # --- ФУНКЦИИ ДЛЯ ПОШАГОВОГО БОЯ ---
-async def ask_for_attack_choice(bot: types.Bot, chat_id: int, user_id: int, user_name: str, state: FSMContext):
+async def ask_for_attack_choice(bot: Bot, chat_id: int, user_id: int, user_name: str, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🎯 Голова", callback_data=f"fight_attack:head:{user_id}"))
     kb.row(InlineKeyboardButton(text="💪 Туловище", callback_data=f"fight_attack:body:{user_id}"))
@@ -273,7 +273,7 @@ async def process_attack_choice(callback: types.CallbackQuery, state: FSMContext
         await ask_for_defense_choice(callback.bot, fight_data["chat_id"], fight_data["player1_id"], fight_data["player1_name"], state)
         await ask_for_defense_choice(callback.bot, fight_data["chat_id"], fight_data["player2_id"], fight_data["player2_name"], state)
 
-async def ask_for_defense_choice(bot: types.Bot, chat_id: int, user_id: int, user_name: str, state: FSMContext):
+async def ask_for_defense_choice(bot: Bot, chat_id: int, user_id: int, user_name: str, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🛡️ Голова", callback_data=f"fight_defense:head:{user_id}"))
     kb.row(InlineKeyboardButton(text="🛡️ Туловище", callback_data=f"fight_defense:body:{user_id}"))
@@ -314,7 +314,7 @@ async def process_defense_choice(callback: types.CallbackQuery, state: FSMContex
         
         await calculate_round_results(callback.bot, fight_data["chat_id"], state)
 
-async def calculate_round_results(bot: types.Bot, chat_id: int, state: FSMContext):
+async def calculate_round_results(bot: Bot, chat_id: int, state: FSMContext):
     fight_data = await state.get_data()
     
     p1_id = fight_data["player1_id"]
