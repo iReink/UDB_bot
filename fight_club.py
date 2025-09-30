@@ -164,7 +164,7 @@ def register_fight_club_handlers(dp: Dispatcher):
         chat_id = callback.message.chat.id
         
         # Извлекаем challenger_id из callback.data
-        _, _, original_challenger_id_str = callback.data.split(":")
+        _, original_challenger_id_str = callback.data.split(":") # Исправлено: ожидаем 2 значения
         original_challenger_id = int(original_challenger_id_str)
 
         # Создаем FSMContext для Challenger'а
