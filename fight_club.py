@@ -18,7 +18,7 @@ INITIAL_HEALTH = 100
 MIN_DAMAGE = 16
 MAX_DAMAGE = 24
 CRIT_CHANCE = 5 # Процент
-BET_COST = 1 # Стоимость вызова/принятия в сита
+BET_COST = 3 # Стоимость вызова/принятия в сита
 WIN_SITS_MIN = 1
 WIN_SITS_MAX = 2
 CHALLENGE_TIMEOUT_MINUTES = 10 # Таймаут на принятие вызова
@@ -75,7 +75,7 @@ def register_fight_club_handlers(dp: Dispatcher):
         chat_id = message.chat.id
         
         kb = InlineKeyboardBuilder()
-        kb.row(InlineKeyboardButton(text="👊 Бросить вызов (10 сита)", callback_data="fight_challenge"))
+        kb.row(InlineKeyboardButton(text="👊 Бросить вызов (3 сита)", callback_data="fight_challenge"))
         
         await message.answer(
             "Добро пожаловать в Бойцовский клуб! Готов испытать свою силу и удачу?",
