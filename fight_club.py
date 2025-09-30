@@ -119,7 +119,8 @@ def register_fight_club_handlers(dp: Dispatcher):
             chat_id=chat_id,
             challenge_message_id=sent_message.message_id,
             challenge_timestamp=datetime.now(),
-            challenger_sits_at_challenge=current_sits - BET_COST # Сит после ставки
+            challenger_sits_at_challenge=current_sits - BET_COST, # Сит после ставки
+            is_challenge_accepted=False # Изначально вызов не принят
         )
         
         await callback.answer("Вызов брошен! Ожидаем соперника.", show_alert=False)
@@ -133,6 +134,9 @@ def register_fight_club_handlers(dp: Dispatcher):
         await asyncio.sleep(CHALLENGE_TIMEOUT_MINUTES * 60) # Ждем 10 минут
         
         current_data = await state.get_data()
+        # Если вызов уже принят, просто выходим
+        if current_data.get("is_challenge_accepted", False):
+            return
         # Проверяем, не был ли вызов уже принят
         if current_data.get("challenger_id") == challenger_id and \
            current_data.get("challenge_message_id") == message_id and \
@@ -210,6 +214,7 @@ def register_fight_club_handlers(dp: Dispatcher):
         }
         
         await state.update_data(fight_data)
+        await state.update_data(is_challenge_accepted=True) # Вызов принят
         await state.set_state(FightClubStates.choosing_attack_challenger)
         
         # Отправляем запросы на выбор действия обоим игрокам
