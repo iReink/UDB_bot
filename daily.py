@@ -77,6 +77,17 @@ def format_daily_text(daily: dict, participants: List[dict], with_turbo_link: bo
     dt_obj = datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")
     date_str = dt_obj.strftime("%d.%m")
 
+    WEEKDAYS = {
+        0: "ПН",
+        1: "ВТ",
+        2: "СР",
+        3: "ЧТ",
+        4: "ПТ",
+        5: "СБ",
+        6: "ВС",
+    }
+    weekday_str = WEEKDAYS[dt_obj.weekday()]  # 0 = ПН ... 6 = ВС
+
     delta = dt_obj - datetime.now()
     total_seconds = int(delta.total_seconds())
     days, remainder = divmod(total_seconds, 86400)
@@ -91,7 +102,7 @@ def format_daily_text(daily: dict, participants: List[dict], with_turbo_link: bo
         remaining = f"{minutes}м"
 
     lines = [
-        f"📆 {date_str} {daily['time']}. До него осталось: {remaining}",
+        f"📆 {date_str} ({weekday_str}) {daily['time']}. Осталось: {remaining}",
         "",
         f"🎉 <b>{daily['name']}</b> — {daily['description']}"
     ]
