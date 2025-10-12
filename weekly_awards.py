@@ -89,6 +89,7 @@ async def process_weekly_awards():
                 await award_likes_collector(chat_id)
                 await award_dobroe_serdtse(chat_id)
                 await award_tsarsky_like(chat_id)
+                await award_kolobok(chat_id)
 
             except Exception as e:
                 logging.exception(f"[weekly_awards] Ошибка при награждении в чате {chat_id}: {e}")
@@ -507,3 +508,43 @@ async def award_tsarsky_like(chat_id: int):
 
     finally:
         conn.close()
+
+async def award_kolobok(chat_id: int):
+    """Награждение пользователя, который отправил больше всех кружочков за неделю."""
+    DB_FILE = "stats.db"
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        # Берём суммарные кружочки за последние 7 дней
+        cur.execute("""
+            SELECT u.user_id, u.name, SUM(d.rounds) as week_rounds
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND d.date >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING week_rounds > 0
+            ORDER BY week_rounds DESC
+            LIMIT 1
+        """, (chat_id,))
+        row = cur.fetchone()
+
+        if not row:
+            return  # Никто не отправил кружочки
+
+        winner_id, winner_name, week_rounds = row
+
+        # Добавляем ачивку
+        add_or_update_user_achievement(winner_id, chat_id, "kolobok")
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+
+        # Получаем название ачивки с учётом пола пользователя
+        sex = get_user_sex(winner_id, chat_id)
+        title = get_achievement_title("kolobok", sex)
+
+        text = f"🏆 {title} недели — {winner_name} (отправил {week_rounds} кружочков)! +{ACHIEVEMENT_REWARD} сит"
+        await bot.send_message(chat_id, text)
+
+    finally:
+        conn.close()
+
