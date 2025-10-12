@@ -252,10 +252,19 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
             chat_name = chat_id
 
         sticker = message.sticker
-        logging.info(
-            f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, +1 стикер "
-            f"({sticker.set_name or 'без набора'}, emoji={sticker.emoji})"
+        sticker = message.sticker
+        sticker_info = (
+            f"file_id: {sticker.file_id}, "
+            f"emoji: {getattr(sticker, 'emoji', None)}, "
+            f"set_name: {getattr(sticker, 'set_name', None)}, "
+            f"size: {getattr(sticker, 'width', None)}x{getattr(sticker, 'height', None)}, "
+            f"animated: {getattr(sticker, 'is_animated', None)}, "
+            f"video: {getattr(sticker, 'is_video', None)}"
         )
+        logging.info(
+            f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, +1 стикер | {sticker_info}"
+        )
+
 
     # === 2️⃣ Обработка кружочков (видео) ===
     elif is_round:
@@ -1001,7 +1010,8 @@ async def handle_message(message: types.Message):
     if message.text and message.text.startswith("/"):
         return
 
-    if not (message.text or message.sticker or message.photo or message.video or message.voice or message.animation):
+    if not (
+            message.text or message.sticker or message.photo or message.video or message.voice or message.animation or message.video_note):
         return
 
     chat_name = message.chat.title if message.chat.type in ["group", "supergroup"] else message.chat.id
@@ -1464,11 +1474,6 @@ async def reward_daily_top(bot: Bot):
 
 weekly_awards.bot = bot
 weekly_awards.add_sits = add_sits
-
-# сообщения
-# dp.message.register(handle_mujlo_message)
-# # inline-кнопка
-# dp.callback_query.register(handle_mujlo_buy, lambda c: c.data.startswith("mujlo_buy:"))
 
 async def main():
     # Запускаем фоновые задачи
