@@ -220,56 +220,57 @@ import db  # предполагаем, что все функции из db.py �
 def update_stats(chat_id, user_id, user_name, message, chat_name=None):
     """
     Обновляет статистику сообщения напрямую в БД.
-    Если это стикер — увеличиваем только 'stickers'.
-    Иначе — обновляем messages/words/chars как раньше.
+    Теперь также учитывает видеокружочки и голосовые в поле 'rounds'.
     """
-    # Получаем username (ник)
     username = message.from_user.username
     nick = f"@{username}" if username else None
 
     # Гарантируем пользователя в БД
     add_or_update_user(user_id, chat_id, user_name, nick=nick)
 
-    # Определяем дату сегодня
     today_str = date.today().isoformat()
 
-    # Определяем, является ли сообщение стикером
+    # Определяем тип контента
     is_sticker = getattr(message, "sticker", None) is not None
+    is_round = getattr(message, "video_note", None) is not None
 
+    # === 1️⃣ Обработка стикеров ===
     if is_sticker:
-        # если стикер из отслеживаемых паков — регистрируем его по сегодняшней дате
         if message.sticker and message.sticker.set_name in TRACKED_STICKERPACKS:
             increment_sticker_stats(
                 chat_id=message.chat.id,
                 file_id=message.sticker.file_id,
                 set_name=message.sticker.set_name,
-                date_str=date.today().isoformat()
+                date_str=today_str
             )
 
-        # Увеличиваем только стикеры
         increment_daily_stats(user_id, chat_id, today_str, stickers=1)
         increment_total_stats(user_id, chat_id, stickers=1)
-        # обновление для квеста на стикеры
         asyncio.create_task(update_quest_progress(user_id, chat_id, "stickers_sent", 1, bot))
 
         if not chat_name:
             chat_name = chat_id
 
         sticker = message.sticker
-        sticker_info = (
-            f"file_id: {sticker.file_id}, "
-            f"emoji: {sticker.emoji}, "
-            f"set_name: {sticker.set_name}, "
-            f"размер: {sticker.width}x{sticker.height}, "
-            f"анимированный: {sticker.is_animated}, "
-            f"видео: {sticker.is_video}"
-        )
         logging.info(
-            f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, +1 стикер | {sticker_info}"
+            f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, +1 стикер "
+            f"({sticker.set_name or 'без набора'}, emoji={sticker.emoji})"
         )
 
+    # === 2️⃣ Обработка кружочков (видео) ===
+    elif is_round:
+        increment_daily_stats(user_id, chat_id, today_str, rounds=1)
+        increment_total_stats(user_id, chat_id, rounds=1)
+        asyncio.create_task(update_quest_progress(user_id, chat_id, "round", 1, bot))
+
+        if not chat_name:
+            chat_name = chat_id
+        logging.info(
+            f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, +1 📹 кружочек"
+        )
+
+    # === 3️⃣ Остальные сообщения ===
     else:
-        # Обрабатываем текст / подпись / медиа
         text = getattr(message, "text", None) or getattr(message, "caption", None)
         if text:
             words = len(text.split())
@@ -286,8 +287,10 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
             chat_name = chat_id
 
         logging.info(
-            f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, +1 сообщение, +{words} слов, +{chars} символов"
+            f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, "
+            f"+1 сообщение, +{words} слов, +{chars} символов"
         )
+
 
 
 from contextlib import closing
