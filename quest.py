@@ -12,6 +12,10 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from db import get_connection, get_user_display_name
 from sosalsa import add_sits
 
+# Кэш доступных квестов на текущий день: {(user_id, chat_id): (date, [quests])}
+quest_daily_cache = {}
+
+
 # ==============================
 # ОБНОВЛЕНИЕ ПРОГРЕССА
 # ==============================
@@ -144,8 +148,23 @@ def register_quest_handlers(dp):
                 )
             return
 
-        quests = get_random_quests(3)
+        today = date.today().isoformat()
+        key = (user_id, chat_id)
+
+        # Если тройка квестов уже генерировалась — вернуть ту же
+        if key in quest_daily_cache:
+            saved_date, quests = quest_daily_cache[key]
+            if saved_date != today:
+                # новый день → обновляем тройку
+                quests = get_random_quests(3)
+                quest_daily_cache[key] = (today, quests)
+        else:
+            # первый вызов сегодня → сформировать тройку
+            quests = get_random_quests(3)
+            quest_daily_cache[key] = (today, quests)
+
         kb = InlineKeyboardBuilder()
+
         for q in quests:
             q_id, description, target, reward = q
             kb.button(
