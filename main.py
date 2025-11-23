@@ -50,6 +50,7 @@ from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 dp = Dispatcher()
 import fight_club
 fight_club.register_fight_club_handlers(dp) # Регистрируем хэндлеры бойцовского клуба
+
 register_sos_handlers(dp)
 
 import group
@@ -920,7 +921,7 @@ async def handle_give(message: types.Message):
     verb = "передала" if sender_sex == "f" else "передал"
 
     await message.answer(
-        f"✅ {sender_name} {verb} {amount} сит пользователю {receiver_name} {nick_raw}."
+        f"💦 {sender_name} {verb} {amount} сит пользователю {receiver_name} {nick_raw}."
     )
 
 
