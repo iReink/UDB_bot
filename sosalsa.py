@@ -293,10 +293,26 @@ def register_sos_handlers(dp):
 
             target_id = random.choice(partners)
             target_name = get_user_display_name(target_id, chat_id)
+            target_sex = get_user_sex(target_id, chat_id)
+
+            # Глагол "получил / получила"
+            def verb_received(sex):
+                return "получила" if sex == "f" else "получил"
+
             increment_sosalsa(chat_id, user_id, target_id, shpeh=True)
+
+            # Снимаем 5 ситов у инициатора
             add_sits(chat_id, user_id, -cost)
 
-            await query.message.answer(f"🔥 {buyer_name} {verb_shpeh(buyer_sex)} с {target_name}")
+            # Случайная награда партнёру: 1–3 сита
+            reward = random.randint(1, 3)
+            add_sits(chat_id, target_id, reward)
+
+            await query.message.answer(
+                f"🔥 {buyer_name} {verb_shpeh(buyer_sex)} с {target_name}\n"
+                f"💦 {target_name} {verb_received(target_sex)} {reward} сит(а)"
+            )
+
 
         # ----------------------
         # Статистика сосания
