@@ -37,6 +37,55 @@ def increment_sosalsa(chat_id: int, u1: int, u2: int, shpeh: bool = False):
 
 from db import get_connection
 
+def get_last_7_daily_bites(user_id: int, chat_id: int):
+    """Возвращает список словарей за последние 7 дней с полями bite_given и bite_taken."""
+    from datetime import date, timedelta
+    from db import get_connection
+
+    today = date.today()
+    dates = [(today - timedelta(days=i)).isoformat() for i in range(7)]
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT date, bite_given, bite_taken
+            FROM daily_stats
+            WHERE user_id=? AND chat_id=? AND date BETWEEN ? AND ?
+        """, (user_id, chat_id, dates[-1], dates[0]))
+        rows = cur.fetchall()
+
+    # Приводим к словарю по дате
+    rows_by_date = {row["date"]: row for row in rows}
+    result = []
+    for d in dates:
+        if d in rows_by_date:
+            r = rows_by_date[d]
+            result.append({
+                "date": d,
+                "bite_given": r["bite_given"] or 0,
+                "bite_taken": r["bite_taken"] or 0
+            })
+        else:
+            result.append({"date": d, "bite_given": 0, "bite_taken": 0})
+    return result
+
+def get_total_bites(user_id: int, chat_id: int):
+    """Возвращает словарь с общей статистикой по кусам."""
+    from db import get_connection
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT bites_given, bites_received
+            FROM total_stats
+            WHERE user_id=? AND chat_id=?
+        """, (user_id, chat_id))
+        row = cur.fetchone()
+        if row:
+            return {"bite_given": row["bites_given"], "bite_taken": row["bites_received"]}
+        return {"bite_given": 0, "bite_taken": 0}
+
+
 def ensure_user_body_parts(user_id: int, chat_id: int):
     """Проверяет, есть ли у пользователя все части тела в user_body_parts.
     Если какой-то части нет, создаёт запись с state=1.
@@ -464,8 +513,8 @@ def register_sos_handlers(dp):
             # -----------------------
             # Статистика за последние 7 дней
             # -----------------------
-            last7 = get_last_7_daily_stats(user_id, chat_id)
-            total = get_total_stats(user_id, chat_id) or {}
+            last7 = get_last_7_daily_bites(user_id, chat_id)
+            total = get_total_bites(user_id, chat_id)
 
             bite_week = sum(day.get("bite_given", 0) for day in last7)
             bitten_week = sum(day.get("bite_taken", 0) for day in last7)
