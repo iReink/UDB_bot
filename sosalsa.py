@@ -51,7 +51,7 @@ def get_top_pairs(chat_id: int, shpeh: bool = False, limit: int = 10):
         return cur.fetchall()
 
 
-def get_active_users(chat_id: int, days: int = 7):
+def get_active_users(chat_id: int, days: int = 5):
     """Возвращает список user_id активных пользователей за последние N дней,
     у которых messages > 0 хотя бы в один из последних N дней."""
     date_threshold = (datetime.now() - timedelta(days=days)).date().isoformat()
@@ -180,6 +180,13 @@ def get_sos_stats_menu():
         types.InlineKeyboardButton(
             text="⬅️ Назад",
             callback_data="sos_back"
+        )
+    )
+
+    kb.row(
+        types.InlineKeyboardButton(
+            text="🦷 Статистика укусов",
+            callback_data="bite_stats"
         )
     )
 
@@ -411,5 +418,69 @@ def register_sos_handlers(dp):
                     partner_name = get_user_display_name(partner_id, chat_id)
                     text += f"{i}. 🔥 {partner_name} — {cnt} раз(а)\n"
                 await query.message.answer(text)
+
+
+        # ----------------------
+        # Моя статистика кусаний
+        # ----------------------
+        elif action == "bite_stats":
+            from datetime import date, timedelta
+            # 7 последних дней
+            today = date.today()
+            last_7_days = [(today - timedelta(days=i)).isoformat() for i in range(7)]
+
+            user_id = query.from_user.id
+
+            with get_connection() as conn:
+                cur = conn.cursor()
+                # Всего укусы за последние 7 дней
+                cur.execute("""
+                    SELECT SUM(bites_given) as bites_last7, SUM(bites_total) as bites_total
+                    FROM daily_stats
+                    WHERE user_id=? AND chat_id=? AND date BETWEEN ? AND ?
+                """, (user_id, chat_id, last_7_days[-1], last_7_days[0]))
+                row = cur.fetchone()
+                bites_last7 = row["bites_last7"] or 0
+                bites_total = row["bites_total"] or 0
+
+                # Всего укусы полученные
+                cur.execute("""
+                    SELECT SUM(bites_received) as received_last7, SUM(bites_received_total) as received_total
+                    FROM daily_stats
+                    WHERE user_id=? AND chat_id=? AND date BETWEEN ? AND ?
+                """, (user_id, chat_id, last_7_days[-1], last_7_days[0]))
+                row = cur.fetchone()
+                received_last7 = row["received_last7"] or 0
+                received_total = row["received_total"] or 0
+
+                # Список частей тела
+                cur.execute("""
+                    SELECT b.name_nom, ubp.state
+                    FROM user_body_parts ubp
+                    JOIN body_parts b ON ubp.body_part_id = b.id
+                    WHERE ubp.user_id=? AND ubp.chat_id=?
+                """, (user_id, chat_id))
+                parts = cur.fetchall()
+
+            part_texts = []
+            emojis = {
+                "Жопа": "💋",
+                "Нипель": "👃",
+                "Щека": "😏"
+            }
+
+            for part in parts:
+                emoji = emojis.get(part["name_nom"], "❓")
+                status = "0" if part["state"] else "1"
+                part_texts.append(f"{emoji} {part['name_nom']}: {status}")
+
+            text = (
+                    f"🦷 Статистика укусов ({get_user_display_name(user_id, chat_id)}):\n"
+                    f"За последние 7 дней:\n— Укусил: {bites_last7} (всего: {bites_total})\n"
+                    f"— Был укушен: {received_last7} (всего: {received_total})\n"
+                    f"Состояние частей тела:\n" + "\n".join(part_texts)
+            )
+
+            await query.message.answer(text)
 
         await query.answer()
