@@ -494,6 +494,10 @@ def register_sos_handlers(dp):
                 await query.answer("Нет активных пользователей для укуса 😢", show_alert=True)
                 return
 
+            # Инициализируем части тела у всех активных пользователей
+            for uid in active_users:
+                ensure_user_body_parts(uid, chat_id)
+
             # Фильтруем пользователей с хотя бы одной живой частью тела
             with get_connection() as conn:
                 cur = conn.cursor()
@@ -520,9 +524,6 @@ def register_sos_handlers(dp):
 
             # Выбираем случайного «жертву»
             victim_id = random.choice(users_with_parts)
-
-            # Проверяем части тела жертвы
-            ensure_user_body_parts(victim_id, chat_id)
 
             # Выбираем случайную живую часть тела
             cur.execute("""
