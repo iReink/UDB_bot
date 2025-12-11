@@ -594,7 +594,12 @@ def register_sos_handlers(dp):
             # Формируем сообщение
             victim_name = get_user_display_name(victim_id, chat_id)
             biter_name = get_user_display_name(user_id, chat_id)
-            text = f"🦷 {biter_name} откусил(а) {part_name} у {victim_name}!"
+
+            biter_sex = get_user_sex(user_id, chat_id)
+            verb_bite = "откусила" if biter_sex == "f" else "откусил"
+
+            text = f"🦷 {biter_name} {verb_bite} {part_name} у {victim_name}!"
+
             if added_to_biter:
                 text += f" 😏 Кусавший присоединил {part_name} к себе!"
 
