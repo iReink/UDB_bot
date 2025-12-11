@@ -527,7 +527,7 @@ def register_sos_handlers(dp):
 
             # Выбираем случайную живую часть тела
             cur.execute("""
-                SELECT ubp.id, bp.name_nom
+                SELECT ubp.id, bp.name_acc
                 FROM user_body_parts ubp
                 JOIN body_parts bp ON ubp.body_part_id = bp.id
                 WHERE ubp.user_id=? AND ubp.chat_id=? AND ubp.state=1
@@ -535,7 +535,7 @@ def register_sos_handlers(dp):
             parts = cur.fetchall()
             victim_part = random.choice(parts)
             part_id = victim_part["id"]
-            part_name = victim_part["name_nom"]
+            part_name = victim_part["name_acc"]
 
             # Откусываем
             cur.execute("""
