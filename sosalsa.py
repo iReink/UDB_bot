@@ -39,7 +39,7 @@ def increment_sosalsa(chat_id: int, u1: int, u2: int, shpeh: bool = False):
 from db import get_connection
 
 def get_last_7_daily_bites(user_id: int, chat_id: int):
-    """Возвращает список словарей за последние 7 дней с полями bites_given и bites_taken."""
+    """Возвращает список словарей за последние 7 дней с полями bites_given и bites_received."""
     from datetime import date, timedelta
     from db import get_connection
 
@@ -64,7 +64,7 @@ def get_last_7_daily_bites(user_id: int, chat_id: int):
             result.append({
                 "date": d,
                 "bites_given": r["bites_given"] or 0,
-                "bites_taken": r["bites_taken"] or 0
+                "bites_received": r["bites_received"] or 0
             })
         else:
             result.append({"date": d, "bites_given": 0, "bites_received": 0})
@@ -83,7 +83,7 @@ def get_total_bites(user_id: int, chat_id: int):
         """, (user_id, chat_id))
         row = cur.fetchone()
         if row:
-            return {"bites_given": row["bites_given"], "bites_taken": row["bites_received"]}
+            return {"bites_given": row["bites_given"], "bites_received": row["bites_received"]}
         return {"bites_given": 0, "bites_received": 0}
 
 
@@ -514,11 +514,11 @@ def register_sos_handlers(dp):
             total = get_total_bites(user_id, chat_id)
 
             bites_week_given = sum(d["bites_given"] for d in last7)
-            bites_week_taken = sum(d["bites_taken"] for d in last7)
+            bites_week_taken = sum(d["bites_received"] for d in last7)
 
             text = f"🦷 Статистика укусов:\nЗа последние 7 дней:\n" \
                    f"— Укусил: {bites_week_given} раз(а) (всего: {total['bites_given']})\n" \
-                   f"— Был укушен: {bites_week_taken} раз(а) (всего: {total['bites_taken']})\n\n" \
+                   f"— Был укушен: {bites_week_taken} раз(а) (всего: {total['bites_received']})\n\n" \
                    f"Состояние твоего тела:\n"
 
             # Получаем состояние частей тела
