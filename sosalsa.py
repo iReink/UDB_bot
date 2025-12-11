@@ -560,27 +560,30 @@ def register_sos_handlers(dp):
 
             # Обновляем статистику
             today = datetime.now().date().isoformat()
-            # daily_stats
+
+            # --- daily_stats ---
             cur.execute("""
-                INSERT INTO daily_stats (user_id, chat_id, date, bites, bites_given, bites_received)
-                VALUES (?, ?, ?, 0, 1, 0)
+                INSERT INTO daily_stats (user_id, chat_id, date, bites_given)
+                VALUES (?, ?, ?, 1)
                 ON CONFLICT(user_id, chat_id, date)
                 DO UPDATE SET bites_given = bites_given + 1
             """, (user_id, chat_id, today))
+
             cur.execute("""
-                INSERT INTO daily_stats (user_id, chat_id, date, bites, bites_given, bites_received)
-                VALUES (?, ?, ?, 0, 0, 1)
+                INSERT INTO daily_stats (user_id, chat_id, date, bites_received)
+                VALUES (?, ?, ?, 1)
                 ON CONFLICT(user_id, chat_id, date)
                 DO UPDATE SET bites_received = bites_received + 1
             """, (victim_id, chat_id, today))
 
-            # total_stats
+            # --- total_stats ---
             cur.execute("""
                 INSERT INTO total_stats (user_id, chat_id, bites_given, bites_received)
                 VALUES (?, ?, 1, 0)
                 ON CONFLICT(user_id, chat_id)
                 DO UPDATE SET bites_given = bites_given + 1
             """, (user_id, chat_id))
+
             cur.execute("""
                 INSERT INTO total_stats (user_id, chat_id, bites_given, bites_received)
                 VALUES (?, ?, 0, 1)
