@@ -90,6 +90,8 @@ async def process_weekly_awards():
                 await award_dobroe_serdtse(chat_id)
                 await award_tsarsky_like(chat_id)
                 await award_kolobok(chat_id)
+                await award_biter(chat_id)
+                await award_bitten(chat_id)
 
             except Exception as e:
                 logging.exception(f"[weekly_awards] Ошибка при награждении в чате {chat_id}: {e}")
@@ -548,3 +550,82 @@ async def award_kolobok(chat_id: int):
     finally:
         conn.close()
 
+async def award_biter(chat_id: int):
+    """Кусака недели — пользователь, наносящий больше всего укусов за неделю."""
+    DB_FILE = "stats.db"
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+
+        # Ищем суммарные нанесённые укусы (react_bite_given)
+        cur.execute("""
+            SELECT u.user_id, u.name, SUM(d.react_bite_given) as bites_given
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND date(d.date) >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING bites_given > 0
+            ORDER BY bites_given DESC
+            LIMIT 1
+        """, (chat_id,))
+        row = cur.fetchone()
+
+        if not row:
+            return
+
+        winner_id, winner_name, bites_given = row
+
+        # Записываем ачивку
+        add_or_update_user_achievement(winner_id, chat_id, "biter")
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+
+        # Определяем пол
+        sex = get_user_sex(winner_id, chat_id)
+        title = get_achievement_title("biter", sex)
+
+        text = f"🦷 {title} — {winner_name} ({bites_given} укусов)! +{ACHIEVEMENT_REWARD} сит"
+        await bot.send_message(chat_id, text)
+
+    finally:
+        conn.close()
+
+async def award_bitten(chat_id: int):
+    """Месиво недели — пользователь, который получил больше всего укусов за неделю."""
+    DB_FILE = "stats.db"
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+
+        # Ищем суммарные полученные укусы (react_bite_taken)
+        cur.execute("""
+            SELECT u.user_id, u.name, SUM(d.react_bite_taken) as bites_taken
+            FROM users u
+            JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
+            WHERE u.chat_id = ?
+              AND date(d.date) >= date('now','-6 days')
+            GROUP BY u.user_id
+            HAVING bites_taken > 0
+            ORDER BY bites_taken DESC
+            LIMIT 1
+        """, (chat_id,))
+        row = cur.fetchone()
+
+        if not row:
+            return
+
+        winner_id, winner_name, bites_taken = row
+
+        # Записываем ачивку
+        add_or_update_user_achievement(winner_id, chat_id, "bitten")
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+
+        # Пол юзера
+        sex = get_user_sex(winner_id, chat_id)
+        title = get_achievement_title("bitten", sex)
+
+        text = f"🥩 {title} — {winner_name} (получил {bites_taken} укусов)! +{ACHIEVEMENT_REWARD} сит"
+        await bot.send_message(chat_id, text)
+
+    finally:
+        conn.close()

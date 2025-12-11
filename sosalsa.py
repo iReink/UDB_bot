@@ -277,7 +277,7 @@ async def daily_regeneration_task():
 
     while True:
         now = datetime.now()
-        regen_time = now.replace(hour=1, minute=15, second=0, microsecond=0)
+        regen_time = now.replace(hour=23, minute=50, second=0, microsecond=0)
         if regen_time <= now:
             regen_time += timedelta(days=1)
 
@@ -681,12 +681,20 @@ def register_sos_handlers(dp):
             biter_name = get_user_display_name(user_id, chat_id)
 
             biter_sex = get_user_sex(user_id, chat_id)
+
+            # Глагол "откусил/откусила"
             verb_bite = "откусила" if biter_sex == "f" else "откусил"
+
+            # "кусавший/кусавшая"
+            word_kusavshiy = "кусавшая" if biter_sex == "f" else "кусавший"
+
+            # "пришил/пришила"
+            verb_attach = "пришила" if biter_sex == "f" else "пришил"
 
             text = f"🦷 {biter_name} {verb_bite} {part_name} у {victim_name}!"
 
             if added_to_biter:
-                text += f" 😏 Кусавший присоединил {part_name} к себе!"
+                text += f"\n😏 {word_kusavshiy.capitalize()} {verb_attach} {part_name} к себе!"
 
             await query.message.answer(text)
             await query.answer()
