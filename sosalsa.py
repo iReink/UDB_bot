@@ -113,6 +113,38 @@ def ensure_user_body_parts(user_id: int, chat_id: int):
             )
         conn.commit()
 
+def format_user_body_status(user_id: int, chat_id: int) -> str:
+    """
+    Возвращает строку с состоянием тела пользователя, используя эмодзи:
+    ✅ = на месте, ❌ = откушено
+    """
+    from db import get_connection
+    from contextlib import closing
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+
+        # Берем все части тела
+        cur.execute("SELECT * FROM body_parts ORDER BY id")
+        body_parts_rows = cur.fetchall()
+
+        # Берем состояния пользователя
+        cur.execute("""
+            SELECT body_part_id, state
+            FROM user_body_parts
+            WHERE user_id = ? AND chat_id = ?
+        """, (user_id, chat_id))
+        user_parts_rows = cur.fetchall()
+        user_body_parts_dict = {row["body_part_id"]: row for row in user_parts_rows}
+
+    # Формируем текст
+    text = "Состояние твоего тела:\n"
+    for part in body_parts_rows:
+        part_state_row = user_body_parts_dict.get(part["id"])
+        emoji = "✅" if part_state_row and part_state_row["state"] else "❌"
+        text += f"{emoji} {part['name_nom']}\n"
+
+    return text
 
 
 def get_top_pairs(chat_id: int, shpeh: bool = False, limit: int = 10):
@@ -504,38 +536,24 @@ def register_sos_handlers(dp):
         # Моя статистика кусаний
         # ----------------------
         elif action == "bite_stats":
-
-            logging.info("Вызов статистики куся")
-            # Инициализация тела
+            # Инициализация частей тела пользователя
             ensure_user_body_parts(user_id, chat_id)
 
-            # Дальше идёт сбор статистики и формирование сообщения
+            # Формируем текст статистики укусов за 7 дней и за всё время
             last7 = get_last_7_daily_bites(user_id, chat_id)
             total = get_total_bites(user_id, chat_id)
 
-            bites_week_given = sum(d["bites_given"] for d in last7)
-            bites_week_taken = sum(d["bites_received"] for d in last7)
+            msg_text = (
+                "🦷 Статистика укусов:\n"
+                f"За последние 7 дней:\n"
+                f"— Укусил: {last7['given']} раз(а) (всего: {total['given']})\n"
+                f"— Был укушен: {last7['received']} раз(а) (всего: {total['received']})\n\n"
+            )
 
-            text = f"🦷 Статистика укусов:\nЗа последние 7 дней:\n" \
-                   f"— Укусил: {bites_week_given} раз(а) (всего: {total['bites_given']})\n" \
-                   f"— Был укушен: {bites_week_taken} раз(а) (всего: {total['bites_received']})\n\n" \
-                   f"Состояние твоего тела:\n"
+            # Добавляем состояние тела
+            msg_text += format_user_body_status(user_id, chat_id)
 
-            # Получаем состояние частей тела
-            from db import get_connection
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("""
-                    SELECT bp.name, ubp.state
-                    FROM user_body_parts ubp
-                    JOIN body_parts bp ON ubp.body_part_id = bp.id
-                    WHERE ubp.user_id=? AND ubp.chat_id=?
-                """, (user_id, chat_id))
-                for name, state in cur.fetchall():
-                    emoji = "✅" if state else "❌"
-                    text += f"{emoji} {name}\n"
-
-            await query.message.answer(text)
-            await query.answer()  # обязательный вызов, чтобы кнопка не "мерцала"
+            await query.message.answer(msg_text)
+            await query.answer()
 
         await query.answer()
