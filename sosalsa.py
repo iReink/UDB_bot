@@ -257,6 +257,83 @@ def get_user_stats(chat_id: int, user_id: int, shpeh: bool = False):
         return cur.fetchall()
 
 
+import asyncio
+import random
+import logging
+from datetime import datetime, timedelta
+from contextlib import closing
+from db import get_connection, get_user, get_user_display_name
+
+async def daily_regeneration_task(dp):
+    """Бесконечная задача — каждый день в 01:00 восстанавливает случайные части тела пользователей."""
+    while True:
+        now = datetime.now()
+        # Время следующего срабатывания: завтра в 01:00, либо сегодня, если ещё до 01:00
+        regen_time = now.replace(hour=0, minute=53, second=0, microsecond=0)
+        if regen_time <= now:
+            regen_time += timedelta(days=1)
+
+        wait_seconds = (regen_time - now).total_seconds()
+        logging.info(f"[daily_regeneration] Следующее восстановление через {wait_seconds/3600:.1f} часов ({regen_time})")
+        await asyncio.sleep(wait_seconds)
+
+        # Выполняем восстановление
+        await process_daily_regeneration(dp)
+
+async def process_daily_regeneration(dp):
+    """Проходит по всем пользователям и восстанавливает 1-3 части тела случайным образом."""
+    restored_report = []
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        # Получаем всех пользователей, у которых есть части тела
+        cur.execute("SELECT DISTINCT user_id, chat_id FROM user_body_parts")
+        users = cur.fetchall()
+
+        for user_row in users:
+            user_id = user_row["user_id"]
+            chat_id = user_row["chat_id"]
+
+            # Получаем части тела пользователя, которые уже "откушены" (state=0)
+            cur.execute("""
+                SELECT ubp.id, bp.name_nom
+                FROM user_body_parts ubp
+                JOIN body_parts bp ON ubp.body_part_id = bp.id
+                WHERE ubp.user_id=? AND ubp.chat_id=? AND ubp.state=0
+            """, (user_id, chat_id))
+            lost_parts = cur.fetchall()
+
+            if not lost_parts:
+                continue  # нечего восстанавливать
+
+            # Восстанавливаем от 1 до 3 частей (если есть меньше — восстанавливаем все)
+            num_to_restore = min(len(lost_parts), random.randint(1, 3))
+            parts_to_restore = random.sample(lost_parts, num_to_restore)
+
+            restored_names = []
+            for part in parts_to_restore:
+                cur.execute("UPDATE user_body_parts SET state=1 WHERE id=?", (part["id"],))
+                restored_names.append(part["name_nom"])
+
+            if restored_names:
+                user_name = get_user_display_name(user_id, chat_id)
+                restored_report.append(f"🩺 {user_name} ({', '.join(restored_names)})")
+
+        conn.commit()
+
+    # Отправляем сообщение в чат. Собираем список уникальных чатов
+    chat_ids = set(row["chat_id"] for row in users)
+    if restored_report:
+        report_text = "💚 Покусанные отрастили себе некоторые части тела:\n" + "\n".join(restored_report)
+        for chat_id in chat_ids:
+            try:
+                await dp.bot.send_message(chat_id, report_text)
+            except Exception as e:
+                logging.warning(f"Не удалось отправить сообщение в чат {chat_id}: {e}")
+
+
+
 # ==========================
 # INLINE-МЕНЮ
 # ==========================

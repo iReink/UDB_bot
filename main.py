@@ -42,6 +42,8 @@ from mujlo import handle_mujlo_message, handle_mujlo_buy, reset_mujlo_daily
 from quest import update_quest_progress
 
 from sosalsa import register_sos_handlers
+from sosalsa import daily_regeneration_task
+
 
 from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 
@@ -1484,6 +1486,7 @@ async def main():
     asyncio.create_task(silence_checker_task())
     asyncio.create_task(mujlo.reset_mujlo_daily())  # сброс покупок мужла по утру
     asyncio.create_task(daily_reminder_loop(bot))
+    asyncio.create_task(daily_regeneration_task(dp))
 
     # Задачи для гейзера
     asyncio.create_task(geyser.schedule_daily_geysers(bot)) # Ежедневное планирование гейзеров (долгоживущая корутина)
