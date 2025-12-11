@@ -39,7 +39,7 @@ def increment_sosalsa(chat_id: int, u1: int, u2: int, shpeh: bool = False):
 from db import get_connection
 
 def get_last_7_daily_bites(user_id: int, chat_id: int):
-    """Возвращает список словарей за последние 7 дней с полями bite_given и bite_taken."""
+    """Возвращает список словарей за последние 7 дней с полями bites_given и bites_taken."""
     from datetime import date, timedelta
     from db import get_connection
 
@@ -49,7 +49,7 @@ def get_last_7_daily_bites(user_id: int, chat_id: int):
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT date, bite_given, bite_taken
+            SELECT date, bites_given, bites_received
             FROM daily_stats
             WHERE user_id=? AND chat_id=? AND date BETWEEN ? AND ?
         """, (user_id, chat_id, dates[-1], dates[0]))
@@ -63,11 +63,11 @@ def get_last_7_daily_bites(user_id: int, chat_id: int):
             r = rows_by_date[d]
             result.append({
                 "date": d,
-                "bite_given": r["bite_given"] or 0,
-                "bite_taken": r["bite_taken"] or 0
+                "bites_given": r["bites_given"] or 0,
+                "bites_taken": r["bites_taken"] or 0
             })
         else:
-            result.append({"date": d, "bite_given": 0, "bite_taken": 0})
+            result.append({"date": d, "bites_given": 0, "bites_received": 0})
     return result
 
 def get_total_bites(user_id: int, chat_id: int):
@@ -83,8 +83,8 @@ def get_total_bites(user_id: int, chat_id: int):
         """, (user_id, chat_id))
         row = cur.fetchone()
         if row:
-            return {"bite_given": row["bites_given"], "bite_taken": row["bites_received"]}
-        return {"bite_given": 0, "bite_taken": 0}
+            return {"bites_given": row["bites_given"], "bites_taken": row["bites_received"]}
+        return {"bites_given": 0, "bites_received": 0}
 
 
 def ensure_user_body_parts(user_id: int, chat_id: int):
@@ -513,12 +513,12 @@ def register_sos_handlers(dp):
             last7 = get_last_7_daily_bites(user_id, chat_id)
             total = get_total_bites(user_id, chat_id)
 
-            bites_week_given = sum(d["bite_given"] for d in last7)
-            bites_week_taken = sum(d["bite_taken"] for d in last7)
+            bites_week_given = sum(d["bites_given"] for d in last7)
+            bites_week_taken = sum(d["bites_taken"] for d in last7)
 
             text = f"🦷 Статистика укусов:\nЗа последние 7 дней:\n" \
-                   f"— Укусил: {bites_week_given} раз(а) (всего: {total['bite_given']})\n" \
-                   f"— Был укушен: {bites_week_taken} раз(а) (всего: {total['bite_taken']})\n\n" \
+                   f"— Укусил: {bites_week_given} раз(а) (всего: {total['bites_given']})\n" \
+                   f"— Был укушен: {bites_week_taken} раз(а) (всего: {total['bites_taken']})\n\n" \
                    f"Состояние твоего тела:\n"
 
             # Получаем состояние частей тела
