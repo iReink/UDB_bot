@@ -536,24 +536,35 @@ def register_sos_handlers(dp):
         # Моя статистика кусаний
         # ----------------------
         elif action == "bite_stats":
-            # Инициализация частей тела пользователя
+
+            logging.info("Вызов статистики куся")
+
+            # Инициализация тела (создаёт записи в user_body_parts, если отсутствуют)
             ensure_user_body_parts(user_id, chat_id)
 
-            # Формируем текст статистики укусов за 7 дней и за всё время
-            last7 = get_last_7_daily_bites(user_id, chat_id)
-            total = get_total_bites(user_id, chat_id)
+            # Получаем статистику
+            last7 = get_last_7_daily_bites(user_id, chat_id)  # возвращает список словарей
+            total = get_total_stats(user_id, chat_id) or {}  # возвращает словарь
 
-            msg_text = (
+            # Суммируем за последние 7 дней
+            given_last7 = sum(day.get('bites_given', 0) for day in last7)
+            received_last7 = sum(day.get('bites_received', 0) for day in last7)
+
+            # Берём общую статистику
+            given_total = total.get('bites_given', 0)
+            received_total = total.get('bites_received', 0)
+
+            # Формируем текст сообщения
+            text = (
                 "🦷 Статистика укусов:\n"
                 f"За последние 7 дней:\n"
-                f"— Укусил: {last7['given']} раз(а) (всего: {total['given']})\n"
-                f"— Был укушен: {last7['received']} раз(а) (всего: {total['received']})\n\n"
+                f"— Укусил: {given_last7} раз(а) (всего: {given_total})\n"
+                f"— Был укушен: {received_last7} раз(а) (всего: {received_total})\n\n"
+                f"{format_user_body_status(user_id, chat_id)}"
             )
 
-            # Добавляем состояние тела
-            msg_text += format_user_body_status(user_id, chat_id)
-
-            await query.message.answer(msg_text)
+            # Отправляем сообщение
+            await query.message.answer(text)
             await query.answer()
 
         await query.answer()
