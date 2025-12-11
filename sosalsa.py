@@ -544,7 +544,7 @@ def register_sos_handlers(dp):
 
             # Получаем статистику
             last7 = get_last_7_daily_bites(user_id, chat_id)  # возвращает список словарей
-            total = get_total_stats(user_id, chat_id) or {}  # возвращает словарь
+            total = get_total_bites(user_id, chat_id) or {}  # <-- исправлено здесь
 
             # Суммируем за последние 7 дней
             given_last7 = sum(day.get('bites_given', 0) for day in last7)
