@@ -166,6 +166,25 @@ def get_sos_menu():
     )
     kb.row(
         types.InlineKeyboardButton(
+            text="📊 Статистика",
+            callback_data="sos_stats_menu"
+        )
+    )
+    return kb.as_markup()
+
+
+def get_sos_stats_menu():
+    kb = InlineKeyboardBuilder()
+
+    kb.row(
+        types.InlineKeyboardButton(
+            text="⬅️ Назад",
+            callback_data="sos_back"
+        )
+    )
+
+    kb.row(
+        types.InlineKeyboardButton(
             text="📊 Статистика сосания",
             callback_data="sos_stats"
         )
@@ -188,6 +207,7 @@ def get_sos_menu():
             callback_data="my_shpeh_stats"
         )
     )
+
     return kb.as_markup()
 
 
@@ -243,6 +263,7 @@ def register_sos_handlers(dp):
 
     @dp.callback_query(lambda c: c.data in [
         "sos_random", "shpeh_random",
+        "sos_stats_menu", "sos_back",
         "sos_stats", "shpeh_stats",
         "my_sos_stats", "my_shpeh_stats"
     ])
@@ -256,6 +277,23 @@ def register_sos_handlers(dp):
 
         def verb_sos(sex): return "пососалась" if sex == "f" else "пососался"
         def verb_shpeh(sex): return "пошпёхалась" if sex == "f" else "пошпёхался"
+
+        # ----------------------
+        # Открыть меню статистики (2-й уровень)
+        # ----------------------
+        if action == "sos_stats_menu":
+            await query.message.edit_reply_markup(reply_markup=get_sos_stats_menu())
+            await query.answer()
+            return
+
+        # ----------------------
+        # Вернуться в главное меню
+        # ----------------------
+        if action == "sos_back":
+            await query.message.edit_reply_markup(reply_markup=get_sos_menu())
+            await query.answer()
+            return
+
 
         # ----------------------
         # Рандомно пососаться

@@ -1003,8 +1003,8 @@ async def cmd_deleteme(message: types.Message):
 
 
 # ------------------------------
-# Когда новое сообщение
 # ------------------------------
+# Когда новое сообщение
 @dp.message()
 async def handle_message(message: types.Message):
 
