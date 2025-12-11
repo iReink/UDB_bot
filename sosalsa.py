@@ -502,54 +502,36 @@ def register_sos_handlers(dp):
         # Моя статистика кусаний
         # ----------------------
         elif action == "bite_stats":
-            user_id = query.from_user.id
-            chat_id = query.message.chat.id
-
-            # -----------------------
-            # Инициализация частей тела
-            # -----------------------
+            # Инициализация тела
             ensure_user_body_parts(user_id, chat_id)
 
-            # -----------------------
-            # Статистика за последние 7 дней
-            # -----------------------
+            # Дальше идёт сбор статистики и формирование сообщения
             last7 = get_last_7_daily_bites(user_id, chat_id)
             total = get_total_bites(user_id, chat_id)
 
-            bite_week = sum(day.get("bite_given", 0) for day in last7)
-            bitten_week = sum(day.get("bite_taken", 0) for day in last7)
+            bites_week_given = sum(d["bite_given"] for d in last7)
+            bites_week_taken = sum(d["bite_taken"] for d in last7)
 
-            bite_total = total.get("bite_given", 0)
-            bitten_total = total.get("bite_taken", 0)
+            text = f"🦷 Статистика укусов:\nЗа последние 7 дней:\n" \
+                   f"— Укусил: {bites_week_given} раз(а) (всего: {total['bite_given']})\n" \
+                   f"— Был укушен: {bites_week_taken} раз(а) (всего: {total['bite_taken']})\n\n" \
+                   f"Состояние твоего тела:\n"
 
-            # -----------------------
-            # Состояние частей тела
-            # -----------------------
+            # Получаем состояние частей тела
+            from db import get_connection
             with get_connection() as conn:
                 cur = conn.cursor()
                 cur.execute("""
                     SELECT bp.name, ubp.state
                     FROM user_body_parts ubp
-                    JOIN body_parts bp ON bp.id = ubp.body_part_id
+                    JOIN body_parts bp ON ubp.body_part_id = bp.id
                     WHERE ubp.user_id=? AND ubp.chat_id=?
                 """, (user_id, chat_id))
-                parts = cur.fetchall()
+                for name, state in cur.fetchall():
+                    emoji = "✅" if state else "❌"
+                    text += f"{emoji} {name}\n"
 
-            parts_lines = [("✅" if row["state"] else "❌") + " " + row["name"] for row in parts]
-
-            # -----------------------
-            # Формируем сообщение
-            # -----------------------
-            msg = (
-                    "🦷 Статистика укусов:\n"
-                    "За последние 7 дней:\n"
-                    f"— Укусил: {bite_week} раз(а) (всего: {bite_total})\n"
-                    f"— Был укушен: {bitten_week} раз(а) (всего: {bitten_total})\n\n"
-                    "Состояние твоего тела:\n" +
-                    "\n".join(parts_lines)
-            )
-
-            await query.message.answer(msg)
-
+            await query.message.answer(text)
+            await query.answer()  # обязательный вызов, чтобы кнопка не "мерцала"
 
         await query.answer()
