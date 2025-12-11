@@ -265,6 +265,12 @@ def get_sos_menu():
     kb = InlineKeyboardBuilder()
     kb.row(
         types.InlineKeyboardButton(
+            text="🦷 Рандомный кусь (1 сит)",
+            callback_data="random_bite"
+        )
+    )
+    kb.row(
+        types.InlineKeyboardButton(
             text="💋 Рандомно пососаться (2 сита)",
             callback_data="sos_random"
         )
@@ -282,6 +288,7 @@ def get_sos_menu():
         )
     )
     return kb.as_markup()
+
 
 
 def get_sos_stats_menu():
@@ -469,6 +476,123 @@ def register_sos_handlers(dp):
                 f"🔥 {buyer_name} {verb_shpeh(buyer_sex)} с {target_name}\n"
                 f"💦 {target_name} {verb_received(target_sex)} {reward} сит(а)"
             )
+
+        # ----------------------
+        # Рандомно покусать
+        # ----------------------
+
+        elif action == "random_bite":
+            cost = 1
+            if get_sits(chat_id, user_id) < cost:
+                await query.answer("Недостаточно сит для покупки действия!", show_alert=True)
+                return
+
+            # Получаем активных пользователей за последние 1 день
+            active_users = get_active_users(chat_id, days=1)
+            active_users = [uid for uid in active_users if uid != user_id]  # исключаем самого кусающего
+            if not active_users:
+                await query.answer("Нет активных пользователей для укуса 😢", show_alert=True)
+                return
+
+            # Фильтруем пользователей с хотя бы одной живой частью тела
+            with get_connection() as conn:
+                cur = conn.cursor()
+                users_with_parts = []
+                for uid in active_users:
+                    cur.execute("""
+                        SELECT 1
+                        FROM user_body_parts
+                        WHERE user_id=? AND chat_id=? AND state=1
+                        LIMIT 1
+                    """, (uid, chat_id))
+                    if cur.fetchone():
+                        users_with_parts.append(uid)
+
+            if not users_with_parts:
+                await query.answer("Извини, уже всё откусили до тебя 😢", show_alert=True)
+                return
+
+            # Списываем сит
+            add_sits(chat_id, user_id, -cost)
+
+            # Выбираем случайного «жертву»
+            victim_id = random.choice(users_with_parts)
+
+            # Выбираем случайную живую часть тела
+            cur.execute("""
+                SELECT ubp.id, bp.name_nom
+                FROM user_body_parts ubp
+                JOIN body_parts bp ON ubp.body_part_id = bp.id
+                WHERE ubp.user_id=? AND ubp.chat_id=? AND ubp.state=1
+            """, (victim_id, chat_id))
+            parts = cur.fetchall()
+            victim_part = random.choice(parts)
+            part_id = victim_part["id"]
+            part_name = victim_part["name_nom"]
+
+            # Откусываем
+            cur.execute("""
+                UPDATE user_body_parts
+                SET state=0
+                WHERE id=?
+            """, (part_id,))
+
+            # 20% шанс, что кусавший «пришивает» часть к себе
+            added_to_biter = False
+            cur.execute("""
+                SELECT id FROM user_body_parts
+                WHERE user_id=? AND chat_id=? AND body_part_id=? AND state=1
+            """, (user_id, chat_id, part_id))
+            if not cur.fetchone():
+                if random.random() < 0.2:
+                    cur.execute("""
+                        INSERT INTO user_body_parts (user_id, chat_id, body_part_id, state)
+                        VALUES (?, ?, ?, 1)
+                    """, (user_id, chat_id, part_id))
+                    added_to_biter = True
+
+            # Обновляем статистику
+            today = datetime.now().date().isoformat()
+            # daily_stats
+            cur.execute("""
+                INSERT INTO daily_stats (user_id, chat_id, date, bites, bites_given, bites_received)
+                VALUES (?, ?, ?, 0, 1, 0)
+                ON CONFLICT(user_id, chat_id, date)
+                DO UPDATE SET bites_given = bites_given + 1
+            """, (user_id, chat_id, today))
+            cur.execute("""
+                INSERT INTO daily_stats (user_id, chat_id, date, bites, bites_given, bites_received)
+                VALUES (?, ?, ?, 0, 0, 1)
+                ON CONFLICT(user_id, chat_id, date)
+                DO UPDATE SET bites_received = bites_received + 1
+            """, (victim_id, chat_id, today))
+
+            # total_stats
+            cur.execute("""
+                INSERT INTO total_stats (user_id, chat_id, bites_given, bites_received)
+                VALUES (?, ?, 1, 0)
+                ON CONFLICT(user_id, chat_id)
+                DO UPDATE SET bites_given = bites_given + 1
+            """, (user_id, chat_id))
+            cur.execute("""
+                INSERT INTO total_stats (user_id, chat_id, bites_given, bites_received)
+                VALUES (?, ?, 0, 1)
+                ON CONFLICT(user_id, chat_id)
+                DO UPDATE SET bites_received = bites_received + 1
+            """, (victim_id, chat_id))
+
+            conn.commit()
+
+            # Формируем сообщение
+            victim_name = get_user_display_name(victim_id, chat_id)
+            biter_name = get_user_display_name(user_id, chat_id)
+            text = f"🦷 {biter_name} откусил(а) {part_name} у {victim_name}!"
+
+            if added_to_biter:
+                text += f" 😏 Кусавший пришил {part_name} к себе!"
+
+            await query.message.answer(text)
+            await query.answer()
 
 
         # ----------------------
