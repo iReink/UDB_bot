@@ -35,6 +35,35 @@ def increment_sosalsa(chat_id: int, u1: int, u2: int, shpeh: bool = False):
         """, (chat_id, user_id1, user_id2))
         conn.commit()
 
+from db import get_connection
+
+def ensure_user_body_parts(user_id: int, chat_id: int):
+    """Проверяет, есть ли у пользователя все части тела в user_body_parts.
+    Если какой-то части нет, создаёт запись с state=1.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        # Получаем все части тела
+        cur.execute("SELECT id FROM body_parts")
+        all_parts = [row["id"] for row in cur.fetchall()]
+
+        # Получаем уже существующие части у пользователя
+        cur.execute("SELECT body_part_id FROM user_body_parts WHERE user_id=? AND chat_id=?", (user_id, chat_id))
+        existing_parts = {row["body_part_id"] for row in cur.fetchall()}
+
+        # Определяем, чего не хватает
+        missing_parts = set(all_parts) - existing_parts
+
+        # Добавляем недостающие части
+        for part_id in missing_parts:
+            cur.execute(
+                "INSERT INTO user_body_parts (user_id, chat_id, body_part_id, state) VALUES (?, ?, ?, 1)",
+                (user_id, chat_id, part_id)
+            )
+        conn.commit()
+
+
 
 def get_top_pairs(chat_id: int, shpeh: bool = False, limit: int = 10):
     """Возвращает топ пар по сосанию или шпёху."""
@@ -424,63 +453,54 @@ def register_sos_handlers(dp):
         # Моя статистика кусаний
         # ----------------------
         elif action == "bite_stats":
-            from datetime import date, timedelta
-            # 7 последних дней
-            today = date.today()
-            last_7_days = [(today - timedelta(days=i)).isoformat() for i in range(7)]
-
             user_id = query.from_user.id
+            chat_id = query.message.chat.id
 
+            # -----------------------
+            # Инициализация частей тела
+            # -----------------------
+            ensure_user_body_parts(user_id, chat_id)
+
+            # -----------------------
+            # Статистика за последние 7 дней
+            # -----------------------
+            last7 = get_last_7_daily_stats(user_id, chat_id)
+            total = get_total_stats(user_id, chat_id) or {}
+
+            bite_week = sum(day.get("bite_given", 0) for day in last7)
+            bitten_week = sum(day.get("bite_taken", 0) for day in last7)
+
+            bite_total = total.get("bite_given", 0)
+            bitten_total = total.get("bite_taken", 0)
+
+            # -----------------------
+            # Состояние частей тела
+            # -----------------------
             with get_connection() as conn:
                 cur = conn.cursor()
-                # Всего укусы за последние 7 дней
                 cur.execute("""
-                    SELECT SUM(bites_given) as bites_last7, SUM(bites_total) as bites_total
-                    FROM daily_stats
-                    WHERE user_id=? AND chat_id=? AND date BETWEEN ? AND ?
-                """, (user_id, chat_id, last_7_days[-1], last_7_days[0]))
-                row = cur.fetchone()
-                bites_last7 = row["bites_last7"] or 0
-                bites_total = row["bites_total"] or 0
-
-                # Всего укусы полученные
-                cur.execute("""
-                    SELECT SUM(bites_received) as received_last7, SUM(bites_received_total) as received_total
-                    FROM daily_stats
-                    WHERE user_id=? AND chat_id=? AND date BETWEEN ? AND ?
-                """, (user_id, chat_id, last_7_days[-1], last_7_days[0]))
-                row = cur.fetchone()
-                received_last7 = row["received_last7"] or 0
-                received_total = row["received_total"] or 0
-
-                # Список частей тела
-                cur.execute("""
-                    SELECT b.name_nom, ubp.state
+                    SELECT bp.name, ubp.state
                     FROM user_body_parts ubp
-                    JOIN body_parts b ON ubp.body_part_id = b.id
+                    JOIN body_parts bp ON bp.id = ubp.body_part_id
                     WHERE ubp.user_id=? AND ubp.chat_id=?
                 """, (user_id, chat_id))
                 parts = cur.fetchall()
 
-            part_texts = []
-            emojis = {
-                "Жопа": "💋",
-                "Нипель": "👃",
-                "Щека": "😏"
-            }
+            parts_lines = [("✅" if row["state"] else "❌") + " " + row["name"] for row in parts]
 
-            for part in parts:
-                emoji = emojis.get(part["name_nom"], "❓")
-                status = "0" if part["state"] else "1"
-                part_texts.append(f"{emoji} {part['name_nom']}: {status}")
-
-            text = (
-                    f"🦷 Статистика укусов ({get_user_display_name(user_id, chat_id)}):\n"
-                    f"За последние 7 дней:\n— Укусил: {bites_last7} (всего: {bites_total})\n"
-                    f"— Был укушен: {received_last7} (всего: {received_total})\n"
-                    f"Состояние частей тела:\n" + "\n".join(part_texts)
+            # -----------------------
+            # Формируем сообщение
+            # -----------------------
+            msg = (
+                    "🦷 Статистика укусов:\n"
+                    "За последние 7 дней:\n"
+                    f"— Укусил: {bite_week} раз(а) (всего: {bite_total})\n"
+                    f"— Был укушен: {bitten_week} раз(а) (всего: {bitten_total})\n\n"
+                    "Состояние твоего тела:\n" +
+                    "\n".join(parts_lines)
             )
 
-            await query.message.answer(text)
+            await query.message.answer(msg)
+
 
         await query.answer()
