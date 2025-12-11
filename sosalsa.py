@@ -266,14 +266,18 @@ from contextlib import closing
 from db import get_connection, get_user, get_user_display_name
 
 # ---------- Фоновая ежедневная регенерация ----------
-bot = None  # Сюда будет передан объект бота из main.py
+bot = None  # сюда передаем объект бота из main.py
 
-async def daily_regeneration_task(dp):
+async def daily_regeneration_task():
     """Бесконечная задача — каждый день в 01:00 восстанавливает случайные части тела пользователей."""
+    global bot
+    if bot is None:
+        logging.error("[daily_regeneration] bot не задан!")
+        return
+
     while True:
         now = datetime.now()
-        # Время следующего срабатывания: сегодня в 01:00 или завтра, если уже после
-        regen_time = now.replace(hour=1, minute=8, second=0, microsecond=0)
+        regen_time = now.replace(hour=1, minute=15, second=0, microsecond=0)
         if regen_time <= now:
             regen_time += timedelta(days=1)
 
@@ -281,18 +285,18 @@ async def daily_regeneration_task(dp):
         logging.info(f"[daily_regeneration] Следующее восстановление через {wait_seconds/3600:.1f} часов ({regen_time})")
         await asyncio.sleep(wait_seconds)
 
-        # Выполняем восстановление
-        await process_daily_regeneration(dp)
+        await process_daily_regeneration()
 
-async def process_daily_regeneration(dp):
+async def process_daily_regeneration():
     """Проходит по всем пользователям и восстанавливает 1-3 части тела случайным образом."""
-    # Собираем отчет по каждому чату
+    if bot is None:
+        logging.error("[daily_regeneration] bot не задан!")
+        return
+
     chat_reports = {}
 
     with get_connection() as conn:
         cur = conn.cursor()
-
-        # Получаем всех пользователей, у которых есть части тела
         cur.execute("SELECT DISTINCT user_id, chat_id FROM user_body_parts")
         users = cur.fetchall()
 
@@ -300,7 +304,6 @@ async def process_daily_regeneration(dp):
             user_id = user_row["user_id"]
             chat_id = user_row["chat_id"]
 
-            # Получаем части тела пользователя, которые уже "откушены" (state=0)
             cur.execute("""
                 SELECT ubp.id, bp.name_nom
                 FROM user_body_parts ubp
@@ -308,11 +311,9 @@ async def process_daily_regeneration(dp):
                 WHERE ubp.user_id=? AND ubp.chat_id=? AND ubp.state=0
             """, (user_id, chat_id))
             lost_parts = cur.fetchall()
-
             if not lost_parts:
-                continue  # нечего восстанавливать
+                continue
 
-            # Восстанавливаем от 1 до 3 частей (если есть меньше — восстанавливаем все)
             num_to_restore = min(len(lost_parts), random.randint(1, 3))
             parts_to_restore = random.sample(lost_parts, num_to_restore)
 
@@ -330,13 +331,14 @@ async def process_daily_regeneration(dp):
 
         conn.commit()
 
-    # Отправляем сообщение отдельно для каждого чата
+    # Отправляем сообщение по чатам
     for chat_id, report_lines in chat_reports.items():
         report_text = "💚 Покусанные отрастили себе некоторые части тела:\n" + "\n".join(report_lines)
         try:
-            await dp.bot.send_message(chat_id, report_text)
+            await bot.send_message(chat_id, report_text)
         except Exception as e:
             logging.warning(f"[daily_regeneration] Не удалось отправить сообщение в чат {chat_id}: {e}")
+
 
 
 
