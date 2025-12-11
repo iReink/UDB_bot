@@ -17,6 +17,7 @@ MARRIED_PAIRS = [
     (166083474,209887368)
 ]
 
+
 # ==========================
 # БАЗА ДАННЫХ
 # ==========================
@@ -264,12 +265,15 @@ from datetime import datetime, timedelta
 from contextlib import closing
 from db import get_connection, get_user, get_user_display_name
 
+# ---------- Фоновая ежедневная регенерация ----------
+bot = None  # Сюда будет передан объект бота из main.py
+
 async def daily_regeneration_task(dp):
     """Бесконечная задача — каждый день в 01:00 восстанавливает случайные части тела пользователей."""
     while True:
         now = datetime.now()
-        # Время следующего срабатывания: завтра в 01:00, либо сегодня, если ещё до 01:00
-        regen_time = now.replace(hour=0, minute=53, second=0, microsecond=0)
+        # Время следующего срабатывания: сегодня в 01:00 или завтра, если уже после
+        regen_time = now.replace(hour=1, minute=8, second=0, microsecond=0)
         if regen_time <= now:
             regen_time += timedelta(days=1)
 
@@ -282,7 +286,8 @@ async def daily_regeneration_task(dp):
 
 async def process_daily_regeneration(dp):
     """Проходит по всем пользователям и восстанавливает 1-3 части тела случайным образом."""
-    restored_report = []
+    # Собираем отчет по каждому чату
+    chat_reports = {}
 
     with get_connection() as conn:
         cur = conn.cursor()
@@ -318,19 +323,20 @@ async def process_daily_regeneration(dp):
 
             if restored_names:
                 user_name = get_user_display_name(user_id, chat_id)
-                restored_report.append(f"🩺 {user_name} ({', '.join(restored_names)})")
+                line = f"🩺 {user_name} ({', '.join(restored_names)})"
+                if chat_id not in chat_reports:
+                    chat_reports[chat_id] = []
+                chat_reports[chat_id].append(line)
 
         conn.commit()
 
-    # Отправляем сообщение в чат. Собираем список уникальных чатов
-    chat_ids = set(row["chat_id"] for row in users)
-    if restored_report:
-        report_text = "💚 Покусанные отрастили себе некоторые части тела:\n" + "\n".join(restored_report)
-        for chat_id in chat_ids:
-            try:
-                await dp.bot.send_message(chat_id, report_text)
-            except Exception as e:
-                logging.warning(f"Не удалось отправить сообщение в чат {chat_id}: {e}")
+    # Отправляем сообщение отдельно для каждого чата
+    for chat_id, report_lines in chat_reports.items():
+        report_text = "💚 Покусанные отрастили себе некоторые части тела:\n" + "\n".join(report_lines)
+        try:
+            await dp.bot.send_message(chat_id, report_text)
+        except Exception as e:
+            logging.warning(f"[daily_regeneration] Не удалось отправить сообщение в чат {chat_id}: {e}")
 
 
 

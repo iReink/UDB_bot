@@ -1486,8 +1486,9 @@ async def main():
     asyncio.create_task(silence_checker_task())
     asyncio.create_task(mujlo.reset_mujlo_daily())  # сброс покупок мужла по утру
     asyncio.create_task(daily_reminder_loop(bot))
-    asyncio.create_task(daily_regeneration_task(dp))
-
+    # Ежедневная регенерация частей тела
+    daily_regeneration_task.dp = dp  # если нужно
+    asyncio.create_task(daily_regeneration_task(dp))  # dp передаём, чтобы был доступ к dp.bot
     # Задачи для гейзера
     asyncio.create_task(geyser.schedule_daily_geysers(bot)) # Ежедневное планирование гейзеров (долгоживущая корутина)
     asyncio.create_task(geyser.geyser_loop_task(bot)) # Непрерывный цикл для запуска гейзеров
