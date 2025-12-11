@@ -1,34 +1,53 @@
-# new_tables.py
 import sqlite3
 from contextlib import closing
 
 DB_PATH = "stats.db"
 
-def add_calendar_event_id_to_daily_events_table():
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        cur = conn.cursor()
+with closing(sqlite3.connect(DB_PATH)) as conn:
+    cur = conn.cursor()
 
-        # Проверяем, существует ли таблица daily_events
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_events'")
-        table_exists = cur.fetchone()
+    # ===============================
+    # 1. Таблица частей тела
+    # ===============================
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS body_parts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name_nom TEXT NOT NULL,   -- Что?
+            name_acc TEXT NOT NULL,   -- Укусил за что?
+            name_gen TEXT NOT NULL    -- Лишился чего?
+        );
+    """)
 
-        if not table_exists:
-            print("Таблица daily_events не существует. Невозможно добавить столбец calendar_event_id.")
-            return
+    # ===============================
+    # 2. Таблица частей тела пользователей
+    # ===============================
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_body_parts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            body_part_id INTEGER NOT NULL,
+            state INTEGER NOT NULL DEFAULT 1,  -- 1 = на месте, 0 = откушено
 
-        # Проверяем, существует ли столбец calendar_event_id
-        cur.execute("PRAGMA table_info(daily_events)")
-        columns = [column[1] for column in cur.fetchall()]
+            FOREIGN KEY (body_part_id) REFERENCES body_parts(id),
+            UNIQUE(user_id, chat_id, body_part_id)
+        );
+    """)
 
-        if "calendar_event_id" not in columns:
-            try:
-                cur.execute("ALTER TABLE daily_events ADD COLUMN calendar_event_id TEXT")
-                conn.commit()
-                print("Столбец calendar_event_id добавлен в таблицу daily_events.")
-            except sqlite3.OperationalError as e:
-                print(f"Ошибка при добавлении столбца calendar_event_id: {e}")
-        else:
-            print("Столбец calendar_event_id уже существует в таблице daily_events.")
+    # ===============================
+    # 3. Вставка базовых частей тела
+    # ===============================
+    base_parts = [
+        ("Жопа",   "Жопу",   "Жопы"),
+        ("Нипель", "Нипель", "Нипеля"),
+        ("Щека",   "Щеку",   "Щеки"),
+    ]
 
-if __name__ == "__main__":
-    add_calendar_event_id_to_daily_events_table() # Добавляем вызов новой функции
+    cur.executemany("""
+        INSERT INTO body_parts (name_nom, name_acc, name_gen)
+        VALUES (?, ?, ?)
+    """, base_parts)
+
+    conn.commit()
+
+print("Таблицы созданы, части тела добавлены.")
