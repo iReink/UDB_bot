@@ -391,7 +391,7 @@ def register_sos_handlers(dp):
         "sos_stats_menu", "sos_back",
         "sos_stats", "shpeh_stats",
         "my_sos_stats", "my_shpeh_stats",
-        "bite_stats"
+        "bite_stats", "random_bite"
     ])
     async def sos_callback(query: types.CallbackQuery):
         action = query.data
