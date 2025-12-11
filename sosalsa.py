@@ -5,6 +5,7 @@ from contextlib import closing
 from aiogram import types
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+import logging
 
 from db import get_connection, get_user_sex
 
@@ -502,6 +503,8 @@ def register_sos_handlers(dp):
         # Моя статистика кусаний
         # ----------------------
         elif action == "bite_stats":
+
+            logging.info("Вызов статистики куся")
             # Инициализация тела
             ensure_user_body_parts(user_id, chat_id)
 
