@@ -515,8 +515,14 @@ def register_sos_handlers(dp):
             # Списываем сит
             add_sits(chat_id, user_id, -cost)
 
+            # Проверяем части тела кусающего
+            ensure_user_body_parts(user_id, chat_id)
+
             # Выбираем случайного «жертву»
             victim_id = random.choice(users_with_parts)
+
+            # Проверяем части тела жертвы
+            ensure_user_body_parts(victim_id, chat_id)
 
             # Выбираем случайную живую часть тела
             cur.execute("""
