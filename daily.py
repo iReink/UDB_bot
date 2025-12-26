@@ -115,8 +115,17 @@ def format_daily_text(daily: dict, participants: List[dict], with_turbo_link: bo
         lines.append(f"\n🚀 Присоединиться одним кликом: /daily_{daily['id']}")
 
     lines.append("")
-    names = [p['name'] for p in participants]
-    lines.append("👨‍👩‍👦‍👦 Участвуют: " + (", ".join(names) if names else "никого"))
+
+    participants_names = [p["name"] for p in participants if not p.get("is_driver")]
+    drivers_names = [p["name"] for p in participants if p.get("is_driver")]
+
+    lines.append(
+        "👨‍👩‍👦‍👦 Участвуют: " +
+        (", ".join(participants_names) if participants_names else "никого")
+    )
+
+    if drivers_names:
+        lines.append("🚗 Водители: " + ", ".join(drivers_names))
 
     if daily['cars'] in ('да', '1'):
         num_participants = len(participants)
