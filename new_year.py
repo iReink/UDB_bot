@@ -10,12 +10,16 @@ from db import add_sits
 
 CHAT_ID = -1002737417162
 
-# Дата и время срабатывания
-TRIGGER_DATETIME_STR = "2025-12-27 13:10"
+# Дата и время срабатывания (ТЕСТ: 13:26)
+TRIGGER_DATETIME_STR = "2025-12-27 13:26"
 TRIGGER_DATETIME = datetime.strptime(TRIGGER_DATETIME_STR, "%Y-%m-%d %H:%M")
 
-# допустимое окно срабатывания (в минутах)
+# допустимое окно срабатывания после триггера (в минутах)
 ALLOWED_DELAY_MINUTES = 3
+
+# если разница между прошлым запуском и конфигом >= этого значения —
+# считаем, что это НОВЫЙ запуск
+REEXECUTE_DIFF_MINUTES = 10
 
 DB_FILE = "stats.db"
 
@@ -37,14 +41,15 @@ def ensure_service_table():
         conn.commit()
 
 
-def already_executed(chat_id: int) -> bool:
+def get_last_execution(chat_id: int):
     with closing(sqlite3.connect(DB_FILE)) as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT 1 FROM new_year_runs WHERE chat_id = ?",
+            "SELECT executed_at FROM new_year_runs WHERE chat_id = ?",
             (chat_id,)
         )
-        return cur.fetchone() is not None
+        row = cur.fetchone()
+        return datetime.fromisoformat(row[0]) if row else None
 
 
 def mark_executed(chat_id: int):
@@ -52,18 +57,39 @@ def mark_executed(chat_id: int):
         cur = conn.cursor()
         cur.execute(
             "INSERT OR REPLACE INTO new_year_runs (chat_id, executed_at) VALUES (?, ?)",
-            (chat_id, datetime.now().isoformat())
+            (chat_id, TRIGGER_DATETIME_STR)
         )
         conn.commit()
 
 
 def is_time_to_run() -> bool:
     now = datetime.now()
+
     if now < TRIGGER_DATETIME:
         return False
 
     delta = now - TRIGGER_DATETIME
     return delta <= timedelta(minutes=ALLOWED_DELAY_MINUTES)
+
+
+def already_executed_and_valid(chat_id: int) -> bool:
+    """
+    Возвращает True, если запуск уже был и
+    время в БД близко к текущему TRIGGER_DATETIME_STR
+    """
+    last_run = get_last_execution(chat_id)
+    if not last_run:
+        return False
+
+    diff_minutes = abs(
+        (TRIGGER_DATETIME - last_run).total_seconds()
+    ) / 60
+
+    if diff_minutes < REEXECUTE_DIFF_MINUTES:
+        return True
+
+    # время изменилось существенно — считаем новым запуском
+    return False
 
 
 # ================== ОСНОВНАЯ ЛОГИКА ==================
@@ -145,9 +171,9 @@ def format_greeting(user, greeting):
     gift = greeting["gift_name"]
     sits = greeting["gift_sits"]
 
-    mention = f"{user['nick']}" if user["nick"] else user["name"]
-
+    mention = f"@{user['nick']}" if user["nick"] else user["name"]
     sign = "+" if sits > 0 else ""
+
     return (
         f"🎄 {mention} {user['name']}, {text}\n"
         f"🎁 Твой подарок: {gift} ({sign}{sits} сит)"
@@ -160,7 +186,7 @@ def format_greeting(user, greeting):
 async def run_new_year(bot):
     ensure_service_table()
 
-    if already_executed(CHAT_ID):
+    if already_executed_and_valid(CHAT_ID):
         return
 
     if not is_time_to_run():
