@@ -11,7 +11,7 @@ from db import add_sits
 CHAT_ID = -1002737417162
 
 # Дата и время срабатывания
-TRIGGER_DATETIME_STR = "2025-12-27 13:00"
+TRIGGER_DATETIME_STR = "2025-12-27 13:10"
 TRIGGER_DATETIME = datetime.strptime(TRIGGER_DATETIME_STR, "%Y-%m-%d %H:%M")
 
 # допустимое окно срабатывания (в минутах)
