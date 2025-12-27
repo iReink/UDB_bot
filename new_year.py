@@ -11,7 +11,7 @@ from db import add_sits
 CHAT_ID = -1002737417162
 
 # Дата и время срабатывания (ТЕСТ: 13:26)
-TRIGGER_DATETIME_STR = "2025-12-27 13:26"
+TRIGGER_DATETIME_STR = "2025-12-27 13:37"
 TRIGGER_DATETIME = datetime.strptime(TRIGGER_DATETIME_STR, "%Y-%m-%d %H:%M")
 
 # допустимое окно срабатывания после триггера (в минутах)
@@ -171,7 +171,7 @@ def format_greeting(user, greeting):
     gift = greeting["gift_name"]
     sits = greeting["gift_sits"]
 
-    mention = f"@{user['nick']}" if user["nick"] else user["name"]
+    mention = f"{user['nick']}" if user["nick"] else user["name"]
     sign = "+" if sits > 0 else ""
 
     return (
