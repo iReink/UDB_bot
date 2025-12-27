@@ -45,6 +45,7 @@ import sosalsa
 from sosalsa import register_sos_handlers
 from sosalsa import daily_regeneration_task, bot as daily_bot
 
+from new_year import run_new_year
 
 
 from aiogram.exceptions import TelegramNetworkError, TelegramServerError
@@ -1474,6 +1475,21 @@ async def reward_daily_top(bot: Bot):
         except Exception as e:
             logging.error(f"Не удалось отправить сообщение в чат {chat_id}: {e}")
 
+async def new_year_scheduler(bot):
+    """
+    Раз в минуту проверяет — пора ли запускать новогодний скрипт.
+    Сам run_new_year защищён от повторного запуска.
+    """
+    while True:
+        try:
+            await run_new_year(bot)
+        except Exception as e:
+            # логируй, если есть логгер
+            print(f"[new_year] error: {e}")
+
+        await asyncio.sleep(60)
+
+
 
 # ---------- Запуск ----------
 
@@ -1497,6 +1513,7 @@ async def main():
     # Задачи для гейзера
     asyncio.create_task(geyser.schedule_daily_geysers(bot)) # Ежедневное планирование гейзеров (долгоживущая корутина)
     asyncio.create_task(geyser.geyser_loop_task(bot)) # Непрерывный цикл для запуска гейзеров
+    asyncio.create_task(new_year_scheduler(bot))
 
     # Цикл polling с автоперезапуском при ошибках
     while True:
