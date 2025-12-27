@@ -145,12 +145,12 @@ def format_greeting(user, greeting):
     gift = greeting["gift_name"]
     sits = greeting["gift_sits"]
 
-    mention = f"@{user['nick']}" if user["nick"] else user["name"]
+    mention = f"{user['nick']}" if user["nick"] else user["name"]
 
     sign = "+" if sits > 0 else ""
     return (
         f"🎄 {mention} {user['name']}, {text}\n"
-        f"🎁 Твой подарок: <b>{gift}</b> ({sign}{sits} сит)"
+        f"🎁 Твой подарок: {gift} ({sign}{sits} сит)"
     )
 
 
