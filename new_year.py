@@ -11,7 +11,7 @@ from db import add_sits
 CHAT_ID = -1002737417162
 
 # Дата и время срабатывания (ТЕСТ: 13:26)
-TRIGGER_DATETIME_STR = "2025-12-27 13:37"
+TRIGGER_DATETIME_STR = "2025-12-27 15:55"
 TRIGGER_DATETIME = datetime.strptime(TRIGGER_DATETIME_STR, "%Y-%m-%d %H:%M")
 
 # допустимое окно срабатывания после триггера (в минутах)
@@ -97,7 +97,7 @@ def already_executed_and_valid(chat_id: int) -> bool:
 
 def get_active_users():
     """Пользователи, писавшие хотя бы одно сообщение за последнюю неделю"""
-    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    week_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
     with closing(sqlite3.connect(DB_FILE)) as conn:
         cur = conn.cursor()
