@@ -8,10 +8,10 @@ from db import add_sits
 
 # ================== НАСТРОЙКИ ==================
 
-CHAT_ID = -1002737417162
+CHAT_ID = -1002730880821
 
 # Дата и время срабатывания (ТЕСТ: 13:26)
-TRIGGER_DATETIME_STR = "2025-12-27 15:55"
+TRIGGER_DATETIME_STR = "2026-01-01 00:15"
 TRIGGER_DATETIME = datetime.strptime(TRIGGER_DATETIME_STR, "%Y-%m-%d %H:%M")
 
 # допустимое окно срабатывания после триггера (в минутах)
