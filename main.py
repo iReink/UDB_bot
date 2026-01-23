@@ -620,7 +620,11 @@ async def send_graph(message: types.Message):
     image_buffer.seek(0)
 
     photo = BufferedInputFile(image_buffer.read(), filename="graph.png")
-    await message.answer_photo(photo, caption="📊 Сообщения по неделям за последние 6 месяцев")
+    user_name = message.from_user.full_name or message.from_user.username or "пользователя"
+    await message.answer_photo(
+        photo,
+        caption=f"📊 Сообщения по неделям за последние 6 месяцев для {user_name}",
+    )
 
 
 import random
