@@ -1,7 +1,8 @@
 import os
 import asyncio
+import io
 import re
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, date
 from collections import defaultdict
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
@@ -10,7 +11,7 @@ import logging
 from aiogram import types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.types import FSInputFile, CallbackQuery
+from aiogram.types import FSInputFile, CallbackQuery, BufferedInputFile
 import aiocron
 import math
 import random
@@ -18,6 +19,9 @@ import weekly_awards
 import sticker_manager
 import sqlite3
 import db
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 from db import get_connection, get_chat_users, get_total_stats
 from contextlib import closing
 from db import (
@@ -557,6 +561,66 @@ from aiogram.filters import Command
 async def send_stat(message: types.Message):
     chat_id = message.chat.id
     await message.answer(get_weekly_chat_stats(chat_id))
+
+def get_weekly_message_totals(chat_id: int, user_id: int, weeks: int = 26) -> tuple[list[str], list[int]]:
+    end_date = date.today()
+    start_date = end_date - timedelta(weeks=weeks - 1)
+    start_monday = start_date - timedelta(days=start_date.weekday())
+
+    week_starts = []
+    current = start_monday
+    while current <= end_date:
+        week_starts.append(current)
+        current += timedelta(weeks=1)
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT date(date, 'weekday 1', '-7 days') AS week_start,
+                   SUM(messages) AS messages
+            FROM daily_stats
+            WHERE user_id = ? AND chat_id = ? AND date >= ?
+            GROUP BY week_start
+            ORDER BY week_start
+        """, (user_id, chat_id, start_monday.isoformat()))
+        rows = cur.fetchall()
+
+    totals_by_week = {row[0]: int(row[1] or 0) for row in rows}
+    labels = [week_start.strftime("%d.%m") for week_start in week_starts]
+    values = [totals_by_week.get(week_start.isoformat(), 0) for week_start in week_starts]
+    return labels, values
+
+@dp.message(Command("graph"))
+async def send_graph(message: types.Message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    labels, values = get_weekly_message_totals(chat_id, user_id)
+
+    if not any(values):
+        await message.answer("Нет данных по сообщениям за последние 6 месяцев.")
+        return
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.bar(range(len(values)), values, color="#5B8FF9")
+    ax.set_title("Сообщения по неделям (последние 6 месяцев)")
+    ax.set_ylabel("Количество сообщений")
+    ax.set_xlabel("Недели")
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+
+    step = max(1, len(labels) // 10)
+    ticks = list(range(0, len(labels), step))
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([labels[i] for i in ticks], rotation=45, ha="right")
+
+    fig.tight_layout()
+    image_buffer = io.BytesIO()
+    fig.savefig(image_buffer, format="png", dpi=150)
+    plt.close(fig)
+    image_buffer.seek(0)
+
+    photo = BufferedInputFile(image_buffer.read(), filename="graph.png")
+    await message.answer_photo(photo, caption="📊 Сообщения по неделям за последние 6 месяцев")
 
 
 import random
@@ -1535,5 +1599,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
