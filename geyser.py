@@ -14,7 +14,20 @@ from settings import get_setting # Для проверки включения г
 GEYSER_MESSAGE = "Гейзер с ситом рванул!"
 GEYSER_BUTTON_TEXT = "Подставить ведёрко"
 GEYSER_TIMEOUT = timedelta(minutes=10)
-GEYSER_SIT_REWARD = 5
+GEYSER_SIT_REWARD_MIN = -5
+GEYSER_SIT_REWARD_MAX = 7
+
+
+def _get_daily_active_users(chat_id: int, date_str: str):
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT u.user_id, u.name, u.sex
+            FROM users u
+            JOIN daily_stats d ON d.user_id = u.user_id AND d.chat_id = u.chat_id
+            WHERE u.chat_id = ? AND d.date = ? AND d.messages > 0
+        """, (chat_id, date_str))
+        return cur.fetchall()
 
 # --- Утилиты для работы с БД (geyser_events) ---
 def get_geyser_count(chat_id: int, date_str: str) -> int:
@@ -127,13 +140,27 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
     # Определяем окончание глагола в зависимости от пола пользователя
     user_data = get_user(user_id, chat_id)
     user_sex = user_data["sex"] if user_data and "sex" in user_data else None
-    
+
     caught_verb = "поймала" if user_sex == 'f' else "поймал"
+    run_verb = "бегала" if user_sex == 'f' else "бегал"
+    stumble_verb = "споткнулась" if user_sex == 'f' else "споткнулся"
+
+    sit_reward = random.randint(GEYSER_SIT_REWARD_MIN, GEYSER_SIT_REWARD_MAX)
+
+    if sit_reward == 0:
+        result_message = f"{user_name} успешно {caught_verb} сит, но ведро оказалось дырявым. +0 сит"
+    elif sit_reward < 0:
+        result_message = (
+            f"{user_name} так старательно {run_verb} за гейзером, что {stumble_verb} и пролил то, что было "
+            f"({sit_reward} сита)"
+        )
+    else:
+        result_message = f"{user_name} успешно {caught_verb} {sit_reward} сита в ведёрко!"
 
     # Удаляем кнопку и отправляем сообщение о победе
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer(f"{user_name} успешно {caught_verb} {GEYSER_SIT_REWARD} сита в ведёрко!") # Убираем @ и добавляем окончание
+        await callback.message.answer(result_message) # Убираем @ и добавляем окончание
     except Exception as e:
         logging.error(f"[Geyser] Ошибка при обновлении сообщения гейзера или отправке победы: {e}")
 
@@ -145,9 +172,43 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
     #         UPDATE users SET sits = sits + ? WHERE user_id = ? AND chat_id = ?
     #     """, (GEYSER_SIT_REWARD, user_id, chat_id))
     #     conn.commit()
-    add_sits(chat_id, user_id, GEYSER_SIT_REWARD) # Используем новую функцию add_sits
+    add_sits(chat_id, user_id, sit_reward) # Используем новую функцию add_sits
 
-    logging.info(f"[Geyser] Пользователь {user_name} ({user_id}) поймал гейзер в чате {chat_id}, event_id: {event_id}")
+    if sit_reward >= 5:
+        today_str = date.today().isoformat()
+        active_users = _get_daily_active_users(chat_id, today_str)
+        eligible_users = [row for row in active_users if int(row["user_id"]) != user_id]
+        selected_users = random.sample(eligible_users, k=min(2, len(eligible_users)))
+
+        for idx, bonus_user in enumerate(selected_users):
+            bonus_user_id = int(bonus_user["user_id"])
+            bonus_user_name = bonus_user["name"] or str(bonus_user_id)
+            bonus_sex = bonus_user["sex"] if "sex" in bonus_user else None
+
+            if idx == 0:
+                bonus_amount = 2
+                late_verb = "опоздала" if bonus_sex == 'f' else "опоздал"
+                grabbed_verb = "успела" if bonus_sex == 'f' else "успел"
+                bonus_message = (
+                    f"{bonus_user_name} хоть и {late_verb} но {grabbed_verb} прихватить 2 сита"
+                )
+            else:
+                bonus_amount = 1
+                grabbed_verb = "прихватила" if bonus_sex == 'f' else "прихватил"
+                bonus_message = (
+                    f"{bonus_user_name} {grabbed_verb} капельку себе в карман (+1 сит)"
+                )
+
+            add_sits(chat_id, bonus_user_id, bonus_amount)
+            try:
+                await callback.message.answer(bonus_message)
+            except Exception as e:
+                logging.error(f"[Geyser] Ошибка при отправке бонусного сообщения: {e}")
+
+    logging.info(
+        f"[Geyser] Пользователь {user_name} ({user_id}) поймал гейзер в чате {chat_id}, "
+        f"event_id: {event_id}, reward: {sit_reward}"
+    )
     del active_geysers[message_id] # Удаляем из активных гейзеров
     await callback.answer() # Закрываем callback
 
