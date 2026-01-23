@@ -533,6 +533,14 @@ async def flood_stats(message: types.Message):
     await message.reply(text)
 
 
+@dp.message(Command("polina_cum_win_on"))
+async def polina_cum_win_on(message: types.Message):
+    await message.reply("Теперь Полина будет выигрывать сит. Или не будет")
+
+
+@dp.message(Command("polina_cum_win_off"))
+async def polina_cum_win_off(message: types.Message):
+    await message.reply("Теперь Полина не будет выигрывать сит. Или будет")
 
 
 @dp.message(Command("shop"))
