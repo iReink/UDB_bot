@@ -15,7 +15,7 @@ GEYSER_MESSAGE = "Гейзер с ситом рванул!"
 GEYSER_BUTTON_TEXT = "Подставить ведёрко"
 GEYSER_TIMEOUT = timedelta(minutes=10)
 GEYSER_SIT_REWARD_MIN = -5
-GEYSER_SIT_REWARD_MAX = 7
+GEYSER_SIT_REWARD_MAX = 10
 
 
 def _get_daily_active_users(chat_id: int, date_str: str):
@@ -139,7 +139,7 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
 
     # Определяем окончание глагола в зависимости от пола пользователя
     user_data = get_user(user_id, chat_id)
-    user_sex = user_data["sex"] if user_data and "sex" in user_data else None
+    user_sex = user_data["sex"] if user_data else None
 
     caught_verb = "поймала" if user_sex == 'f' else "поймал"
     run_verb = "бегала" if user_sex == 'f' else "бегал"
@@ -183,7 +183,7 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
         for idx, bonus_user in enumerate(selected_users):
             bonus_user_id = int(bonus_user["user_id"])
             bonus_user_name = bonus_user["name"] or str(bonus_user_id)
-            bonus_sex = bonus_user["sex"] if "sex" in bonus_user else None
+            bonus_sex = bonus_user["sex"]
 
             if idx == 0:
                 bonus_amount = 2
