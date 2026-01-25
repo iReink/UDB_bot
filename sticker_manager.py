@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timedelta
 from db import get_connection  # твоя функция подключения к SQLite
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 
 # ====== НАСТРОЙКИ ======
 SILENCE_STICKER_ID = "CAACAgIAAyEFAASixe81AAEBKBZonrxM7qEb65AQWLINQj-igCqgZQACjHYAAu1RQErYR3VajrrA1TYE"
@@ -57,6 +58,23 @@ async def silence_checker_task():
                             await bot.send_sticker(chat_id, SILENCE_STICKER_ID)
                             _last_sent_date[chat_id] = now.date()
                             logging.info(f"[silence_checker] sent sticker to chat {chat_id} at {now.isoformat()}")
+                        except TelegramBadRequest as e:
+                            message = str(e).lower()
+                            if "chat not found" in message:
+                                logging.warning(
+                                    "[silence_checker] chat %s not found, removing from tracking", chat_id
+                                )
+                                _last_sent_date.pop(chat_id, None)
+                                with get_connection() as cleanup_conn:
+                                    cleanup_conn.execute(
+                                        "DELETE FROM messages_reactions WHERE chat_id = ?",
+                                        (chat_id,),
+                                    )
+                                    cleanup_conn.commit()
+                            else:
+                                logging.exception(
+                                    f"[silence_checker] failed to send sticker to chat {chat_id}: {e}"
+                                )
                         except Exception as e:
                             logging.exception(f"[silence_checker] failed to send sticker to chat {chat_id}: {e}")
 
