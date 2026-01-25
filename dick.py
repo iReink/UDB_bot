@@ -70,7 +70,7 @@ def get_dick(user_id: int, chat_id: int) -> dict:
 
 def update_dick_length(user_id: int, chat_id: int, delta: int) -> int:
     dick = get_or_create_dick(user_id, chat_id)
-    new_length = max(0, (dick["length"] or 0) + delta)
+    new_length = (dick["length"] or 0) + delta
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -178,10 +178,10 @@ def build_shop_keyboard(user_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🍆 5см за 10 сит", callback_data=f"dick:shop:buy:5:10:{user_id}"),
         ],
         [
-            InlineKeyboardButton(text="🍆 15см за 25 сит", callback_data=f"dick:shop:buy:15:25:{user_id}"),
+            InlineKeyboardButton(text="🍆🍆 15см за 25 сит", callback_data=f"dick:shop:buy:15:25:{user_id}"),
         ],
         [
-            InlineKeyboardButton(text="🍆 35см за 50 сит", callback_data=f"dick:shop:buy:35:50:{user_id}"),
+            InlineKeyboardButton(text="🍆🍆🍆 35см за 50 сит", callback_data=f"dick:shop:buy:35:50:{user_id}"),
         ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
