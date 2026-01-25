@@ -281,7 +281,7 @@ def register_dick_handlers(dp):
         keyboard = build_menu_keyboard(user_id, dick["length"], grew_today)
         await message.answer(text, reply_markup=keyboard)
 
-    @dp.callback_query(F.data.startswith("dick:"))
+    @dp.callback_query(F.data.startswith("dick:") & ~F.data.startswith("dick:duel:"))
     async def dick_callback(query: types.CallbackQuery, state: FSMContext):
         parts = query.data.split(":")
         if len(parts) < 2:
