@@ -86,6 +86,9 @@ mujlo.register_mujlo_handlers(dp)
 import geyser
 geyser.register_geyser_handlers(dp) # Регистрируем хэндлеры гейзера
 
+import dick
+dick.register_dick_handlers(dp)
+
 
 from dotenv import load_dotenv
 load_dotenv()

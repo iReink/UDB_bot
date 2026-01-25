@@ -8,6 +8,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import logging
 
 from db import get_connection, get_user_sex
+from dick import try_bite_dick
 
 # ==========================
 # ЖЕНАТЫЕ ПАРЫ (можно добавлять новых)
@@ -695,6 +696,10 @@ def register_sos_handlers(dp):
 
             if added_to_biter:
                 text += f"\n😏 {word_kusavshiy.capitalize()} {verb_attach} {part_name} к себе!"
+
+            dick_bite_text = try_bite_dick(chat_id, victim_id)
+            if dick_bite_text:
+                text += f"\n{dick_bite_text}"
 
             await query.message.answer(text)
             await query.answer()

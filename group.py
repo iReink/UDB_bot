@@ -9,7 +9,8 @@ from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from sosalsa import add_sits, get_sits
-from db import get_connection
+from db import get_connection, get_user_sex
+from dick import update_dick_length
 
 from quest import update_quest_progress
 
@@ -319,6 +320,16 @@ async def _run_event_flow(bot: Bot, chat_id: int):
             lines = [state.names.get(uid) or get_user_display_name(uid, chat_id) for uid in participants]
             text = "Групповая мастурбация окончена! Спасибо всем участникам. Вот они сверху вниз:\n" + "\n".join(lines)
             await bot.send_message(chat_id, text)
+
+            lucky_id = random.choice(participants)
+            lucky_name = state.names.get(lucky_id) or get_user_display_name(lucky_id, chat_id)
+            update_dick_length(lucky_id, chat_id, 1)
+            lucky_sex = get_user_sex(lucky_id, chat_id)
+            verb = "мастурбировал" if lucky_sex != "f" else "мастурбировала"
+            await bot.send_message(
+                chat_id,
+                f"🍆 {lucky_name} так усердно {verb}, что член подрос на 1 см! Так держать!"
+            )
 
             # Победитель
             winner_id = random.choice(participants)
