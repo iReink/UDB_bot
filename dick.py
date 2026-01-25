@@ -355,7 +355,7 @@ def register_dick_handlers(dp):
         if action == "rating_full":
             chat_id = query.message.chat.id
             text = build_rating_text(chat_id, requester_id=None, full=True)
-            await query.message.answer(text)
+            await query.message.edit_text(text)
             await query.answer()
             return
 
