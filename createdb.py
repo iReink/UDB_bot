@@ -4,22 +4,16 @@ from contextlib import closing
 DB_FILE = "stats.db"
 
 
-def create_dicks_table():
+def add_top1_entrance_date_column() -> None:
     with closing(sqlite3.connect(DB_FILE)) as conn:
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS dicks (
-                user_id INTEGER NOT NULL,
-                chat_id INTEGER NOT NULL,
-                length INTEGER DEFAULT 0,
-                grow_date TEXT DEFAULT '',
-                buff TEXT DEFAULT '',
-                buff_exp TEXT DEFAULT '',
-                PRIMARY KEY (user_id, chat_id)
-            )
-        """)
-        conn.commit()
+        cur.execute("PRAGMA table_info(dicks)")
+        columns = {row["name"] for row in cur.fetchall()}
+        if "top1_entrance_date" not in columns:
+            cur.execute("ALTER TABLE dicks ADD COLUMN top1_entrance_date TEXT DEFAULT ''")
+            conn.commit()
 
 
 if __name__ == "__main__":
-    create_dicks_table()
+    add_top1_entrance_date_column()
