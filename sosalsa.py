@@ -697,7 +697,7 @@ def register_sos_handlers(dp):
             if added_to_biter:
                 text += f"\n😏 {word_kusavshiy.capitalize()} {verb_attach} {part_name} к себе!"
 
-            dick_bite_text = try_bite_dick(chat_id, victim_id)
+            dick_bite_text = try_bite_dick(chat_id, victim_id, user_id)
             if dick_bite_text:
                 text += f"\n{dick_bite_text}"
 

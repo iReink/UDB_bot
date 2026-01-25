@@ -29,9 +29,14 @@ def ensure_dicks_table() -> None:
                 grow_date TEXT DEFAULT '',
                 buff TEXT DEFAULT '',
                 buff_exp TEXT DEFAULT '',
+                top1_entrance_date TEXT DEFAULT '',
                 PRIMARY KEY (user_id, chat_id)
             )
         """)
+        cur.execute("PRAGMA table_info(dicks)")
+        columns = {row["name"] for row in cur.fetchall()}
+        if "top1_entrance_date" not in columns:
+            cur.execute("ALTER TABLE dicks ADD COLUMN top1_entrance_date TEXT DEFAULT ''")
         conn.commit()
 
 
@@ -48,8 +53,8 @@ def get_or_create_dick(user_id: int, chat_id: int) -> dict:
             return dict(row)
         cur.execute(
             """
-            INSERT INTO dicks (user_id, chat_id, length, grow_date, buff, buff_exp)
-            VALUES (?, ?, 0, '', '', '')
+            INSERT INTO dicks (user_id, chat_id, length, grow_date, buff, buff_exp, top1_entrance_date)
+            VALUES (?, ?, 0, '', '', '', '')
             """,
             (user_id, chat_id),
         )
@@ -61,6 +66,7 @@ def get_or_create_dick(user_id: int, chat_id: int) -> dict:
             "grow_date": "",
             "buff": "",
             "buff_exp": "",
+            "top1_entrance_date": "",
         }
 
 
@@ -68,15 +74,49 @@ def get_dick(user_id: int, chat_id: int) -> dict:
     return get_or_create_dick(user_id, chat_id)
 
 
+def get_top1_info(cur, chat_id: int) -> Optional[dict]:
+    cur.execute(
+        """
+        SELECT user_id, top1_entrance_date
+        FROM dicks
+        WHERE chat_id=?
+        ORDER BY length DESC, user_id ASC
+        LIMIT 1
+        """,
+        (chat_id,),
+    )
+    row = cur.fetchone()
+    return dict(row) if row else None
+
+
 def update_dick_length(user_id: int, chat_id: int, delta: int) -> int:
     dick = get_or_create_dick(user_id, chat_id)
     new_length = (dick["length"] or 0) + delta
     with get_connection() as conn:
         cur = conn.cursor()
+        previous_top1 = get_top1_info(cur, chat_id)
         cur.execute(
             "UPDATE dicks SET length=? WHERE user_id=? AND chat_id=?",
             (new_length, user_id, chat_id),
         )
+        new_top1 = get_top1_info(cur, chat_id)
+        if new_top1:
+            today = date.today().isoformat()
+            if not previous_top1 or previous_top1["user_id"] != new_top1["user_id"]:
+                if previous_top1:
+                    cur.execute(
+                        "UPDATE dicks SET top1_entrance_date='' WHERE user_id=? AND chat_id=?",
+                        (previous_top1["user_id"], chat_id),
+                    )
+                cur.execute(
+                    "UPDATE dicks SET top1_entrance_date=? WHERE user_id=? AND chat_id=?",
+                    (today, new_top1["user_id"], chat_id),
+                )
+            elif not new_top1.get("top1_entrance_date"):
+                cur.execute(
+                    "UPDATE dicks SET top1_entrance_date=? WHERE user_id=? AND chat_id=?",
+                    (today, new_top1["user_id"], chat_id),
+                )
         conn.commit()
     return new_length
 
@@ -98,7 +138,7 @@ def get_dick_rankings(chat_id: int, only_grown: bool = False) -> List[dict]:
         if only_grown:
             cur.execute(
                 """
-                SELECT user_id, length, grow_date
+                SELECT user_id, length, grow_date, top1_entrance_date
                 FROM dicks
                 WHERE chat_id=? AND grow_date != ''
                 ORDER BY length DESC, user_id ASC
@@ -108,7 +148,7 @@ def get_dick_rankings(chat_id: int, only_grown: bool = False) -> List[dict]:
         else:
             cur.execute(
                 """
-                SELECT user_id, length, grow_date
+                SELECT user_id, length, grow_date, top1_entrance_date
                 FROM dicks
                 WHERE chat_id=?
                 ORDER BY length DESC, user_id ASC
@@ -223,7 +263,16 @@ def build_rating_text(
     lines = []
     for idx, row in enumerate(rankings[:limit], start=1):
         name = get_user_display_name(row["user_id"], chat_id)
-        lines.append(f"{idx}. {name} — {row['length']} см")
+        line = f"{idx}. {name} — {row['length']} см"
+        if idx == 1 and row.get("top1_entrance_date"):
+            try:
+                entrance_date = date.fromisoformat(row["top1_entrance_date"])
+                formatted_date = entrance_date.strftime("%d.%m.%Y")
+                days_on_top = (date.today() - entrance_date).days + 1
+                line += f" — Является верховным членом с {formatted_date} ({days_on_top} дней)"
+            except ValueError:
+                pass
+        lines.append(line)
 
     if not full and requester_id is not None:
         for idx, row in enumerate(rankings, start=1):
@@ -248,7 +297,7 @@ def calculate_win_chance(longer: int, shorter: int) -> float:
     return max(0.45, min(0.5, chance))
 
 
-def try_bite_dick(chat_id: int, victim_id: int) -> Optional[str]:
+def try_bite_dick(chat_id: int, victim_id: int, biter_id: int) -> Optional[str]:
     dick = get_dick(victim_id, chat_id)
     length = dick["length"] or 0
     if length <= 0:
@@ -258,9 +307,17 @@ def try_bite_dick(chat_id: int, victim_id: int) -> Optional[str]:
     bite_size = random.randint(1, 3)
     bite_size = min(bite_size, length)
     update_dick_length(victim_id, chat_id, -bite_size)
+    update_dick_length(biter_id, chat_id, bite_size)
     victim_sex = get_user_sex(victim_id, chat_id)
+    biter_sex = get_user_sex(biter_id, chat_id)
     verb = get_gendered_word(victim_sex, "потерял", "потеряла")
-    return f"🩸 {get_user_display_name(victim_id, chat_id)} {verb} {bite_size} см члена от укуса!"
+    verb_gain = get_gendered_word(biter_sex, "получил", "получила")
+    victim_name = get_user_display_name(victim_id, chat_id)
+    biter_name = get_user_display_name(biter_id, chat_id)
+    return (
+        f"🩸 {victim_name} {verb} {bite_size} см члена от укуса, "
+        f"а {biter_name} {verb_gain} его себе!"
+    )
 
 
 def register_dick_handlers(dp):
