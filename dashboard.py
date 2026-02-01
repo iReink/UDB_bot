@@ -310,7 +310,15 @@ def _format_ranking_block(
         detail = f" ({detail_label}: {row.detail})" if detail_label and row.detail else ""
         value_display = f"{row.value:.2f}" if isinstance(row.value, float) else str(row.value)
         line = f"{row.position}. {row.name} — {value_display} {label_suffix}{detail}"
-        ax.text(0.02, base_y - idx * step, line, fontsize=11, alpha=alpha)
+        color = "white" if alpha < 1.0 else "black"
+        ax.text(
+            0.02,
+            base_y - idx * step,
+            line,
+            fontsize=11,
+            alpha=alpha,
+            color=color,
+        )
 
 
 def _draw_dashboard(
@@ -329,7 +337,7 @@ def _draw_dashboard(
     peak_hours = _get_peak_hours(chat_id, user_id)
 
     fig = plt.figure(figsize=(12, 9.0), dpi=120)
-    fig.patch.set_facecolor("#f7f5f2")
+    fig.patch.set_facecolor("#FF47D1")
     grid = fig.add_gridspec(
         5,
         2,
@@ -373,14 +381,14 @@ def _draw_dashboard(
             autopct="%1.0f%%",
             colors=["#ff8fab", "#ffd6a5"],
             textprops={"fontsize": 9},
-            center=(0.12, 0.0),
+            center=(0.0, 0.0),
         )
         ax_react.axis("equal")
         ax_react.legend(
             wedges,
             ["Получено", "Поставлено"],
-            loc="center right",
-            bbox_to_anchor=(1.05, 0.5),
+            loc="center left",
+            bbox_to_anchor=(0.55, 0.5),
             frameon=False,
             fontsize=9,
         )
