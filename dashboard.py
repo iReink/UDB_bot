@@ -115,9 +115,31 @@ def _get_message_ranking(chat_id: int, user_id: int) -> tuple[List[RankingRow], 
             SELECT u.user_id,
                    u.name,
                    COALESCE(t.messages, 0) as messages,
+                   NULL as extra
+            FROM users u
+            LEFT JOIN total_stats t ON t.user_id = u.user_id AND t.chat_id = u.chat_id
+            WHERE u.chat_id = ?
+            """,
+            (chat_id,),
+        )
+        rows = cur.fetchall()
+    default_name = get_user_display_name(user_id, chat_id)
+    return _get_ranking_rows(rows, user_id, default_name)
+
+
+def _get_avg_message_length_ranking(
+    chat_id: int, user_id: int
+) -> tuple[List[RankingRow], int]:
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT u.user_id,
+                   u.name,
                    CASE WHEN COALESCE(t.messages, 0) = 0 THEN 0
                         ELSE CAST(ROUND(COALESCE(t.chars, 0) * 1.0 / t.messages) AS INT)
-                   END as avg_len
+                   END as avg_len,
+                   NULL as extra
             FROM users u
             LEFT JOIN total_stats t ON t.user_id = u.user_id AND t.chat_id = u.chat_id
             WHERE u.chat_id = ?
@@ -145,21 +167,6 @@ def _get_dick_length(chat_id: int, user_id: int) -> int:
     if not row:
         return 0
     return int(row["length"] or 0)
-
-
-def _get_geyser_catch_count(chat_id: int, user_id: int) -> int:
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT COUNT(*) as total
-            FROM geyser_events
-            WHERE chat_id = ? AND status = 'caught' AND caught_by = ?
-            """,
-            (chat_id, user_id),
-        )
-        row = cur.fetchone()
-    return int(row["total"] or 0)
 
 
 def _get_activity_streak(chat_id: int, user_id: int) -> int:
@@ -268,6 +275,16 @@ def _format_ranking_block(
         ax.text(0.02, base_y - idx * step, line, fontsize=11, alpha=alpha)
 
 
+def _format_metrics_block(ax, title: str, lines: list[str]) -> None:
+    ax.axis("off")
+    ax.text(0.0, 1.0, title, fontsize=12, fontweight="bold", va="top")
+
+    base_y = 0.78
+    step = 0.22
+    for idx, line in enumerate(lines[:3]):
+        ax.text(0.02, base_y - idx * step, line, fontsize=11)
+
+
 def _draw_dashboard(
     chat_id: int,
     user_id: int,
@@ -277,24 +294,32 @@ def _draw_dashboard(
     react_taken, react_given = _get_reaction_totals(user_id, chat_id)
     coffee_rows, coffee_pos = _get_coffee_ranking(chat_id, user_id)
     message_rows, message_pos = _get_message_ranking(chat_id, user_id)
+    avg_len_rows, avg_len_pos = _get_avg_message_length_ranking(chat_id, user_id)
     dick_length = _get_dick_length(chat_id, user_id)
-    geyser_catches = _get_geyser_catch_count(chat_id, user_id)
     streak_days = _get_activity_streak(chat_id, user_id)
     reaction_conversion = _get_reaction_conversion(chat_id, user_id)
     peak_hours = _get_peak_hours(chat_id, user_id)
 
     fig = plt.figure(figsize=(12, 9.6), dpi=120)
     fig.patch.set_facecolor("#f7f5f2")
-    grid = fig.add_gridspec(4, 2, height_ratios=[1.2, 1, 1, 1.1], hspace=0.5, wspace=0.3)
+    grid = fig.add_gridspec(
+        5,
+        2,
+        height_ratios=[1.2, 1, 1, 0.85, 1.1],
+        hspace=0.6,
+        wspace=0.3,
+    )
 
     ax_flood = fig.add_subplot(grid[0, 0])
     ax_react = fig.add_subplot(grid[0, 1])
     ax_coffee = fig.add_subplot(grid[1, :])
     ax_messages = fig.add_subplot(grid[2, 0])
-    ax_extra = fig.add_subplot(grid[2, 1])
-    ax_peak = fig.add_subplot(grid[3, :])
+    ax_avg_len = fig.add_subplot(grid[2, 1])
+    ax_extra = fig.add_subplot(grid[3, :])
+    ax_peak = fig.add_subplot(grid[4, :])
 
-    fig.suptitle(f"Дашборд {user_name}", fontsize=16, fontweight="bold")
+    fig.suptitle(f"Дашборд {user_name}", fontsize=16, fontweight="bold", y=0.98)
+    fig.subplots_adjust(top=0.9)
 
     dates = [item["date"] for item in flood_stats]
     messages = [item["messages"] for item in flood_stats]
@@ -312,14 +337,22 @@ def _draw_dashboard(
         ax_react.text(0.5, 0.5, "Нет реакций", ha="center", va="center", fontsize=12)
         ax_react.axis("off")
     else:
-        ax_react.pie(
+        wedges, _, _ = ax_react.pie(
             [react_taken, react_given],
-            labels=["Получено", "Поставлено"],
+            labels=None,
             autopct="%1.0f%%",
             colors=["#ff8fab", "#ffd6a5"],
             textprops={"fontsize": 9},
         )
         ax_react.axis("equal")
+        ax_react.legend(
+            wedges,
+            ["Получено", "Поставлено"],
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            frameon=False,
+            fontsize=9,
+        )
 
     _format_ranking_block(
         ax_coffee,
@@ -333,15 +366,24 @@ def _draw_dashboard(
         f"Сообщения (место {message_pos})",
         message_rows,
         "сообщ.",
-        detail_label="ср. длина",
     )
 
-    ax_extra.axis("off")
-    ax_extra.text(0.0, 1.0, "Особые метрики", fontsize=12, fontweight="bold", va="top")
-    ax_extra.text(0.02, 0.76, f"Дней подряд: {streak_days}", fontsize=11)
-    ax_extra.text(0.02, 0.58, f"Реакций на сообщение: {reaction_conversion:.2f}", fontsize=11)
-    ax_extra.text(0.02, 0.4, f"Длина члена: {dick_length} см", fontsize=11)
-    ax_extra.text(0.02, 0.22, f"Пойманные гейзеры: {geyser_catches}", fontsize=11)
+    _format_ranking_block(
+        ax_avg_len,
+        f"Средняя длина сообщений (место {avg_len_pos})",
+        avg_len_rows,
+        "симв.",
+    )
+
+    _format_metrics_block(
+        ax_extra,
+        "Особые метрики",
+        [
+            f"Серия дней в чате: {streak_days}",
+            f"Полученных реакций на сообщение: {reaction_conversion:.2f}",
+            f"Длина члена: {dick_length} см",
+        ],
+    )
 
     ax_peak.set_title("Пиковые часы активности", fontsize=11)
     hours = list(range(24))
