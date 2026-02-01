@@ -301,7 +301,7 @@ def _format_ranking_block(
     ax.axis("off")
     ax.text(0.0, 1.0, title, fontsize=12, fontweight="bold", va="top")
 
-    base_y = 0.7
+    base_y = 0.62
     step = 0.2
     for idx, row in enumerate(rows):
         alpha = 1.0
@@ -328,26 +328,25 @@ def _draw_dashboard(
     dick_rows, dick_pos = _get_dick_length_ranking(chat_id, user_id)
     peak_hours = _get_peak_hours(chat_id, user_id)
 
-    fig = plt.figure(figsize=(12, 9.6), dpi=120)
+    fig = plt.figure(figsize=(12, 9.0), dpi=120)
     fig.patch.set_facecolor("#f7f5f2")
     grid = fig.add_gridspec(
-        6,
+        5,
         2,
-        height_ratios=[1.2, 1, 1, 0.9, 0.9, 1.1],
+        height_ratios=[1.2, 1, 1, 0.9, 1.1],
         hspace=0.6,
         wspace=0.3,
     )
 
     ax_flood = fig.add_subplot(grid[0, 0])
     ax_react = fig.add_subplot(grid[0, 1])
-    ax_coffee = fig.add_subplot(grid[1, :])
+    ax_coffee = fig.add_subplot(grid[1, 0])
+    ax_dick = fig.add_subplot(grid[1, 1])
     ax_messages = fig.add_subplot(grid[2, 0])
     ax_avg_len = fig.add_subplot(grid[2, 1])
     ax_streak = fig.add_subplot(grid[3, 0])
     ax_conversion = fig.add_subplot(grid[3, 1])
-    ax_dick = fig.add_subplot(grid[4, 0])
-    ax_dick_empty = fig.add_subplot(grid[4, 1])
-    ax_peak = fig.add_subplot(grid[5, :])
+    ax_peak = fig.add_subplot(grid[4, :])
 
     fig.suptitle(f"Дашборд {user_name}", fontsize=16, fontweight="bold", y=0.98)
     fig.subplots_adjust(top=0.9)
@@ -374,13 +373,14 @@ def _draw_dashboard(
             autopct="%1.0f%%",
             colors=["#ff8fab", "#ffd6a5"],
             textprops={"fontsize": 9},
+            center=(0.12, 0.0),
         )
         ax_react.axis("equal")
         ax_react.legend(
             wedges,
             ["Получено", "Поставлено"],
             loc="center right",
-            bbox_to_anchor=(0.95, 0.5),
+            bbox_to_anchor=(1.05, 0.5),
             frameon=False,
             fontsize=9,
         )
@@ -424,7 +424,6 @@ def _draw_dashboard(
         dick_rows,
         "см",
     )
-    ax_dick_empty.axis("off")
 
     ax_peak.set_title("Пиковые часы активности", fontsize=11)
     hours = list(range(24))
