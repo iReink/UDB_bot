@@ -21,7 +21,7 @@ from dick import ensure_dicks_table
 class RankingRow:
     position: int
     name: str
-    value: int
+    value: float
     detail: str | None = None
 
 
@@ -62,7 +62,7 @@ def _get_reaction_totals(user_id: int, chat_id: int) -> tuple[int, int]:
 
 
 def _get_ranking_rows(
-    rows: Iterable[tuple[int, str, int, int | None]],
+    rows: Iterable[tuple[int, str, float, int | None]],
     user_id: int,
     default_name: str,
 ) -> tuple[List[RankingRow], int]:
@@ -151,65 +151,102 @@ def _get_avg_message_length_ranking(
     return _get_ranking_rows(rows, user_id, default_name)
 
 
-def _get_dick_length(chat_id: int, user_id: int) -> int:
+def _get_dick_length_ranking(
+    chat_id: int, user_id: int
+) -> tuple[List[RankingRow], int]:
     ensure_dicks_table()
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT length
-            FROM dicks
-            WHERE user_id = ? AND chat_id = ?
+            SELECT u.user_id,
+                   u.name,
+                   COALESCE(d.length, 0) as length
+            FROM users u
+            LEFT JOIN dicks d ON d.user_id = u.user_id AND d.chat_id = u.chat_id
+            WHERE u.chat_id = ?
             """,
-            (user_id, chat_id),
+            (chat_id,),
         )
-        row = cur.fetchone()
-    if not row:
-        return 0
-    return int(row["length"] or 0)
+        rows = cur.fetchall()
+    default_name = get_user_display_name(user_id, chat_id)
+    computed_rows = [
+        (row["user_id"], row["name"], int(row["length"] or 0), None) for row in rows
+    ]
+    return _get_ranking_rows(computed_rows, user_id, default_name)
 
 
-def _get_activity_streak(chat_id: int, user_id: int) -> int:
+def _get_activity_streak_ranking(
+    chat_id: int, user_id: int
+) -> tuple[List[RankingRow], int]:
+    today = date.today()
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT date
-            FROM daily_stats
-            WHERE chat_id = ? AND user_id = ? AND messages > 0
-            ORDER BY date DESC
+            SELECT u.user_id, u.name
+            FROM users u
+            WHERE u.chat_id = ?
             """,
-            (chat_id, user_id),
+            (chat_id,),
+        )
+        users = cur.fetchall()
+        cur.execute(
+            """
+            SELECT user_id, date
+            FROM daily_stats
+            WHERE chat_id = ? AND messages > 0
+            """,
+            (chat_id,),
         )
         rows = cur.fetchall()
 
-    if not rows:
-        return 0
+    dates_by_user: dict[int, set[date]] = {}
+    for row in rows:
+        row_date = datetime.strptime(row["date"], "%Y-%m-%d").date()
+        dates_by_user.setdefault(int(row["user_id"]), set()).add(row_date)
 
-    streak = 0
-    expected = date.today()
-    row_dates = {datetime.strptime(row["date"], "%Y-%m-%d").date() for row in rows}
-    while expected in row_dates:
-        streak += 1
-        expected -= timedelta(days=1)
-    return streak
+    computed_rows = []
+    for user in users:
+        user_id_value = int(user["user_id"])
+        row_dates = dates_by_user.get(user_id_value, set())
+        streak = 0
+        expected = today
+        while expected in row_dates:
+            streak += 1
+            expected -= timedelta(days=1)
+        computed_rows.append((user_id_value, user["name"], streak, None))
+    default_name = get_user_display_name(user_id, chat_id)
+    return _get_ranking_rows(computed_rows, user_id, default_name)
 
 
-def _get_reaction_conversion(chat_id: int, user_id: int) -> float:
+def _get_reaction_conversion_ranking(
+    chat_id: int, user_id: int
+) -> tuple[List[RankingRow], int]:
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT react_taken, messages
-            FROM total_stats
-            WHERE chat_id = ? AND user_id = ?
+            SELECT u.user_id,
+                   u.name,
+                   COALESCE(t.react_taken, 0) as react_taken,
+                   COALESCE(t.messages, 0) as messages
+            FROM users u
+            LEFT JOIN total_stats t ON t.user_id = u.user_id AND t.chat_id = u.chat_id
+            WHERE u.chat_id = ?
             """,
-            (chat_id, user_id),
+            (chat_id,),
         )
-        row = cur.fetchone()
-    if not row or not row["messages"]:
-        return 0.0
-    return float(row["react_taken"] or 0) / float(row["messages"] or 1)
+        rows = cur.fetchall()
+
+    computed_rows = []
+    for row in rows:
+        messages = int(row["messages"] or 0)
+        react_taken = int(row["react_taken"] or 0)
+        value = float(react_taken) / float(messages or 1)
+        computed_rows.append((row["user_id"], row["name"], value, None))
+    default_name = get_user_display_name(user_id, chat_id)
+    return _get_ranking_rows(computed_rows, user_id, default_name)
 
 
 def _get_peak_hours(chat_id: int, user_id: int) -> list[int]:
@@ -264,25 +301,16 @@ def _format_ranking_block(
     ax.axis("off")
     ax.text(0.0, 1.0, title, fontsize=12, fontweight="bold", va="top")
 
-    base_y = 0.78
-    step = 0.22
+    base_y = 0.7
+    step = 0.2
     for idx, row in enumerate(rows):
         alpha = 1.0
         if idx in (0, 2) and len(rows) > 1:
             alpha = 0.45
         detail = f" ({detail_label}: {row.detail})" if detail_label and row.detail else ""
-        line = f"{row.position}. {row.name} — {row.value} {label_suffix}{detail}"
+        value_display = f"{row.value:.2f}" if isinstance(row.value, float) else str(row.value)
+        line = f"{row.position}. {row.name} — {value_display} {label_suffix}{detail}"
         ax.text(0.02, base_y - idx * step, line, fontsize=11, alpha=alpha)
-
-
-def _format_metrics_block(ax, title: str, lines: list[str]) -> None:
-    ax.axis("off")
-    ax.text(0.0, 1.0, title, fontsize=12, fontweight="bold", va="top")
-
-    base_y = 0.78
-    step = 0.22
-    for idx, line in enumerate(lines[:3]):
-        ax.text(0.02, base_y - idx * step, line, fontsize=11)
 
 
 def _draw_dashboard(
@@ -295,17 +323,17 @@ def _draw_dashboard(
     coffee_rows, coffee_pos = _get_coffee_ranking(chat_id, user_id)
     message_rows, message_pos = _get_message_ranking(chat_id, user_id)
     avg_len_rows, avg_len_pos = _get_avg_message_length_ranking(chat_id, user_id)
-    dick_length = _get_dick_length(chat_id, user_id)
-    streak_days = _get_activity_streak(chat_id, user_id)
-    reaction_conversion = _get_reaction_conversion(chat_id, user_id)
+    streak_rows, streak_pos = _get_activity_streak_ranking(chat_id, user_id)
+    conversion_rows, conversion_pos = _get_reaction_conversion_ranking(chat_id, user_id)
+    dick_rows, dick_pos = _get_dick_length_ranking(chat_id, user_id)
     peak_hours = _get_peak_hours(chat_id, user_id)
 
     fig = plt.figure(figsize=(12, 9.6), dpi=120)
     fig.patch.set_facecolor("#f7f5f2")
     grid = fig.add_gridspec(
-        5,
+        6,
         2,
-        height_ratios=[1.2, 1, 1, 0.85, 1.1],
+        height_ratios=[1.2, 1, 1, 0.9, 0.9, 1.1],
         hspace=0.6,
         wspace=0.3,
     )
@@ -315,8 +343,11 @@ def _draw_dashboard(
     ax_coffee = fig.add_subplot(grid[1, :])
     ax_messages = fig.add_subplot(grid[2, 0])
     ax_avg_len = fig.add_subplot(grid[2, 1])
-    ax_extra = fig.add_subplot(grid[3, :])
-    ax_peak = fig.add_subplot(grid[4, :])
+    ax_streak = fig.add_subplot(grid[3, 0])
+    ax_conversion = fig.add_subplot(grid[3, 1])
+    ax_dick = fig.add_subplot(grid[4, 0])
+    ax_dick_empty = fig.add_subplot(grid[4, 1])
+    ax_peak = fig.add_subplot(grid[5, :])
 
     fig.suptitle(f"Дашборд {user_name}", fontsize=16, fontweight="bold", y=0.98)
     fig.subplots_adjust(top=0.9)
@@ -348,8 +379,8 @@ def _draw_dashboard(
         ax_react.legend(
             wedges,
             ["Получено", "Поставлено"],
-            loc="center left",
-            bbox_to_anchor=(1.02, 0.5),
+            loc="center right",
+            bbox_to_anchor=(0.95, 0.5),
             frameon=False,
             fontsize=9,
         )
@@ -375,15 +406,25 @@ def _draw_dashboard(
         "симв.",
     )
 
-    _format_metrics_block(
-        ax_extra,
-        "Особые метрики",
-        [
-            f"Серия дней в чате: {streak_days}",
-            f"Полученных реакций на сообщение: {reaction_conversion:.2f}",
-            f"Длина члена: {dick_length} см",
-        ],
+    _format_ranking_block(
+        ax_streak,
+        f"Серия дней в чате (место {streak_pos})",
+        streak_rows,
+        "дн.",
     )
+    _format_ranking_block(
+        ax_conversion,
+        f"Реакций на сообщение (место {conversion_pos})",
+        conversion_rows,
+        "реакц./сообщ.",
+    )
+    _format_ranking_block(
+        ax_dick,
+        f"Длина члена (место {dick_pos})",
+        dick_rows,
+        "см",
+    )
+    ax_dick_empty.axis("off")
 
     ax_peak.set_title("Пиковые часы активности", fontsize=11)
     hours = list(range(24))
