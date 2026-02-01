@@ -26,9 +26,14 @@ def initialize_db():
                 scheduled_time TEXT NOT NULL, -- Время, когда гейзер должен появиться (ЧЧ:ММ)
                 status TEXT DEFAULT 'pending', -- pending, sent, caught, expired
                 message_id INTEGER, -- ID сообщения, которое отправит бот
+                caught_by INTEGER, -- user_id поймавшего гейзер
                 UNIQUE(chat_id, date, scheduled_time)
             )
         """)
+        cursor.execute("PRAGMA table_info(geyser_events)")
+        geyser_columns = {row["name"] for row in cursor.fetchall()}
+        if "caught_by" not in geyser_columns:
+            cursor.execute("ALTER TABLE geyser_events ADD COLUMN caught_by INTEGER")
         conn.commit()
 
 # -------------------------------
@@ -350,6 +355,12 @@ def update_geyser_event_message_id(event_id: int, message_id: int):
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("UPDATE geyser_events SET message_id=? WHERE id=?", (message_id, event_id))
+        conn.commit()
+
+def update_geyser_event_caught_by(event_id: int, user_id: int):
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE geyser_events SET caught_by=? WHERE id=?", (user_id, event_id))
         conn.commit()
 
 # Вызываем инициализацию при загрузке модуля

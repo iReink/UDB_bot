@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from contextlib import closing
 
-from db import get_connection, get_all_chats, add_or_update_user, add_geyser_event, get_pending_geyser_events, update_geyser_event_status, update_geyser_event_message_id, add_sits, get_user # Добавляем get_user
+from db import get_connection, get_all_chats, add_or_update_user, add_geyser_event, get_pending_geyser_events, update_geyser_event_status, update_geyser_event_message_id, update_geyser_event_caught_by, add_sits, get_user # Добавляем get_user
 from settings import get_setting # Для проверки включения гейзера
 
 # --- Константы ---
@@ -136,6 +136,7 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
     
     # Обновляем статус в БД на 'caught'
     update_geyser_event_status(event_id, 'caught')
+    update_geyser_event_caught_by(event_id, user_id)
 
     # Определяем окончание глагола в зависимости от пола пользователя
     user_data = get_user(user_id, chat_id)
