@@ -523,6 +523,8 @@ async def flood_stats(message: types.Message):
 
     # Баланс sits
     sits_balance = int(user.get("sits") or 0)
+    dick_stats = dick.get_dick(user_id, chat_id)
+    dick_length = int(dick_stats.get("length") or 0)
 
     text = (
         f"📈 Личная статистика для {name}:\n"
@@ -530,6 +532,7 @@ async def flood_stats(message: types.Message):
         f"Всего: {total_msgs} сообщений (место #{total_position})"
     )
     text += f"\n☕️ Всего кофе: {total_coffee}"
+    text += f"\n🍆 Длина члена: {dick_length} см"
     if sits_balance > 0:
         text += f"\n💦 Баланс сита: {sits_balance}"
 
