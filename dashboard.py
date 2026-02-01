@@ -7,6 +7,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
@@ -208,12 +209,12 @@ def _get_peak_hours(chat_id: int, user_id: int) -> list[int]:
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='messages_reactions'"
         )
         if not cur.fetchone():
             return [0] * 24
 
-        cur.execute("PRAGMA table_info(messages)")
+        cur.execute("PRAGMA table_info(messages_reactions)")
         columns = [row["name"] for row in cur.fetchall()]
         date_column = None
         for candidate in ("date", "created_at", "timestamp", "sent_at"):
@@ -227,7 +228,7 @@ def _get_peak_hours(chat_id: int, user_id: int) -> list[int]:
             cur.execute(
                 f"""
                 SELECT strftime('%H', {date_column}) as hour, COUNT(*) as total
-                FROM messages
+                FROM messages_reactions
                 WHERE chat_id = ? AND user_id = ?
                 GROUP BY hour
                 """,
@@ -297,13 +298,14 @@ def _draw_dashboard(
 
     dates = [item["date"] for item in flood_stats]
     messages = [item["messages"] for item in flood_stats]
-    labels = [d[5:] for d in dates]
-    ax_flood.plot(labels, messages, color="#9c6ade", linewidth=2)
-    ax_flood.fill_between(labels, messages, color="#d4b8ff", alpha=0.5)
+    date_values = [datetime.fromisoformat(d).date() for d in dates]
+    ax_flood.plot(date_values, messages, color="#9c6ade", linewidth=2)
+    ax_flood.fill_between(date_values, messages, color="#d4b8ff", alpha=0.5)
     ax_flood.set_title("Флуд за 2 недели (сообщения по дням)", fontsize=11)
     ax_flood.tick_params(axis="x", labelrotation=45, labelsize=8)
     ax_flood.tick_params(axis="y", labelsize=8)
     ax_flood.grid(alpha=0.2)
+    ax_flood.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
 
     ax_react.set_title("Реакции за всё время", fontsize=11)
     if react_taken + react_given == 0:
@@ -336,10 +338,10 @@ def _draw_dashboard(
 
     ax_extra.axis("off")
     ax_extra.text(0.0, 1.0, "Особые метрики", fontsize=12, fontweight="bold", va="top")
-    ax_extra.text(0.02, 0.76, f"🔥 Дней подряд: {streak_days}", fontsize=11)
-    ax_extra.text(0.02, 0.58, f"💞 Реакций на сообщение: {reaction_conversion:.2f}", fontsize=11)
-    ax_extra.text(0.02, 0.4, f"🍆 Длина члена: {dick_length} см", fontsize=11)
-    ax_extra.text(0.02, 0.22, f"⛲ Пойманные гейзеры: {geyser_catches}", fontsize=11)
+    ax_extra.text(0.02, 0.76, f"Дней подряд: {streak_days}", fontsize=11)
+    ax_extra.text(0.02, 0.58, f"Реакций на сообщение: {reaction_conversion:.2f}", fontsize=11)
+    ax_extra.text(0.02, 0.4, f"Длина члена: {dick_length} см", fontsize=11)
+    ax_extra.text(0.02, 0.22, f"Пойманные гейзеры: {geyser_catches}", fontsize=11)
 
     ax_peak.set_title("Пиковые часы активности", fontsize=11)
     hours = list(range(24))
