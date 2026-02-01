@@ -310,14 +310,13 @@ def _format_ranking_block(
         detail = f" ({detail_label}: {row.detail})" if detail_label and row.detail else ""
         value_display = f"{row.value:.2f}" if isinstance(row.value, float) else str(row.value)
         line = f"{row.position}. {row.name} — {value_display} {label_suffix}{detail}"
-        color = "white" if alpha < 1.0 else "black"
         ax.text(
             0.02,
             base_y - idx * step,
             line,
             fontsize=11,
             alpha=alpha,
-            color=color,
+            color="black",
         )
 
 
@@ -381,14 +380,14 @@ def _draw_dashboard(
             autopct="%1.0f%%",
             colors=["#ff8fab", "#ffd6a5"],
             textprops={"fontsize": 9},
-            center=(0.0, 0.0),
+            center=(-0.25, 0.0),
         )
         ax_react.axis("equal")
         ax_react.legend(
             wedges,
             ["Получено", "Поставлено"],
             loc="center left",
-            bbox_to_anchor=(0.55, 0.5),
+            bbox_to_anchor=(0.65, 0.5),
             frameon=False,
             fontsize=9,
         )
@@ -442,6 +441,10 @@ def _draw_dashboard(
     ax_peak.set_xlabel("Час", fontsize=9)
     ax_peak.set_ylabel("Сообщений", fontsize=9)
     ax_peak.grid(axis="y", alpha=0.2)
+
+    chart_face_color = "#F673E2"
+    for axis in (ax_flood, ax_react, ax_peak):
+        axis.set_facecolor(chart_face_color)
 
     buffer = io.BytesIO()
     fig.savefig(buffer, format="png", bbox_inches="tight")
