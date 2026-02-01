@@ -89,6 +89,9 @@ geyser.register_geyser_handlers(dp) # Регистрируем хэндлеры 
 import dick
 dick.register_dick_handlers(dp)
 
+import dashboard
+dashboard.register_dashboard_handlers(dp)
+
 
 from dotenv import load_dotenv
 load_dotenv()
