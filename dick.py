@@ -595,8 +595,9 @@ def register_dick_handlers(dp):
         winner_pronoun = get_gendered_word(winner_sex, "Его", "Её")
         loser_word = get_gendered_word(loser_sex, "проигравшего", "проигравшей")
 
+        winner_title = " писькохваталка" if winner_id == 532676465 else ""
         result_text = (
-            f"🏁 В битве {verb_win} {winner_name}! "
+            f"🏁 В битве {verb_win} {winner_name}{winner_title}! "
             f"{winner_pronoun} длина теперь {winner_length} см, а место в рейтинге — {winner_place}\n\n"
             f"У {loser_word} {loser_name} теперь {loser_length} см и {loser_place} место"
         )
