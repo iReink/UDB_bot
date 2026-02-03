@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import logging
 
-from db import get_connection, get_user_sex
+from db import get_connection, get_user_sex, add_sits
 from dick import try_bite_dick
 
 # ==========================
@@ -436,22 +436,6 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
     if row and row[0]:
         return row[0]
     return str(user_id)  # fallback
-
-
-# ==========================
-# СИТЫ
-# ==========================
-
-def add_sits(chat_id: int, user_id: int, amount: int):
-    """Добавляет или вычитает сит для пользователя."""
-    from db import get_user, add_or_update_user
-
-    user = get_user(user_id, chat_id)
-    if user is None:
-        add_or_update_user(user_id, chat_id, name="", sits=amount)
-    else:
-        new_sits = (user["sits"] or 0) + amount
-        add_or_update_user(user_id, chat_id, name=user["name"], sits=new_sits)
 
 
 def get_sits(chat_id: int, user_id: int) -> int:

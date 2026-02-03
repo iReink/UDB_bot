@@ -9,8 +9,7 @@ from aiogram import types, Bot
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from db import get_connection, get_user_display_name
-from sosalsa import add_sits
+from db import get_connection, get_user_display_name, add_sits
 
 # Кэш доступных квестов на текущий день: {(user_id, chat_id): (date, [quests])}
 quest_daily_cache = {}

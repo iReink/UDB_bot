@@ -8,8 +8,8 @@ from aiogram import types, Bot
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from sosalsa import add_sits, get_sits
-from db import get_connection, get_user_sex
+from sosalsa import get_sits
+from db import add_sits, get_connection, get_user_sex
 from dick import update_dick_length
 
 from quest import update_quest_progress
