@@ -2,7 +2,7 @@ import logging
 import sqlite3
 from contextlib import closing
 from typing import List, Dict, Optional
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -34,6 +34,17 @@ def initialize_db():
         geyser_columns = {row["name"] for row in cursor.fetchall()}
         if "caught_by" not in geyser_columns:
             cursor.execute("ALTER TABLE geyser_events ADD COLUMN caught_by INTEGER")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sit_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                time TEXT NOT NULL,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                amount INTEGER NOT NULL
+            )
+        """)
         conn.commit()
 
 # -------------------------------
@@ -328,6 +339,16 @@ def add_sits(chat_id: int, user_id: int, amount: int):
         # Если пользователь есть, обновляем его количество сит
         new_sits = (user["sits"] or 0) + amount
         add_or_update_user(user_id, chat_id, name=user["name"], sits=new_sits)
+    if amount > 0:
+        now = datetime.now()
+        name = get_user_display_name(user_id, chat_id)
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (now.date().isoformat(), now.strftime("%H:%M:%S"), chat_id, user_id, name, amount))
+            conn.commit()
 
 # --- Функции для работы с гейзером ---
 def add_geyser_event(chat_id: int, date_str: str, scheduled_time: str, status: str = 'pending'):

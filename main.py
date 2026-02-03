@@ -34,7 +34,8 @@ from db import (
     get_all_chats,
     get_user_sex,
     increment_sticker_stats,
-    get_user_display_name
+    get_user_display_name,
+    add_sits
 )
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
@@ -993,7 +994,7 @@ async def handle_give(message: types.Message):
         await message.answer("🤔 Самому себе переводить смысла нет.")
         return
 
-    from sosalsa import get_sits, add_sits
+    from sosalsa import get_sits
     balance = get_sits(chat_id, sender_id)
     if balance < amount:
         await message.answer(f"❌ Недостаточно сит. Нужно: {amount}, у тебя: {balance}")
@@ -1264,19 +1265,6 @@ def sit_word(n: int) -> str:
     if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
         return "сита"
     return "сит"
-
-
-def add_sits(chat_id: int, user_id: int, amount: int):
-    """Добавляет или вычитает сит для пользователя."""
-    from db import get_user, add_or_update_user
-
-    user = get_user(user_id, chat_id)
-    if user is None:
-        # создаём пользователя, если нет
-        add_or_update_user(user_id, chat_id, name="", sits=amount)
-    else:
-        new_sits = (user["sits"] or 0) + amount
-        add_or_update_user(user_id, chat_id, name=user["name"], sits=new_sits)
 
 
 #получение баланса сита
