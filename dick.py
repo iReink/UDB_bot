@@ -299,13 +299,11 @@ def calculate_win_chance(longer: int, shorter: int) -> float:
 
 def try_bite_dick(chat_id: int, victim_id: int, biter_id: int) -> Optional[str]:
     dick = get_dick(victim_id, chat_id)
-    length = dick["length"] or 0
-    if length <= 0:
+    if not dick.get("grow_date"):
         return None
-    if random.random() >= 0.1:
+    if random.random() >= 0.15:
         return None
     bite_size = random.randint(1, 3)
-    bite_size = min(bite_size, length)
     update_dick_length(victim_id, chat_id, -bite_size)
     update_dick_length(biter_id, chat_id, bite_size)
     victim_sex = get_user_sex(victim_id, chat_id)
