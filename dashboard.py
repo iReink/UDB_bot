@@ -14,7 +14,7 @@ from aiogram.types import BufferedInputFile, Message
 from aiogram import Dispatcher
 
 from db import get_connection, get_user_display_name
-from dick import ensure_dicks_table
+from dick import ensure_dicks_table, get_dick, get_dick_rankings
 
 
 @dataclass
@@ -155,25 +155,31 @@ def _get_dick_length_ranking(
     chat_id: int, user_id: int
 ) -> tuple[List[RankingRow], int]:
     ensure_dicks_table()
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT u.user_id,
-                   u.name,
-                   COALESCE(d.length, 0) as length
-            FROM users u
-            LEFT JOIN dicks d ON d.user_id = u.user_id AND d.chat_id = u.chat_id
-            WHERE u.chat_id = ?
-            """,
-            (chat_id,),
-        )
-        rows = cur.fetchall()
-    default_name = get_user_display_name(user_id, chat_id)
-    computed_rows = [
-        (row["user_id"], row["name"], int(row["length"] or 0), None) for row in rows
+    rankings = get_dick_rankings(chat_id, only_grown=True)
+    ordered = [
+        (row["user_id"], get_user_display_name(row["user_id"], chat_id), int(row["length"] or 0), None)
+        for row in rankings
     ]
-    return _get_ranking_rows(computed_rows, user_id, default_name)
+
+    for idx, (row_user_id, _, _, _) in enumerate(ordered, start=1):
+        if row_user_id == user_id:
+            ranking_rows: list[RankingRow] = []
+            for row_index in [idx - 2, idx - 1, idx]:
+                if 0 <= row_index < len(ordered):
+                    _, name, value, extra = ordered[row_index]
+                    detail = f"{extra}" if extra is not None else None
+                    ranking_rows.append(RankingRow(row_index + 1, name, value, detail))
+            return ranking_rows, idx
+
+    user_name = get_user_display_name(user_id, chat_id)
+    user_length = int(get_dick(user_id, chat_id)["length"] or 0)
+    user_position = len(ordered) + 1
+    ranking_rows = []
+    if ordered:
+        _, name, value, _ = ordered[-1]
+        ranking_rows.append(RankingRow(len(ordered), name, value, None))
+    ranking_rows.append(RankingRow(user_position, user_name, user_length, None))
+    return ranking_rows, user_position
 
 
 def _get_activity_streak_ranking(
