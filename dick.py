@@ -158,8 +158,8 @@ def get_dick_rankings(chat_id: int, only_grown: bool = False) -> List[dict]:
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_user_place(chat_id: int, user_id: int) -> int:
-    rankings = get_dick_rankings(chat_id)
+def get_user_place(chat_id: int, user_id: int, only_grown: bool = False) -> int:
+    rankings = get_dick_rankings(chat_id, only_grown=only_grown)
     for idx, row in enumerate(rankings, start=1):
         if row["user_id"] == user_id:
             return idx
@@ -180,7 +180,7 @@ def format_menu_text(
 ) -> str:
     dick = get_dick(user_id, chat_id)
     length = dick["length"] or 0
-    place = get_user_place(chat_id, user_id)
+    place = get_user_place(chat_id, user_id, only_grown=True)
     lines = [f"🍆 Твой член — {length} см, а твоё место в рейтинге — {place}"]
 
     today = date.today().isoformat()
