@@ -443,13 +443,23 @@ def _draw_dashboard(
         conversion_rows,
         "реакц./сообщ.",
     )
-    dick_title = "Длина члена (Не участвует в большой гонке)" if dick_pos is None else f"Длина члена (место {dick_pos})"
-    _format_ranking_block(
-        ax_dick,
-        dick_title,
-        dick_rows,
-        "см",
-    )
+    if dick_pos is None:
+        ax_dick.axis("off")
+        ax_dick.text(0.0, 1.0, "Длина члена", fontsize=12, fontweight="bold", va="top")
+        ax_dick.text(
+            0.02,
+            0.62,
+            "Не участвует в большой гонке",
+            fontsize=11,
+            color="black",
+        )
+    else:
+        _format_ranking_block(
+            ax_dick,
+            "Длина члена",
+            dick_rows,
+            "см",
+        )
 
     ax_peak.set_title("Пиковые часы активности", fontsize=11)
     hours = list(range(24))
