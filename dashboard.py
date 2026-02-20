@@ -153,7 +153,7 @@ def _get_avg_message_length_ranking(
 
 def _get_dick_length_ranking(
     chat_id: int, user_id: int
-) -> tuple[List[RankingRow], int]:
+) -> tuple[List[RankingRow], int | None]:
     ensure_dicks_table()
     rankings = get_dick_rankings(chat_id, only_grown=True)
     ordered = [
@@ -172,7 +172,18 @@ def _get_dick_length_ranking(
             return ranking_rows, idx
 
     user_name = get_user_display_name(user_id, chat_id)
-    user_length = int(get_dick(user_id, chat_id)["length"] or 0)
+    user_dick = get_dick(user_id, chat_id)
+    user_length = int(user_dick["length"] or 0)
+    user_grow_date = user_dick.get("grow_date")
+
+    if not user_grow_date:
+        ranking_rows = []
+        if ordered:
+            _, name, value, _ = ordered[-1]
+            ranking_rows.append(RankingRow(len(ordered), name, value, None))
+        ranking_rows.append(RankingRow(0, user_name, user_length, "Не участвует в большой гонке"))
+        return ranking_rows, None
+
     user_position = len(ordered) + 1
     ranking_rows = []
     if ordered:
@@ -315,7 +326,8 @@ def _format_ranking_block(
             alpha = 0.45
         detail = f" ({detail_label}: {row.detail})" if detail_label and row.detail else ""
         value_display = f"{row.value:.2f}" if isinstance(row.value, float) else str(row.value)
-        line = f"{row.position}. {row.name} — {value_display} {label_suffix}{detail}"
+        prefix = f"{row.position}. " if row.position > 0 else ""
+        line = f"{prefix}{row.name} — {value_display} {label_suffix}{detail}"
         ax.text(
             0.02,
             base_y - idx * step,
@@ -431,9 +443,10 @@ def _draw_dashboard(
         conversion_rows,
         "реакц./сообщ.",
     )
+    dick_title = "Длина члена (Не участвует в большой гонке)" if dick_pos is None else f"Длина члена (место {dick_pos})"
     _format_ranking_block(
         ax_dick,
-        f"Длина члена (место {dick_pos})",
+        dick_title,
         dick_rows,
         "см",
     )
