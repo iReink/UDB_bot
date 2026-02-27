@@ -704,12 +704,34 @@ def register_daily_handlers(dp: Dispatcher):
             daily = dailies[0]
 
         dt_obj = datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")
-        date_str = dt_obj.strftime("%d.%m.%Y")
+        date_str = dt_obj.strftime("%d.%m")
         time_str = dt_obj.strftime("%H:%M")
+        weekdays = {
+            0: "ПН",
+            1: "ВТ",
+            2: "СР",
+            3: "ЧТ",
+            4: "ПТ",
+            5: "СБ",
+            6: "ВС",
+        }
+        weekday_str = weekdays[dt_obj.weekday()]
+
+        total_seconds = max(0, int((dt_obj - now_dt).total_seconds()))
+        days, remainder = divmod(total_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes = remainder // 60
+        if days > 0:
+            remaining = f"{days}д {hours}ч"
+        elif hours > 0:
+            remaining = f"{hours}ч {minutes}м"
+        else:
+            remaining = f"{minutes}м"
         turbo_join = f"/daily_{daily['id']}"
 
         text = (
-            f"Ближайший дейли — <b>{daily['name']}</b> {date_str} {time_str}\n"
+            f"Ближайший дейли — <b>{daily['name']}</b>\n"
+            f"📆 {date_str} ({weekday_str}) {time_str}. Осталось: {remaining}\n"
             f"Для присоединения нажми на {turbo_join}\n\n"
             "Для полной информации открой список по кнопкам ниже."
         )
