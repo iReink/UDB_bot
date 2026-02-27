@@ -520,6 +520,11 @@ def register_daily_handlers(dp: Dispatcher):
     async def start_daily_creation(query: types.CallbackQuery, state: FSMContext):
         user_id = query.from_user.id
         chat_id = query.message.chat.id
+        current_creator = active_creators.get(chat_id)
+        if current_creator is not None and current_creator != user_id:
+            await query.answer("Another user is creating a daily right now.", show_alert=True)
+            return
+        active_creators[chat_id] = user_id
 
         # Блокируем кнопку для пользователя
         await query.answer("Начинаем создание дейлика! Следуйте инструкциям. ❗️", show_alert=True)
@@ -652,17 +657,29 @@ def register_daily_handlers(dp: Dispatcher):
         await query.message.answer(text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
 
         await state.clear()
+        active_creators.pop(chat_id, None)
         await query.answer("Дейлик успешно создан ✅")
 
     # Обработка отмены FSM
     @dp.callback_query(lambda c: c.data == "daily_cancel", StateFilter("*"))
     async def cancel_daily_creation(query: types.CallbackQuery, state: FSMContext):
+        chat_id = query.message.chat.id
+        owner_id = active_creators.get(chat_id)
+        if owner_id is None:
+            await query.answer("No active daily creation.", show_alert=True)
+            return
+        if query.from_user.id != owner_id:
+            await query.answer("Only the creator can cancel this flow.", show_alert=True)
+            return
+
         await state.clear()
+        active_creators.pop(chat_id, None)
         await query.message.edit_text(
-            "Создание дейлика отменено ❌",
+            "Daily creation canceled.",
             reply_markup=None
         )
         await query.answer()
+
 
     @dp.message(Command("daily"))
     async def daily_menu(message: types.Message):
