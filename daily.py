@@ -662,7 +662,6 @@ def register_daily_handlers(dp: Dispatcher):
     @dp.message(Command("daily"))
     async def daily_menu(message: types.Message):
         chat_id = message.chat.id
-        user_id = message.from_user.id
 
         with closing(sqlite3.connect(DB_PATH)) as conn:
             cur = conn.cursor()
@@ -682,8 +681,16 @@ def register_daily_handlers(dp: Dispatcher):
                 return
             daily = dict(zip([column[0] for column in cur.description], row))
 
-        participants = get_daily_participants(daily['id'], chat_id)
-        text = format_daily_text(daily, participants, with_turbo_link=True)
+        dt_obj = datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")
+        date_str = dt_obj.strftime("%d.%m.%Y")
+        time_str = dt_obj.strftime("%H:%M")
+        turbo_join = f"/daily_{daily['id']}"
+
+        text = (
+            f"Ближайший дейли — <b>{daily['name']}</b> {date_str} {time_str}\n"
+            f"Для присоединения нажми на {turbo_join}\n\n"
+            "Для полной информации открой список по кнопкам ниже."
+        )
 
         kb = InlineKeyboardBuilder()
         kb.row(
