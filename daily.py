@@ -88,18 +88,7 @@ def format_daily_text(daily: dict, participants: List[dict], with_turbo_link: bo
     }
     weekday_str = WEEKDAYS[dt_obj.weekday()]  # 0 = ПН ... 6 = ВС
 
-    delta = dt_obj - datetime.now()
-    total_seconds = int(delta.total_seconds())
-    days, remainder = divmod(total_seconds, 86400)
-    hours, remainder = divmod(remainder, 3600)
-    minutes = remainder // 60
-
-    if days > 0:
-        remaining = f"{days}д {hours}ч"
-    elif hours > 0:
-        remaining = f"{hours}ч {minutes}м"
-    else:
-        remaining = f"{minutes}м"
+    remaining = format_remaining_text(dt_obj, datetime.now())
 
     lines = [
         f"📆 {date_str} ({weekday_str}) {daily['time']}. Осталось: {remaining}",
@@ -135,6 +124,22 @@ def format_daily_text(daily: dict, participants: List[dict], with_turbo_link: bo
             lines.append(f"\n⛔️ Не хватает машин! Участников {num_participants}, а мест только для {capacity}")
 
     return "\n".join(lines)
+
+
+def format_remaining_text(target_dt: datetime, now_dt: datetime) -> str:
+    total_seconds = int((target_dt - now_dt).total_seconds())
+    if total_seconds <= 0:
+        return "Уже идёт!"
+
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes = remainder // 60
+
+    if days > 0:
+        return f"{days}д {hours}ч"
+    if hours > 0:
+        return f"{hours}ч {minutes}м"
+    return f"{minutes}м"
 
 
 def get_daily_participants(daily_id: int, chat_id: int) -> List[dict]:
@@ -717,16 +722,7 @@ def register_daily_handlers(dp: Dispatcher):
         }
         weekday_str = weekdays[dt_obj.weekday()]
 
-        total_seconds = max(0, int((dt_obj - now_dt).total_seconds()))
-        days, remainder = divmod(total_seconds, 86400)
-        hours, remainder = divmod(remainder, 3600)
-        minutes = remainder // 60
-        if days > 0:
-            remaining = f"{days}д {hours}ч"
-        elif hours > 0:
-            remaining = f"{hours}ч {minutes}м"
-        else:
-            remaining = f"{minutes}м"
+        remaining = format_remaining_text(dt_obj, now_dt)
         turbo_join = f"/daily_{daily['id']}"
 
         text = (
