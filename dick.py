@@ -1,5 +1,7 @@
 import random
-from datetime import date
+import asyncio
+import math
+from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Tuple, List
 
 from aiogram import types, F
@@ -8,7 +10,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from db import get_connection, get_user, add_or_update_user, get_user_display_name, get_user_sex, add_sits
+from db import (
+    get_connection,
+    get_user,
+    add_or_update_user,
+    get_user_display_name,
+    get_user_sex,
+    add_sits,
+    get_all_chats,
+)
 
 
 class DickStates(StatesGroup):
@@ -16,6 +26,96 @@ class DickStates(StatesGroup):
 
 
 CHALLENGES: Dict[Tuple[int, int], Dict[str, int]] = {}
+
+
+def _days_on_throne(top1_entrance_date: str, today: date) -> int:
+    try:
+        start = date.fromisoformat(top1_entrance_date)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, (today - start).days + 1)
+
+
+def _throne_penalty(days_on_throne: int) -> int:
+    return int((days_on_throne ** 1.01) // 3)
+
+
+def _throne_reward(days_on_throne: int) -> int:
+    return int((days_on_throne ** 1.1) // 3)
+
+
+def process_top1_throne_for_chat(chat_id: int) -> str | None:
+    ensure_dicks_table()
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT user_id, length, top1_entrance_date
+            FROM dicks
+            WHERE chat_id = ?
+            ORDER BY length DESC, user_id ASC
+            LIMIT 1
+            """,
+            (chat_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        top_user_id = int(row["user_id"])
+        top_length = int(row["length"] or 0)
+        top1_entrance_date = (row["top1_entrance_date"] or "").strip()
+        today = date.today()
+        if not top1_entrance_date:
+            top1_entrance_date = today.isoformat()
+            cur.execute(
+                "UPDATE dicks SET top1_entrance_date = ? WHERE user_id = ? AND chat_id = ?",
+                (top1_entrance_date, top_user_id, chat_id),
+            )
+            conn.commit()
+
+    days = _days_on_throne(top1_entrance_date, date.today())
+    penalty = _throne_penalty(days)
+    reward = _throne_reward(days)
+
+    if reward > 0:
+        add_sits(chat_id, top_user_id, reward)
+
+    if penalty > 0:
+        top_length = update_dick_length(top_user_id, chat_id, -penalty)
+
+    top_name = get_user_display_name(top_user_id, chat_id)
+    if penalty == 0 and reward == 0:
+        return (
+            f"👑 Сегодня на троне {top_name} — уже {days} дн.\n"
+            "✨ Трон пока только разогревается: скоро начнутся и щедрые ситы, и суровый налог в сантиметрах!"
+        )
+
+    parts = [
+        f"👑 Сегодня на троне {top_name} — уже {days} дн.",
+        f"📉 Налог трона: -{penalty} см.",
+        f"💰 Награда за корону: +{reward} сит.",
+        f"🍆 Текущая длина: {top_length} см.",
+    ]
+    return "\n".join(parts)
+
+
+async def daily_top1_throne_task(bot) -> None:
+    while True:
+        now = datetime.now()
+        run_time = now.replace(hour=23, minute=45, second=0, microsecond=0)
+        if now >= run_time:
+            run_time += timedelta(days=1)
+        await asyncio.sleep((run_time - now).total_seconds())
+
+        for chat_id in get_all_chats():
+            try:
+                message = process_top1_throne_for_chat(chat_id)
+                if message:
+                    await bot.send_message(chat_id, message)
+            except Exception:
+                # Task must continue for other chats even if one chat fails
+                continue
 
 
 def ensure_dicks_table() -> None:

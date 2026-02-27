@@ -1583,6 +1583,7 @@ async def main():
     sosalsa.bot = bot
     # Запускаем фоновую задачу
     asyncio.create_task(daily_regeneration_task())
+    asyncio.create_task(dick.daily_top1_throne_task(bot))
     # Задачи для гейзера
     asyncio.create_task(geyser.schedule_daily_geysers(bot)) # Ежедневное планирование гейзеров (долгоживущая корутина)
     asyncio.create_task(geyser.geyser_loop_task(bot)) # Непрерывный цикл для запуска гейзеров
