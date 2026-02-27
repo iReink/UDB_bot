@@ -662,24 +662,46 @@ def register_daily_handlers(dp: Dispatcher):
     @dp.message(Command("daily"))
     async def daily_menu(message: types.Message):
         chat_id = message.chat.id
+        now_dt = datetime.now()
+        today_str = now_dt.strftime("%Y-%m-%d")
 
         with closing(sqlite3.connect(DB_PATH)) as conn:
             cur = conn.cursor()
             cur.execute("""
                 SELECT * FROM daily_events
-                WHERE chat_id = ? AND date || ' ' || time >= ?
+                WHERE chat_id = ? AND date >= ?
                 ORDER BY date || ' ' || time ASC
-                LIMIT 1
-            """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
-            row = cur.fetchone()
-            if not row:
+            """, (chat_id, today_str))
+            rows = cur.fetchall()
+            if not rows:
                 keyboard = InlineKeyboardBuilder()
                 keyboard.add(
                     InlineKeyboardButton(text="👾 Создать новый дейлик", callback_data="daily_new_daily")
                 )
                 await message.answer("Запланированных дейли нет.", reply_markup=keyboard.as_markup())
                 return
-            daily = dict(zip([column[0] for column in cur.description], row))
+
+            columns = [column[0] for column in cur.description]
+            dailies = [dict(zip(columns, row)) for row in rows]
+
+        today_dailies = [d for d in dailies if d["date"] == today_str]
+        if today_dailies:
+            upcoming_today = []
+            for d in today_dailies:
+                d_dt = datetime.strptime(f"{d['date']} {d['time']}", "%Y-%m-%d %H:%M")
+                if d_dt >= now_dt:
+                    upcoming_today.append((d_dt, d))
+            if upcoming_today:
+                daily = min(upcoming_today, key=lambda item: item[0])[1]
+            else:
+                daily = max(
+                    today_dailies,
+                    key=lambda item: datetime.strptime(
+                        f"{item['date']} {item['time']}", "%Y-%m-%d %H:%M"
+                    ),
+                )
+        else:
+            daily = dailies[0]
 
         dt_obj = datetime.strptime(f"{daily['date']} {daily['time']}", "%Y-%m-%d %H:%M")
         date_str = dt_obj.strftime("%d.%m.%Y")
@@ -785,9 +807,9 @@ def register_daily_handlers(dp: Dispatcher):
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
                 cur.execute("""
-                    SELECT * FROM daily_events WHERE chat_id=? AND date || ' ' || time >= ?
+                    SELECT * FROM daily_events WHERE chat_id=? AND date >= ?
                     ORDER BY date || ' ' || time ASC
-                """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
+                """, (chat_id, datetime.now().strftime("%Y-%m-%d")))
                 all_rows = cur.fetchall()
 
             await query.message.answer("<b>Список дейликов, в которых ты принимаешь участие</b>", parse_mode="HTML")
@@ -803,9 +825,9 @@ def register_daily_handlers(dp: Dispatcher):
             with closing(sqlite3.connect(DB_PATH)) as conn:
                 cur = conn.cursor()
                 cur.execute("""
-                    SELECT * FROM daily_events WHERE chat_id=? AND date || ' ' || time >= ?
+                    SELECT * FROM daily_events WHERE chat_id=? AND date >= ?
                     ORDER BY date || ' ' || time ASC
-                """, (chat_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
+                """, (chat_id, datetime.now().strftime("%Y-%m-%d")))
                 all_rows = cur.fetchall()
 
             await query.message.answer("<b>Список всех запланированных дейликов</b>", parse_mode="HTML")

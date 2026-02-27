@@ -23,6 +23,17 @@ class RankingRow:
     name: str
     value: float
     detail: str | None = None
+    is_current_user: bool = False
+
+
+def _pick_neighbor_indexes(current_index: int, total: int) -> list[int]:
+    if total <= 3:
+        return list(range(total))
+    if current_index <= 0:
+        return [0, 1, 2]
+    if current_index >= total - 1:
+        return [total - 3, total - 2, total - 1]
+    return [current_index - 1, current_index, current_index + 1]
 
 
 def _get_last_days_messages(user_id: int, chat_id: int, days: int = 14) -> list[dict]:
@@ -78,15 +89,15 @@ def _get_ranking_rows(
             user_position = idx
             break
 
-    above_index = user_position - 2
     current_index = user_position - 1
-    below_index = user_position
 
-    for idx in [above_index, current_index, below_index]:
+    for idx in _pick_neighbor_indexes(current_index, len(ordered)):
         if 0 <= idx < len(ordered):
             row_user_id, name, value, extra = ordered[idx]
             detail = f"{extra}" if extra is not None else None
-            ranking_rows.append(RankingRow(idx + 1, name, value, detail))
+            ranking_rows.append(
+                RankingRow(idx + 1, name, value, detail, is_current_user=(row_user_id == user_id))
+            )
     return ranking_rows, user_position
 
 
@@ -164,11 +175,19 @@ def _get_dick_length_ranking(
     for idx, (row_user_id, _, _, _) in enumerate(ordered, start=1):
         if row_user_id == user_id:
             ranking_rows: list[RankingRow] = []
-            for row_index in [idx - 2, idx - 1, idx]:
+            for row_index in _pick_neighbor_indexes(idx - 1, len(ordered)):
                 if 0 <= row_index < len(ordered):
-                    _, name, value, extra = ordered[row_index]
+                    ordered_user_id, name, value, extra = ordered[row_index]
                     detail = f"{extra}" if extra is not None else None
-                    ranking_rows.append(RankingRow(row_index + 1, name, value, detail))
+                    ranking_rows.append(
+                        RankingRow(
+                            row_index + 1,
+                            name,
+                            value,
+                            detail,
+                            is_current_user=(ordered_user_id == user_id),
+                        )
+                    )
             return ranking_rows, idx
 
     user_name = get_user_display_name(user_id, chat_id)
@@ -180,16 +199,16 @@ def _get_dick_length_ranking(
         ranking_rows = []
         if ordered:
             _, name, value, _ = ordered[-1]
-            ranking_rows.append(RankingRow(len(ordered), name, value, None))
-        ranking_rows.append(RankingRow(0, user_name, user_length, "Не участвует в большой гонке"))
+            ranking_rows.append(RankingRow(len(ordered), name, value, None, is_current_user=False))
+        ranking_rows.append(RankingRow(0, user_name, user_length, "Не участвует в большой гонке", is_current_user=True))
         return ranking_rows, None
 
     user_position = len(ordered) + 1
     ranking_rows = []
     if ordered:
         _, name, value, _ = ordered[-1]
-        ranking_rows.append(RankingRow(len(ordered), name, value, None))
-    ranking_rows.append(RankingRow(user_position, user_name, user_length, None))
+        ranking_rows.append(RankingRow(len(ordered), name, value, None, is_current_user=False))
+    ranking_rows.append(RankingRow(user_position, user_name, user_length, None, is_current_user=True))
     return ranking_rows, user_position
 
 
@@ -321,13 +340,11 @@ def _format_ranking_block(
     base_y = 0.62
     step = 0.2
     for idx, row in enumerate(rows):
-        alpha = 1.0
-        if idx in (0, 2) and len(rows) > 1:
-            alpha = 0.45
+        alpha = 1.0 if row.is_current_user else 0.45
         detail = f" ({detail_label}: {row.detail})" if detail_label and row.detail else ""
         value_display = f"{row.value:.2f}" if isinstance(row.value, float) else str(row.value)
         prefix = f"{row.position}. " if row.position > 0 else ""
-        line = f"{prefix}{row.name} — {value_display} {label_suffix}{detail}"
+        line = f"{prefix}{row.name} вЂ” {value_display} {label_suffix}{detail}"
         ax.text(
             0.02,
             base_y - idx * step,
@@ -373,7 +390,7 @@ def _draw_dashboard(
     ax_conversion = fig.add_subplot(grid[3, 1])
     ax_peak = fig.add_subplot(grid[4, :])
 
-    fig.suptitle(f"Дашборд {user_name}", fontsize=16, fontweight="bold", y=0.98)
+    fig.suptitle(f"Р”Р°С€Р±РѕСЂРґ {user_name}", fontsize=16, fontweight="bold", y=0.98)
     fig.subplots_adjust(top=0.9)
 
     dates = [item["date"] for item in flood_stats]
@@ -381,15 +398,15 @@ def _draw_dashboard(
     date_values = [datetime.fromisoformat(d).date() for d in dates]
     ax_flood.plot(date_values, messages, color="#9c6ade", linewidth=2)
     ax_flood.fill_between(date_values, messages, color="#d4b8ff", alpha=0.5)
-    ax_flood.set_title("Флуд за 2 недели (сообщения по дням)", fontsize=11)
+    ax_flood.set_title("Р¤Р»СѓРґ Р·Р° 2 РЅРµРґРµР»Рё (СЃРѕРѕР±С‰РµРЅРёСЏ РїРѕ РґРЅСЏРј)", fontsize=11)
     ax_flood.tick_params(axis="x", labelrotation=45, labelsize=8)
     ax_flood.tick_params(axis="y", labelsize=8)
     ax_flood.grid(alpha=0.2)
     ax_flood.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
 
-    ax_react.set_title("Реакции за всё время", fontsize=11)
+    ax_react.set_title("Р РµР°РєС†РёРё Р·Р° РІСЃС‘ РІСЂРµРјСЏ", fontsize=11)
     if react_taken + react_given == 0:
-        ax_react.text(0.5, 0.5, "Нет реакций", ha="center", va="center", fontsize=12)
+        ax_react.text(0.5, 0.5, "РќРµС‚ СЂРµР°РєС†РёР№", ha="center", va="center", fontsize=12)
         ax_react.axis("off")
     else:
         wedges, _, _ = ax_react.pie(
@@ -403,7 +420,7 @@ def _draw_dashboard(
         ax_react.axis("equal")
         ax_react.legend(
             wedges,
-            ["Получено", "Поставлено"],
+            ["РџРѕР»СѓС‡РµРЅРѕ", "РџРѕСЃС‚Р°РІР»РµРЅРѕ"],
             loc="center left",
             bbox_to_anchor=(0.65, 0.5),
             frameon=False,
@@ -412,63 +429,63 @@ def _draw_dashboard(
 
     _format_ranking_block(
         ax_coffee,
-        f"Кофейный зачёт (место {coffee_pos})",
+        f"РљРѕС„РµР№РЅС‹Р№ Р·Р°С‡С‘С‚ (РјРµСЃС‚Рѕ {coffee_pos})",
         coffee_rows,
-        "☕",
+        "в•",
     )
 
     _format_ranking_block(
         ax_messages,
-        f"Сообщения (место {message_pos})",
+        f"РЎРѕРѕР±С‰РµРЅРёСЏ (РјРµСЃС‚Рѕ {message_pos})",
         message_rows,
-        "сообщ.",
+        "СЃРѕРѕР±С‰.",
     )
 
     _format_ranking_block(
         ax_avg_len,
-        f"Средняя длина сообщений (место {avg_len_pos})",
+        f"РЎСЂРµРґРЅСЏСЏ РґР»РёРЅР° СЃРѕРѕР±С‰РµРЅРёР№ (РјРµСЃС‚Рѕ {avg_len_pos})",
         avg_len_rows,
-        "симв.",
+        "СЃРёРјРІ.",
     )
 
     _format_ranking_block(
         ax_streak,
-        f"Серия дней в чате (место {streak_pos})",
+        f"РЎРµСЂРёСЏ РґРЅРµР№ РІ С‡Р°С‚Рµ (РјРµСЃС‚Рѕ {streak_pos})",
         streak_rows,
-        "дн.",
+        "РґРЅ.",
     )
     _format_ranking_block(
         ax_conversion,
-        f"Реакций на сообщение (место {conversion_pos})",
+        f"Р РµР°РєС†РёР№ РЅР° СЃРѕРѕР±С‰РµРЅРёРµ (РјРµСЃС‚Рѕ {conversion_pos})",
         conversion_rows,
-        "реакц./сообщ.",
+        "СЂРµР°РєС†./СЃРѕРѕР±С‰.",
     )
     if dick_pos is None:
         ax_dick.axis("off")
-        ax_dick.text(0.0, 1.0, "Длина члена", fontsize=12, fontweight="bold", va="top")
+        ax_dick.text(0.0, 1.0, "Р”Р»РёРЅР° С‡Р»РµРЅР°", fontsize=12, fontweight="bold", va="top")
         ax_dick.text(
             0.02,
             0.62,
-            "Не участвует в большой гонке",
+            "РќРµ СѓС‡Р°СЃС‚РІСѓРµС‚ РІ Р±РѕР»СЊС€РѕР№ РіРѕРЅРєРµ",
             fontsize=11,
             color="black",
         )
     else:
         _format_ranking_block(
             ax_dick,
-            "Длина члена",
+            "Р”Р»РёРЅР° С‡Р»РµРЅР°",
             dick_rows,
-            "см",
+            "СЃРј",
         )
 
-    ax_peak.set_title("Пиковые часы активности", fontsize=11)
+    ax_peak.set_title("РџРёРєРѕРІС‹Рµ С‡Р°СЃС‹ Р°РєС‚РёРІРЅРѕСЃС‚Рё", fontsize=11)
     hours = list(range(24))
     ax_peak.bar(hours, peak_hours, color="#90dbf4")
     ax_peak.set_xticks(hours)
     ax_peak.set_xticklabels([str(h) for h in hours], fontsize=7)
     ax_peak.tick_params(axis="y", labelsize=8)
-    ax_peak.set_xlabel("Час", fontsize=9)
-    ax_peak.set_ylabel("Сообщений", fontsize=9)
+    ax_peak.set_xlabel("Р§Р°СЃ", fontsize=9)
+    ax_peak.set_ylabel("РЎРѕРѕР±С‰РµРЅРёР№", fontsize=9)
     ax_peak.grid(axis="y", alpha=0.2)
 
     chart_face_color = "#F673E2"
@@ -487,7 +504,7 @@ def register_dashboard_handlers(dp: Dispatcher) -> None:
     async def dash_command(message: Message):
         user = message.from_user
         if not user:
-            await message.answer("Не могу определить пользователя для дашборда.")
+            await message.answer("РќРµ РјРѕРіСѓ РѕРїСЂРµРґРµР»РёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ РґР°С€Р±РѕСЂРґР°.")
             return
         chat_id = message.chat.id
         user_id = user.id
@@ -495,3 +512,4 @@ def register_dashboard_handlers(dp: Dispatcher) -> None:
         image_bytes = _draw_dashboard(chat_id, user_id, user_name)
         file = BufferedInputFile(image_bytes, filename="dashboard.png")
         await message.answer_photo(file)
+
