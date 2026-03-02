@@ -43,7 +43,17 @@ GROUP_JOIN_MESSAGES = [
 # СОСТОЯНИЕ ИВЕНТА
 # ==========================
 class GroupEventState:
-    __slots__ = ("participants", "joined_order", "names", "join_msg_id", "join_open", "lock", "freebies", "reminders")
+    __slots__ = (
+        "participants",
+        "joined_order",
+        "names",
+        "join_msg_id",
+        "join_open",
+        "lock",
+        "freebies",
+        "reminders",
+        "thread_id",
+    )
 
     def __init__(self) -> None:
         self.participants: Set[int] = set()       # user_id участников
@@ -54,6 +64,7 @@ class GroupEventState:
         self.lock = asyncio.Lock()
         self.freebies: List[int] = []             # те, кто не смог заплатить
         self.reminders: Set[int] = set()          # список для напоминания
+        self.thread_id: int | None = None         # тема, в которой запущен ивент
 
 
 
@@ -207,6 +218,7 @@ async def start_group_event(message: types.Message, user_id: int):
     # Списываем сит за запуск
     add_sits(chat_id, user_id, -EVENT_COST)
     state = GroupEventState()
+    state.thread_id = message.message_thread_id
     ACTIVE_GROUP_EVENTS[chat_id] = state
 
     # Организатор автоматически участвует
@@ -237,17 +249,18 @@ async def _run_event_flow(bot: Bot, chat_id: int):
     state = ACTIVE_GROUP_EVENTS.get(chat_id)
     if not state:
         return
+    send_kwargs = {"message_thread_id": state.thread_id} if state.thread_id is not None else {}
 
     try:
         # 10 минут ожидания
         await asyncio.sleep(PREPARE_DELAY_SEC - 7 * 60)  # Ждём до отметки 7 минут
-        await bot.send_message(chat_id, "До групповой мастурбации осталось 7 минут!")
+        await bot.send_message(chat_id, "До групповой мастурбации осталось 7 минут!", **send_kwargs)
 
         await asyncio.sleep(3 * 60)  # Ждём до отметки 4 минут
-        await bot.send_message(chat_id, "До групповой мастурбации осталось 4 минуты!")
+        await bot.send_message(chat_id, "До групповой мастурбации осталось 4 минуты!", **send_kwargs)
 
         await asyncio.sleep(3 * 60)  # Ждём до отметки 1 минуты
-        await bot.send_message(chat_id, "До групповой мастурбации осталась 1 минута!")
+        await bot.send_message(chat_id, "До групповой мастурбации осталась 1 минута!", **send_kwargs)
 
         await asyncio.sleep(1 * 60)  # Ждём оставшуюся 1 минуту
 
@@ -267,12 +280,12 @@ async def _run_event_flow(bot: Bot, chat_id: int):
                     mentions.append(state.names.get(uid, str(uid)))
 
             text = " ".join(mentions) + " — скоро начинаем!!"
-            await bot.send_message(chat_id, text)
+            await bot.send_message(chat_id, text, **send_kwargs)
 
         # Голосовое перед стартом
         try:
             voice = FSInputFile(VOICE_PATH)
-            await bot.send_voice(chat_id, voice)
+            await bot.send_voice(chat_id, voice, **send_kwargs)
         except Exception:
             pass
 
@@ -280,7 +293,8 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         msg = await bot.send_message(
             chat_id,
             "Поехали! Для участия нажми на кнопку",
-            reply_markup=join_keyboard()
+            reply_markup=join_keyboard(),
+            **send_kwargs,
         )
         state.join_msg_id = msg.message_id
         state.join_open = True
@@ -288,13 +302,13 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         # Активная фаза с напоминаниями
         await asyncio.sleep(JOIN_WINDOW_SEC - 60 - 30 - 10 - 1)
 
-        await bot.send_message(chat_id, "⏳ Осталась одна минута! Готовимся!")
+        await bot.send_message(chat_id, "⏳ Осталась одна минута! Готовимся!", **send_kwargs)
         await asyncio.sleep(30)
-        await bot.send_message(chat_id, "🎯 Целимся!!")
+        await bot.send_message(chat_id, "🎯 Целимся!!", **send_kwargs)
         await asyncio.sleep(20)
-        await bot.send_message(chat_id, "🔟 10-секундная готовность!")
+        await bot.send_message(chat_id, "🔟 10-секундная готовность!", **send_kwargs)
         await asyncio.sleep(9)
-        await bot.send_message(chat_id, "💥 ПЛИ!")
+        await bot.send_message(chat_id, "💥 ПЛИ!", **send_kwargs)
 
         await asyncio.sleep(1)  # Дожидаемся финала
 
@@ -315,11 +329,11 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         freebies = state.freebies
 
         if not participants:
-            await bot.send_message(chat_id, "Групповая мастурбация окончена! Никто не присоединился 😢")
+            await bot.send_message(chat_id, "Групповая мастурбация окончена! Никто не присоединился 😢", **send_kwargs)
         else:
             lines = [state.names.get(uid) or get_user_display_name(uid, chat_id) for uid in participants]
             text = "Групповая мастурбация окончена! Спасибо всем участникам. Вот они сверху вниз:\n" + "\n".join(lines)
-            await bot.send_message(chat_id, text)
+            await bot.send_message(chat_id, text, **send_kwargs)
 
             lucky_id = random.choice(participants)
             lucky_name = state.names.get(lucky_id) or get_user_display_name(lucky_id, chat_id)
@@ -328,7 +342,8 @@ async def _run_event_flow(bot: Bot, chat_id: int):
             verb = "мастурбировал" if lucky_sex != "f" else "мастурбировала"
             await bot.send_message(
                 chat_id,
-                f"🍆 {lucky_name} так усердно {verb}, что член подрос на 1 см! Так держать!"
+                f"🍆 {lucky_name} так усердно {verb}, что член подрос на 1 см! Так держать!",
+                **send_kwargs,
             )
 
             # Победитель
@@ -336,7 +351,7 @@ async def _run_event_flow(bot: Bot, chat_id: int):
             winner_name = state.names[winner_id]
             reward = len(participants) + 1
             add_sits(chat_id, winner_id, reward)
-            await bot.send_message(chat_id, f"🎉 Победитель: {winner_name}! Получает {reward} сит!")
+            await bot.send_message(chat_id, f"🎉 Победитель: {winner_name}! Получает {reward} сит!", **send_kwargs)
             # ОТправка уведомления в обработчик квестов
             await update_quest_progress(winner_id, chat_id, "group_win", 1, bot=bot)
 
@@ -345,6 +360,6 @@ async def _run_event_flow(bot: Bot, chat_id: int):
                 lucky = random.choice(freebies)
                 lucky_name = state.names[lucky]
                 add_sits(chat_id, lucky, 1)
-                await bot.send_message(chat_id, f"✨ Также немножко капнуло на {lucky_name} — +1 сит!")
+                await bot.send_message(chat_id, f"✨ Также немножко капнуло на {lucky_name} — +1 сит!", **send_kwargs)
 
         ACTIVE_GROUP_EVENTS.pop(chat_id, None)
