@@ -2,6 +2,7 @@ import os
 import asyncio
 import io
 import re
+import html
 from datetime import datetime, time, timedelta, date
 from collections import defaultdict
 from aiogram import Bot, Dispatcher, types
@@ -1049,6 +1050,47 @@ async def cmd_all(message: types.Message):
         "Хочешь удалить себя из этого списка? Жми /deleteme"
     )
     await message.answer(text)
+
+# --- /all_test ---
+@dp.message(Command("all_test"))
+async def cmd_all_test(message: types.Message):
+    now_hour = datetime.now().hour
+    if now_hour < 9:
+        await message.answer("Сейчас слишком поздно чтобы всех звать. Попробуй после 9 утра")
+        return
+
+    chat_id = message.chat.id
+    user_name = message.from_user.full_name or str(message.from_user.id)
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT user_id, nick, name FROM users
+            WHERE chat_id=? AND is_all=1 AND nick IS NOT NULL AND nick != ''
+            """,
+            (chat_id,),
+        )
+        rows = cur.fetchall()
+
+    if not rows:
+        await message.answer("Никого не удалось собрать 😢. Добавь себя через /addme")
+        return
+
+    mentions = []
+    for row in rows:
+        user_id = int(row["user_id"])
+        display_name = row["name"] or row["nick"] or str(user_id)
+        mentions.append(f'<a href="tg://user?id={user_id}">{html.escape(display_name)}</a>')
+
+    mentions_line = " ".join(mentions)
+    text = (
+        f"{html.escape(user_name)} решил всех собрать!\n"
+        f"{mentions_line}\n\n"
+        "Хочешь чтобы тебя тоже звали этой командой? Пиши /addme\n"
+        "Хочешь удалить себя из этого списка? Жми /deleteme"
+    )
+    await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
 
 # --- /addme ---
 @dp.message(Command("addme"))
