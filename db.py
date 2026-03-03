@@ -45,6 +45,37 @@ def initialize_db():
                 amount INTEGER NOT NULL
             )
         """)
+        # Совместимость со статистикой укусов в sosalsa/weekly_awards.
+        # В старых БД этих колонок может не быть.
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_stats'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(daily_stats)")
+            daily_stats_columns = {row["name"] for row in cursor.fetchall()}
+            if "bites_given" not in daily_stats_columns:
+                cursor.execute("ALTER TABLE daily_stats ADD COLUMN bites_given INTEGER DEFAULT 0")
+            if "bites_received" not in daily_stats_columns:
+                cursor.execute("ALTER TABLE daily_stats ADD COLUMN bites_received INTEGER DEFAULT 0")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='total_stats'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(total_stats)")
+            total_stats_columns = {row["name"] for row in cursor.fetchall()}
+            if "bites_given" not in total_stats_columns:
+                cursor.execute("ALTER TABLE total_stats ADD COLUMN bites_given INTEGER DEFAULT 0")
+            if "bites_received" not in total_stats_columns:
+                cursor.execute("ALTER TABLE total_stats ADD COLUMN bites_received INTEGER DEFAULT 0")
+
+        # Базовые ачивки укусов (если таблица achievements существует).
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='achievements'")
+        if cursor.fetchone():
+            cursor.execute("""
+                INSERT OR IGNORE INTO achievements (key, name_m, name_f)
+                VALUES ('biter', 'Кусака', 'Кусака')
+            """)
+            cursor.execute("""
+                INSERT OR IGNORE INTO achievements (key, name_m, name_f)
+                VALUES ('bitten', 'Месиво', 'Месиво')
+            """)
         conn.commit()
 
 # -------------------------------

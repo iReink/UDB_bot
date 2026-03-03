@@ -565,6 +565,66 @@ async def show_shop(message: types.Message):
     )
 
 
+def build_group_shop_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="< Назад", callback_data="shop:menu")],
+        [InlineKeyboardButton(text="Начать мастурбацию (1 сит)", callback_data="shop:group:start")],
+        [InlineKeyboardButton(text="Моя статистика", callback_data="shop:group:my_stats")],
+        [InlineKeyboardButton(text="Общая статистика", callback_data="shop:group:global_stats")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_masturbation_user_stats(chat_id: int, user_id: int) -> dict:
+    try:
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS participations,
+                    COALESCE(SUM(is_winner), 0) AS wins,
+                    COALESCE(SUM(reward_sits), 0) AS reward_sits
+                FROM masturbate_log
+                WHERE chat_id = ? AND user_id = ?
+                """,
+                (chat_id, user_id),
+            )
+            row = cur.fetchone()
+    except sqlite3.OperationalError:
+        return {"participations": 0, "wins": 0, "reward_sits": 0}
+    return {
+        "participations": int(row["participations"] or 0),
+        "wins": int(row["wins"] or 0),
+        "reward_sits": int(row["reward_sits"] or 0),
+    }
+
+
+def get_masturbation_top_winners(chat_id: int, limit: int = 10) -> list[sqlite3.Row]:
+    try:
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    m.user_id,
+                    COALESCE(u.name, CAST(m.user_id AS TEXT)) AS name,
+                    SUM(CASE WHEN m.is_winner = 1 THEN 1 ELSE 0 END) AS wins
+                FROM masturbate_log m
+                LEFT JOIN users u ON u.user_id = m.user_id AND u.chat_id = m.chat_id
+                WHERE m.chat_id = ?
+                GROUP BY m.user_id
+                HAVING wins > 0
+                ORDER BY wins DESC, name ASC
+                LIMIT ?
+                """,
+                (chat_id, limit),
+            )
+            return cur.fetchall()
+    except sqlite3.OperationalError:
+        return []
+
+
 @dp.message(Command("makovka"))
 async def send_makovka(message: types.Message):
     """
@@ -1353,6 +1413,74 @@ def build_shop_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+@dp.callback_query(F.data == "shop:menu")
+async def handle_shop_menu(callback: types.CallbackQuery):
+    balance = get_sits(callback.message.chat.id, callback.from_user.id)
+    await callback.message.edit_text(
+        "🏪 Магазинчик Дяди Доктора\n"
+        f"Твой баланс: {balance} сит\n\n"
+        "Выбирай товар:",
+        reply_markup=build_shop_keyboard(),
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "shop:group:start")
+async def handle_group_shop_start(callback: types.CallbackQuery):
+    from group import start_group_event
+
+    await callback.message.delete()
+    await start_group_event(callback.message, callback.from_user.id)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "shop:group:my_stats")
+async def handle_group_shop_my_stats(callback: types.CallbackQuery):
+    chat_id = callback.message.chat.id
+    user_id = callback.from_user.id
+    name = get_user_display_name(user_id, chat_id)
+    stats_row = get_masturbation_user_stats(chat_id, user_id)
+
+    participations = stats_row["participations"]
+    wins = stats_row["wins"]
+    reward_sits = stats_row["reward_sits"]
+    spent_sits = participations
+
+    win_percent = (wins / participations * 100) if participations else 0.0
+    if spent_sits > 0:
+        profit_percent = ((reward_sits - spent_sits) / spent_sits) * 100
+    else:
+        profit_percent = 0.0
+    sign = "+" if profit_percent >= 0 else "-"
+
+    text = (
+        f"📊 Статистика мастурбаций: {name}\n"
+        f"Участий: {participations}\n"
+        f"Побед: {wins} ({win_percent:.1f}%)\n"
+        f"Выиграно сита: {reward_sits}\n"
+        f"Потрачено сита: {spent_sits}\n"
+        f"Прибыль: {sign}{abs(profit_percent):.0f}%"
+    )
+    await callback.message.answer(text)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "shop:group:global_stats")
+async def handle_group_shop_global_stats(callback: types.CallbackQuery):
+    chat_id = callback.message.chat.id
+    rows = get_masturbation_top_winners(chat_id, limit=10)
+    if not rows:
+        await callback.message.answer("Пока нет победителей групповой мастурбации в этом чате.")
+        await callback.answer()
+        return
+
+    lines = ["🏆 Топ-10 победителей групповой мастурбации:"]
+    for idx, row in enumerate(rows, start=1):
+        lines.append(f"{idx}. {row['name']} — {int(row['wins'])} побед")
+    await callback.message.answer("\n".join(lines))
+    await callback.answer()
+
+
 # ---------- Обработка нажатия кнопок магазина ----------
 @dp.callback_query(F.data.startswith("shop:buy:"))
 async def handle_shop_buy(callback: types.CallbackQuery):
@@ -1376,9 +1504,12 @@ async def handle_shop_buy(callback: types.CallbackQuery):
             await action_drink_coffee(callback, item)
             return
         if action == "group":
-            from group import start_group_event
-            await callback.message.delete()
-            await start_group_event(callback.message, callback.from_user.id)
+            await callback.message.edit_text(
+                "🍆 Групповая мастурбация\n"
+                "Выбери действие ниже:",
+                reply_markup=build_group_shop_keyboard(),
+            )
+            await callback.answer()
             return
 
         price = item["price"]

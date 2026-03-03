@@ -1,6 +1,7 @@
 # group.py
 import asyncio
 import random
+from datetime import datetime
 from contextlib import closing
 from typing import Dict, Set, List
 
@@ -84,6 +85,35 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
         )
         row = cur.fetchone()
     return row[0] if row and row[0] else str(user_id)
+
+
+def log_masturbation_results(
+    chat_id: int,
+    participants: List[int],
+    winner_id: int,
+    winner_reward_sits: int,
+) -> None:
+    """Сохраняет результаты ивента в masturbate_log только по участникам."""
+    if not participants:
+        return
+
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    rows = []
+    for uid in participants:
+        is_winner = 1 if uid == winner_id else 0
+        reward_sits = winner_reward_sits if uid == winner_id else 0
+        rows.append((created_at, uid, chat_id, is_winner, reward_sits))
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.executemany(
+            """
+            INSERT INTO masturbate_log (created_at, user_id, chat_id, is_winner, reward_sits)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        conn.commit()
 
 
 # ==========================
@@ -354,6 +384,11 @@ async def _run_event_flow(bot: Bot, chat_id: int):
             await bot.send_message(chat_id, f"🎉 Победитель: {winner_name}! Получает {reward} сит!", **send_kwargs)
             # ОТправка уведомления в обработчик квестов
             await update_quest_progress(winner_id, chat_id, "group_win", 1, bot=bot)
+            try:
+                log_masturbation_results(chat_id, participants, winner_id, reward)
+            except Exception:
+                # Логи не должны ломать основной игровой флоу.
+                pass
 
             # Бонус для одного из freebies
             if freebies:
