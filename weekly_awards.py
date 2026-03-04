@@ -5,7 +5,7 @@ import logging
 import sqlite3
 import db
 from db import add_or_update_user_achievement
-from db import add_or_update_user_achievement, get_achievement_title, get_connection, get_user_sex
+from db import add_or_update_user_achievement, get_achievement_title, get_connection, get_user_sex, get_user_display_name
 
 
 bot = None       # сюда пробрасывается экземпляр бота из main.py
@@ -115,7 +115,8 @@ async def award_weekly_top(chat_id, users):
     for i, (msgs, uid, name) in enumerate(top10):
         reward = WEEKLY_TOP_REWARDS[i]
         add_sits(chat_id, uid, reward)
-        lines.append(f"{i+1}. {name} — {msgs} сообщений (+{reward} сит)")
+        display_name = get_user_display_name(uid, chat_id)
+        lines.append(f"{i+1}. {display_name} — {msgs} сообщений (+{reward} сит)")
 
     await bot.send_message(chat_id, "\n".join(lines))
 
@@ -134,6 +135,7 @@ async def award_stickerbomber(chat_id, users):
     # Сортируем по количеству стикеров и выбираем победителя
     candidates.sort(reverse=True, key=lambda x: x[0])
     winner_stickers, winner_id, winner_name = candidates[0]
+    winner_name = get_user_display_name(winner_id, chat_id)
 
     # Начисляем ситы
     add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
@@ -183,6 +185,7 @@ async def award_flooder(chat_id: int):
         ratios = [(week_chars / week_msgs, user_id, name) for user_id, name, week_msgs, week_chars in top10]
         ratios.sort(key=lambda x: x[0])  # минимальное соотношение
         ratio, winner_id, winner_name = ratios[0]
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         # Начисляем сит
         add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
@@ -251,6 +254,7 @@ async def award_dushnila(chat_id: int):
         ratios = [(week_chars / week_msgs, user_id, name) for user_id, name, week_msgs, week_chars in top15]
         ratios.sort(reverse=True, key=lambda x: x[0])  # максимальное соотношение
         ratio, winner_id, winner_name = ratios[0]
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         # Начисляем сит
         add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
@@ -313,6 +317,7 @@ async def award_skomrnyashka(chat_id: int):
         # Находим пользователя с минимальным количеством сообщений
         candidates.sort(key=lambda x: x[2])  # x[2] = week_msgs
         winner_id, winner_name, week_msgs = candidates[0]
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         # Начисляем сит
         add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
@@ -377,6 +382,7 @@ async def award_lubimka(chat_id: int):
 
     candidates.sort(reverse=True, key=lambda x: x[0])
     avg_likes, winner_id, winner_name = candidates[0]
+    winner_name = get_user_display_name(winner_id, chat_id)
 
     # Добавляем ачивку
     add_or_update_user_achievement(winner_id, chat_id, "lubimka")
@@ -415,6 +421,7 @@ async def award_likes_collector(chat_id: int):
             return
 
         winner_id, winner_name, week_likes = row
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         # добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "likes_collector")
@@ -454,6 +461,7 @@ async def award_dobroe_serdtse(chat_id: int):
             return
 
         winner_id, winner_name, week_given = row
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         # Добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "dobroe_serdtse")
@@ -498,6 +506,7 @@ async def award_tsarsky_like(chat_id: int):
         ratios = [(row[3] / row[2] if row[2] > 0 else float('inf'), row[0], row[1]) for row in top20]
         ratios.sort(key=lambda x: x[0])  # минимальное соотношение
         ratio, winner_id, winner_name = ratios[0]
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         # Добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "tsarsky_like")
@@ -536,6 +545,7 @@ async def award_kolobok(chat_id: int):
             return  # Никто не отправил кружочки
 
         winner_id, winner_name, week_rounds = row
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         # Добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "kolobok")
@@ -576,6 +586,7 @@ async def award_biter(chat_id: int):
             return
 
         winner_id, winner_name, bites_given = row
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         # Записываем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "biter")
@@ -616,6 +627,7 @@ async def award_bitten(chat_id: int):
             return
 
         winner_id, winner_name, bites_taken = row
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         # Записываем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "bitten")
@@ -661,6 +673,7 @@ async def award_matsturbator(chat_id: int):
             return
 
         winner_id, winner_name, participations = row
+        winner_name = get_user_display_name(winner_id, chat_id)
 
         add_or_update_user_achievement(winner_id, chat_id, "matsturbator")
         add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)

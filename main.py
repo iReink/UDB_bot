@@ -36,7 +36,8 @@ from db import (
     get_user_sex,
     increment_sticker_stats,
     get_user_display_name,
-    add_sits
+    add_sits,
+    has_active_subscription,
 )
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
@@ -429,7 +430,7 @@ async def weekly_top(message: types.Message):
         # Передаём chat_id
         daily = get_last_7_daily_stats(uid, chat_id, days=7)
         week_msgs = sum(d["messages"] for d in daily)
-        name = user.get("name") or "Unknown"
+        name = get_user_display_name(uid, chat_id)
         punished = int(user.get("punished") or 0)
         totals.append((week_msgs, uid, name, punished))
 
@@ -457,7 +458,7 @@ async def total_top(message: types.Message):
         uid = user["user_id"]
         total = get_total_stats(uid, chat_id)
         total_msgs = int(total["messages"]) if total else 0
-        name = user["name"] or "Unknown"
+        name = get_user_display_name(uid, chat_id)
         punished = int(user["punished"] or 0)
         totals.append((total_msgs, uid, name, punished))
 
@@ -518,7 +519,7 @@ async def flood_stats(message: types.Message):
     # Пользовательские данные
     user_row = get_user(user_id, chat_id)
     user = dict(user_row) if user_row else {}
-    name = user.get("name") or message.from_user.full_name
+    name = get_user_display_name(user_id, chat_id)
     if int(user.get("punished", 0) or 0):
         name = f"{name} ☠️"
 
@@ -896,7 +897,7 @@ async def likes_menu_callback(callback_query: CallbackQuery):
 
         if data == "likes:weekly_top":
             cur.execute("""
-                SELECT u.name, SUM(d.react_taken) as likes
+                SELECT u.user_id, SUM(d.react_taken) as likes
                 FROM users u
                 JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
                 WHERE u.chat_id = ? AND d.date >= date('now','-6 days')
@@ -906,11 +907,16 @@ async def likes_menu_callback(callback_query: CallbackQuery):
             """, (chat_id,))
             rows = cur.fetchall()
             text = "🏆 Топ получателей лайков за неделю:\n"
-            text += "\n".join([f"{i + 1}. {name} — {likes} ❤️" for i, (name, likes) in enumerate(rows)])
+            text += "\n".join(
+                [
+                    f"{i + 1}. {get_user_display_name(int(user_id), chat_id)} — {likes} ❤️"
+                    for i, (user_id, likes) in enumerate(rows)
+                ]
+            )
 
         elif data == "likes:alltime_top":
             cur.execute("""
-                SELECT u.name, t.react_taken
+                SELECT u.user_id, t.react_taken
                 FROM total_stats t
                 JOIN users u ON u.user_id = t.user_id AND u.chat_id = t.chat_id
                 WHERE t.chat_id = ?
@@ -919,12 +925,17 @@ async def likes_menu_callback(callback_query: CallbackQuery):
             """, (chat_id,))
             rows = cur.fetchall()
             text = "🏆 Топ получателей лайков за всё время:\n"
-            text += "\n".join([f"{i + 1}. {name} — {likes} ❤️" for i, (name, likes) in enumerate(rows)])
+            text += "\n".join(
+                [
+                    f"{i + 1}. {get_user_display_name(int(user_id), chat_id)} — {likes} ❤️"
+                    for i, (user_id, likes) in enumerate(rows)
+                ]
+            )
 
 
         elif data == "likes:weekly_givers":
             cur.execute("""
-                SELECT u.name, SUM(d.react_given) as likes
+                SELECT u.user_id, SUM(d.react_given) as likes
                 FROM users u
                 JOIN daily_stats d ON u.user_id = d.user_id AND u.chat_id = d.chat_id
                 WHERE u.chat_id = ? AND d.date >= date('now','-6 days')
@@ -934,11 +945,16 @@ async def likes_menu_callback(callback_query: CallbackQuery):
             """, (chat_id,))
             rows = cur.fetchall()
             text = "💖 Топ добряков недели:\n"
-            text += "\n".join([f"{i + 1}. {name} — {likes} ❤️" for i, (name, likes) in enumerate(rows)])
+            text += "\n".join(
+                [
+                    f"{i + 1}. {get_user_display_name(int(user_id), chat_id)} — {likes} ❤️"
+                    for i, (user_id, likes) in enumerate(rows)
+                ]
+            )
 
         elif data == "likes:alltime_givers":
             cur.execute("""
-                SELECT u.name, t.react_given
+                SELECT u.user_id, t.react_given
                 FROM total_stats t
                 JOIN users u ON u.user_id = t.user_id AND u.chat_id = t.chat_id
                 WHERE t.chat_id = ?
@@ -947,7 +963,12 @@ async def likes_menu_callback(callback_query: CallbackQuery):
             """, (chat_id,))
             rows = cur.fetchall()
             text = "💖 Топ добряков за всё время:\n"
-            text += "\n".join([f"{i + 1}. {name} — {likes} ❤️" for i, (name, likes) in enumerate(rows)])
+            text += "\n".join(
+                [
+                    f"{i + 1}. {get_user_display_name(int(user_id), chat_id)} — {likes} ❤️"
+                    for i, (user_id, likes) in enumerate(rows)
+                ]
+            )
 
         elif data == "likes:weekly_msgs":
             cur.execute("""
@@ -1150,12 +1171,12 @@ async def cmd_all(message: types.Message):
         return
 
     chat_id = message.chat.id
-    user_name = message.from_user.full_name
+    user_name = get_user_display_name(message.from_user.id, chat_id)
 
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT nick FROM users
+            SELECT user_id, nick FROM users
             WHERE chat_id=? AND is_all=1 AND nick IS NOT NULL AND nick != ''
         """, (chat_id,))
         rows = cur.fetchall()
@@ -1164,7 +1185,12 @@ async def cmd_all(message: types.Message):
         await message.answer("Никого не удалось собрать 😅. Добавь себя через /addme")
         return
 
-    nicks = " ".join([row["nick"] for row in rows])
+    nicks = " ".join(
+        [
+            f"{row['nick']} 👑" if has_active_subscription(chat_id, int(row["user_id"])) else row["nick"]
+            for row in rows
+        ]
+    )
     text = (
         f"{user_name} решил всех собрать!\n"
         f"{nicks}\n\n"
@@ -1182,13 +1208,13 @@ async def cmd_all_test(message: types.Message):
         return
 
     chat_id = message.chat.id
-    user_name = message.from_user.full_name or str(message.from_user.id)
+    user_name = get_user_display_name(message.from_user.id, chat_id)
 
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT user_id, nick, name FROM users
+            SELECT user_id, nick FROM users
             WHERE chat_id=? AND is_all=1 AND nick IS NOT NULL AND nick != ''
             """,
             (chat_id,),
@@ -1202,7 +1228,7 @@ async def cmd_all_test(message: types.Message):
     mentions = []
     for row in rows:
         user_id = int(row["user_id"])
-        display_name = row["name"] or row["nick"] or str(user_id)
+        display_name = get_user_display_name(user_id, chat_id)
         mentions.append(f'<a href="tg://user?id={user_id}">{html.escape(display_name)}</a>')
 
     mentions_line = " ".join(mentions)

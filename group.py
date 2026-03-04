@@ -10,7 +10,7 @@ from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from sosalsa import get_sits
-from db import add_sits, get_connection, get_user_sex
+from db import add_sits, get_connection, get_user_sex, get_user_display_name as db_get_user_display_name
 from dick import update_dick_length
 
 from quest import update_quest_progress
@@ -76,15 +76,7 @@ ACTIVE_GROUP_EVENTS: Dict[int, GroupEventState] = {}
 # УТИЛИТЫ
 # ==========================
 def get_user_display_name(user_id: int, chat_id: int) -> str:
-    """Берём красивое имя из БД или user_id."""
-    with closing(get_connection()) as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT name FROM users WHERE user_id = ? AND chat_id = ?",
-            (user_id, chat_id),
-        )
-        row = cur.fetchone()
-    return row[0] if row and row[0] else str(user_id)
+    return db_get_user_display_name(user_id, chat_id)
 
 
 def log_masturbation_results(

@@ -114,6 +114,10 @@ def _get_coffee_ranking(chat_id: int, user_id: int) -> tuple[List[RankingRow], i
             (chat_id,),
         )
         rows = cur.fetchall()
+    rows = [
+        (int(row["user_id"]), get_user_display_name(int(row["user_id"]), chat_id), row["coffee"], row["extra"])
+        for row in rows
+    ]
     default_name = get_user_display_name(user_id, chat_id)
     return _get_ranking_rows(rows, user_id, default_name)
 
@@ -134,6 +138,10 @@ def _get_message_ranking(chat_id: int, user_id: int) -> tuple[List[RankingRow], 
             (chat_id,),
         )
         rows = cur.fetchall()
+    rows = [
+        (int(row["user_id"]), get_user_display_name(int(row["user_id"]), chat_id), row["messages"], row["extra"])
+        for row in rows
+    ]
     default_name = get_user_display_name(user_id, chat_id)
     return _get_ranking_rows(rows, user_id, default_name)
 
@@ -158,6 +166,10 @@ def _get_avg_message_length_ranking(
             (chat_id,),
         )
         rows = cur.fetchall()
+    rows = [
+        (int(row["user_id"]), get_user_display_name(int(row["user_id"]), chat_id), row["avg_len"], row["extra"])
+        for row in rows
+    ]
     default_name = get_user_display_name(user_id, chat_id)
     return _get_ranking_rows(rows, user_id, default_name)
 
@@ -253,7 +265,7 @@ def _get_activity_streak_ranking(
         while expected in row_dates:
             streak += 1
             expected -= timedelta(days=1)
-        computed_rows.append((user_id_value, user["name"], streak, None))
+        computed_rows.append((user_id_value, get_user_display_name(user_id_value, chat_id), streak, None))
     default_name = get_user_display_name(user_id, chat_id)
     return _get_ranking_rows(computed_rows, user_id, default_name)
 
@@ -282,7 +294,8 @@ def _get_reaction_conversion_ranking(
         messages = int(row["messages"] or 0)
         react_taken = int(row["react_taken"] or 0)
         value = float(react_taken) / float(messages or 1)
-        computed_rows.append((row["user_id"], row["name"], value, None))
+        row_user_id = int(row["user_id"])
+        computed_rows.append((row_user_id, get_user_display_name(row_user_id, chat_id), value, None))
     default_name = get_user_display_name(user_id, chat_id)
     return _get_ranking_rows(computed_rows, user_id, default_name)
 

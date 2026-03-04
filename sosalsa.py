@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import logging
 
-from db import get_connection, get_user_sex, add_sits
+from db import get_connection, get_user_sex, add_sits, get_user_display_name as db_get_user_display_name
 from dick import try_bite_dick
 
 # ==========================
@@ -423,19 +423,7 @@ def get_sos_stats_menu():
 
 
 def get_user_display_name(user_id: int, chat_id: int) -> str:
-    """Возвращает красивое имя пользователя по user_id."""
-    with closing(get_connection()) as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT name
-            FROM users
-            WHERE user_id = ? AND chat_id = ?
-        """, (user_id, chat_id))
-        row = cur.fetchone()
-
-    if row and row[0]:
-        return row[0]
-    return str(user_id)  # fallback
+    return db_get_user_display_name(user_id, chat_id)
 
 
 def get_sits(chat_id: int, user_id: int) -> int:

@@ -345,19 +345,65 @@ def get_total_stats(user_id: int, chat_id: int) -> Optional[sqlite3.Row]:
 
 
 def get_user_display_name(user_id: int, chat_id: int) -> str:
-    """Возвращает красивое имя пользователя по user_id."""
+    """Возвращает имя пользователя с префиксом 👑 при активной подписке."""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
-        cur.execute("""
-            SELECT name
-            FROM users
-            WHERE user_id = ? AND chat_id = ?
-        """, (user_id, chat_id))
-        row = cur.fetchone()
+        try:
+            cur.execute(
+                """
+                SELECT name, subscription_till
+                FROM users
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (user_id, chat_id),
+            )
+            row = cur.fetchone()
+        except sqlite3.OperationalError:
+            cur.execute(
+                """
+                SELECT name
+                FROM users
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (user_id, chat_id),
+            )
+            row = cur.fetchone()
+            subscription_till = ""
+        else:
+            subscription_till = row["subscription_till"] if row else ""
 
-    if row and row[0]:
-        return row[0]
-    return str(user_id)  # fallback
+    base_name = (row["name"] if row and row["name"] else str(user_id))
+    if has_active_subscription_str(subscription_till):
+        return base_name if base_name.startswith("👑 ") else f"👑 {base_name}"
+    return base_name
+
+
+def has_active_subscription_str(subscription_till: str | None) -> bool:
+    if not subscription_till:
+        return False
+    try:
+        till_date = datetime.strptime(subscription_till, "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    return till_date >= date.today()
+
+
+def has_active_subscription(chat_id: int, user_id: int) -> bool:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT subscription_till
+                FROM users
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (user_id, chat_id),
+            )
+            row = cur.fetchone()
+        except sqlite3.OperationalError:
+            return False
+    return has_active_subscription_str(row["subscription_till"] if row else "")
 
 def add_sits(chat_id: int, user_id: int, amount: int):
     """Добавляет или вычитает сит для пользователя."""

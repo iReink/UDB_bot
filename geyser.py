@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from contextlib import closing
 
-from db import get_connection, get_all_chats, add_or_update_user, add_geyser_event, get_pending_geyser_events, update_geyser_event_status, update_geyser_event_message_id, update_geyser_event_caught_by, add_sits, get_user # Добавляем get_user
+from db import get_connection, get_all_chats, add_or_update_user, add_geyser_event, get_pending_geyser_events, update_geyser_event_status, update_geyser_event_message_id, update_geyser_event_caught_by, add_sits, get_user, get_user_display_name # Добавляем get_user
 from settings import get_setting # Для проверки включения гейзера
 
 # --- Константы ---
@@ -115,7 +115,7 @@ async def schedule_daily_geysers(bot: Bot):
 async def handle_geyser_catch(callback: types.CallbackQuery):
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
-    user_name = callback.from_user.full_name or str(user_id)
+    user_name = get_user_display_name(user_id, chat_id)
     message_id = callback.message.message_id
     event_id = int(callback.data.split(":")[1]) # Извлекаем event_id из callback_data
 
@@ -183,7 +183,7 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
 
         for idx, bonus_user in enumerate(selected_users):
             bonus_user_id = int(bonus_user["user_id"])
-            bonus_user_name = bonus_user["name"] or str(bonus_user_id)
+            bonus_user_name = get_user_display_name(bonus_user_id, chat_id)
             bonus_sex = bonus_user["sex"]
 
             if idx == 0:

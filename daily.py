@@ -18,7 +18,7 @@ from aiogram import types
 from aiogram.filters import Command
 from contextlib import closing
 import sqlite3
-from db import get_user # Импортирую get_user для получения ника
+from db import get_user, get_user_display_name # Импортирую get_user для получения ника
 from google_calendar_integration import create_calendar_event, update_calendar_event, delete_calendar_event, TARGET_CHAT_ID # Импорт для интеграции с Google Calendar
 
 DB_PATH = "stats.db"
@@ -152,7 +152,14 @@ def get_daily_participants(daily_id: int, chat_id: int) -> List[dict]:
             WHERE p.daily_id = ?
         """, (chat_id, daily_id))
         rows = cur.fetchall()
-    return [{'user_id': r[0], 'name': r[1], 'is_driver': bool(r[2])} for r in rows]
+    return [
+        {
+            'user_id': r[0],
+            'name': get_user_display_name(r[0], chat_id),
+            'is_driver': bool(r[2]),
+        }
+        for r in rows
+    ]
 
 def daily_buttons(user_id: int, daily_id: int, cars: str, participants: List[dict]) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
