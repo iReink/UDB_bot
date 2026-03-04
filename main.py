@@ -569,10 +569,72 @@ def build_group_shop_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="< Назад", callback_data="shop:menu")],
         [InlineKeyboardButton(text="Начать мастурбацию (1 сит)", callback_data="shop:group:start")],
+        [InlineKeyboardButton(text="Подписка на неделю (15 сит)", callback_data="shop:group:sub_week")],
+        [InlineKeyboardButton(text="Подписка на месяц (50 сит)", callback_data="shop:group:sub_month")],
         [InlineKeyboardButton(text="Моя статистика", callback_data="shop:group:my_stats")],
         [InlineKeyboardButton(text="Общая статистика", callback_data="shop:group:global_stats")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _parse_subscription_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def get_user_subscription_till(chat_id: int, user_id: int) -> date | None:
+    try:
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT subscription_till FROM users WHERE chat_id = ? AND user_id = ?",
+                (chat_id, user_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return _parse_subscription_date(row["subscription_till"])
+    except sqlite3.OperationalError:
+        return None
+
+
+def extend_subscription(chat_id: int, user_id: int, days: int) -> date | None:
+    today = date.today()
+    current_till = get_user_subscription_till(chat_id, user_id)
+    base_date = current_till if current_till and current_till >= today else today
+    new_till = base_date + timedelta(days=days)
+    try:
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE users
+                SET subscription_till = ?
+                WHERE chat_id = ? AND user_id = ?
+                """,
+                (new_till.isoformat(), chat_id, user_id),
+            )
+            conn.commit()
+        return new_till
+    except sqlite3.OperationalError:
+        return None
+
+
+def build_group_shop_text(chat_id: int, user_id: int) -> str:
+    lines = [
+        "🍆 Групповая мастурбация",
+    ]
+    subscription_till = get_user_subscription_till(chat_id, user_id)
+    if subscription_till and subscription_till >= date.today():
+        lines.append(f"Сит-премиум подписка активна до {subscription_till.strftime('%d.%m.%Y')}")
+    lines.append("Сит-премиум подписка даёт автоматическое участие во всех мастурбациях чата")
+    lines.append("")
+    lines.append("Выбери действие ниже:")
+    return "\n".join(lines)
 
 
 def get_masturbation_user_stats(chat_id: int, user_id: int) -> dict:
@@ -1434,6 +1496,40 @@ async def handle_group_shop_start(callback: types.CallbackQuery):
     await callback.answer()
 
 
+async def _handle_group_subscription_purchase(callback: types.CallbackQuery, days: int, price: int):
+    chat_id = callback.message.chat.id
+    user_id = callback.from_user.id
+    ok, balance_or_new = spend_sits(chat_id, user_id, price)
+    if not ok:
+        await callback.answer(f"❌ Недостаточно сита. Твой баланс: {balance_or_new}", show_alert=True)
+        return
+
+    new_till = extend_subscription(chat_id, user_id, days)
+    if new_till is None:
+        add_sits(chat_id, user_id, price)
+        await callback.answer("❌ Не удалось продлить подписку. Сначала запусти миграцию БД.", show_alert=True)
+        return
+
+    await callback.message.answer(
+        f"Подписка продлена до {new_till.strftime('%d.%m.%Y')}"
+    )
+    await callback.message.edit_text(
+        build_group_shop_text(chat_id, user_id),
+        reply_markup=build_group_shop_keyboard(),
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "shop:group:sub_week")
+async def handle_group_shop_sub_week(callback: types.CallbackQuery):
+    await _handle_group_subscription_purchase(callback, days=7, price=15)
+
+
+@dp.callback_query(F.data == "shop:group:sub_month")
+async def handle_group_shop_sub_month(callback: types.CallbackQuery):
+    await _handle_group_subscription_purchase(callback, days=30, price=50)
+
+
 @dp.callback_query(F.data == "shop:group:my_stats")
 async def handle_group_shop_my_stats(callback: types.CallbackQuery):
     chat_id = callback.message.chat.id
@@ -1505,8 +1601,7 @@ async def handle_shop_buy(callback: types.CallbackQuery):
             return
         if action == "group":
             await callback.message.edit_text(
-                "🍆 Групповая мастурбация\n"
-                "Выбери действие ниже:",
+                build_group_shop_text(chat_id, user_id),
                 reply_markup=build_group_shop_keyboard(),
             )
             await callback.answer()

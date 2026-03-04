@@ -42,14 +42,30 @@ def ensure_matsturbator_achievement(cur: sqlite3.Cursor) -> None:
     )
 
 
+def ensure_users_subscription_column(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+    )
+    if not cur.fetchone():
+        return
+
+    cur.execute("PRAGMA table_info(users)")
+    columns = {row[1] for row in cur.fetchall()}
+    if "subscription_till" not in columns:
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN subscription_till TEXT DEFAULT ''"
+        )
+
+
 def migrate() -> None:
     with closing(sqlite3.connect(DB_FILE)) as conn:
         cur = conn.cursor()
         ensure_masturbate_log_table(cur)
         ensure_matsturbator_achievement(cur)
+        ensure_users_subscription_column(cur)
         conn.commit()
 
 
 if __name__ == "__main__":
     migrate()
-    print("DB migration complete: masturbate_log + matsturbator achievement.")
+    print("DB migration complete: masturbate_log + matsturbator achievement + users.subscription_till.")
