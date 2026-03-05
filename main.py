@@ -570,8 +570,6 @@ def build_group_shop_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="< Назад", callback_data="shop:menu")],
         [InlineKeyboardButton(text="Начать мастурбацию (1 сит)", callback_data="shop:group:start")],
-        [InlineKeyboardButton(text="Подписка на неделю (15 сит)", callback_data="shop:group:sub_week")],
-        [InlineKeyboardButton(text="Подписка на месяц (50 сит)", callback_data="shop:group:sub_month")],
         [InlineKeyboardButton(text="Моя статистика", callback_data="shop:group:my_stats")],
         [InlineKeyboardButton(text="Общая статистика", callback_data="shop:group:global_stats")],
     ]
