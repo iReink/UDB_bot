@@ -117,15 +117,15 @@ def _parse_subscription_till(value: str | None) -> date | None:
         return None
 
 
-def get_auto_subscribed_users(chat_id: int, exclude_user_id: int) -> list[tuple[int, str]]:
-    """Возвращает юзеров с активной подпиской, которых можно автодобавить."""
+def get_subscription_mentions(chat_id: int, exclude_user_id: int) -> list[str]:
+    """Возвращает @ники пользователей с активной подпиской для пинга при старте ивента."""
     today = date.today()
     try:
         with closing(get_connection()) as conn:
             cur = conn.cursor()
             cur.execute(
                 """
-                SELECT user_id, name, subscription_till
+                SELECT nick, subscription_till
                 FROM users
                 WHERE chat_id = ? AND user_id != ?
                 """,
@@ -135,16 +135,15 @@ def get_auto_subscribed_users(chat_id: int, exclude_user_id: int) -> list[tuple[
     except Exception:
         return []
 
-    result: list[tuple[int, str]] = []
+    result: list[str] = []
     for row in rows:
         subscription_till = _parse_subscription_till(row["subscription_till"])
         if not subscription_till or subscription_till < today:
             continue
-        uid = int(row["user_id"])
-        if get_sits(chat_id, uid) < JOIN_COST:
+        nick = (row["nick"] or "").strip()
+        if not nick:
             continue
-        name = row["name"] or str(uid)
-        result.append((uid, name))
+        result.append(nick)
     return result
 
 
@@ -293,20 +292,13 @@ async def start_group_event(message: types.Message, user_id: int):
     from quest import update_quest_progress
     await update_quest_progress(user_id, chat_id, "group_part", 1, bot=message.bot)
 
-    # Автодобавляем пользователей с активной Сит-премиум подпиской.
-    auto_users = get_auto_subscribed_users(chat_id, exclude_user_id=user_id)
-    for auto_uid, auto_name in auto_users:
-        if auto_uid in state.participants or auto_uid in state.freebies:
-            continue
-        add_sits(chat_id, auto_uid, -JOIN_COST)
-        state.participants.add(auto_uid)
-        state.joined_order.append(auto_uid)
-        state.names[auto_uid] = auto_name
-        phrase = random.choice(GROUP_JOIN_MESSAGES).format(name=auto_name)
+    # Отмечаем пользователей с активной Сит-премиум подпиской, но не добавляем их автоматически.
+    subscription_mentions = get_subscription_mentions(chat_id, exclude_user_id=user_id)
+    if subscription_mentions:
+        mentions_text = " ".join(subscription_mentions)
         await message.answer(
-            f"{phrase}. Был добавлен автоматически в подпиской Сит-премиум"
+            f"{mentions_text}\nСит-премиум, сбор объявлен. Если хочешь участвовать, жди открытия окна и жми кнопку."
         )
-        await update_quest_progress(auto_uid, chat_id, "group_part", 1, bot=message.bot)
 
     await message.answer_sticker(STICKER_FILE_ID)
     await message.answer(f"С твоего счёта списано {EVENT_COST} сит за запуск ивента")

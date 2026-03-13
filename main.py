@@ -570,6 +570,8 @@ def build_group_shop_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="< Назад", callback_data="shop:menu")],
         [InlineKeyboardButton(text="Начать мастурбацию (1 сит)", callback_data="shop:group:start")],
+        [InlineKeyboardButton(text="Сит-премиум на 7 дней (15 сит)", callback_data="shop:group:sub_week")],
+        [InlineKeyboardButton(text="Сит-премиум на 30 дней (50 сит)", callback_data="shop:group:sub_month")],
         [InlineKeyboardButton(text="Моя статистика", callback_data="shop:group:my_stats")],
         [InlineKeyboardButton(text="Общая статистика", callback_data="shop:group:global_stats")],
     ]
@@ -630,7 +632,7 @@ def build_group_shop_text(chat_id: int, user_id: int) -> str:
     subscription_till = get_user_subscription_till(chat_id, user_id)
     if subscription_till and subscription_till >= date.today():
         lines.append(f"Сит-премиум подписка активна до {subscription_till.strftime('%d.%m.%Y')}")
-    lines.append("Сит-премиум подписка даёт автоматическое участие во всех мастурбациях чата")
+    lines.append("Сит-премиум подписка отмечает тебя по нику при старте каждой мастурбации в чате")
     lines.append("")
     lines.append("Выбери действие ниже:")
     return "\n".join(lines)
