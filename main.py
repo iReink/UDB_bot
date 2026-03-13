@@ -566,6 +566,30 @@ async def show_shop(message: types.Message):
     )
 
 
+def _chunk_list(items: list[str], size: int) -> list[list[str]]:
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+async def send_mentions_in_batches(
+    message: types.Message,
+    initiator_text: str,
+    mentions: list[str],
+    *,
+    parse_mode: str | None = None,
+) -> None:
+    chunks = _chunk_list(mentions, 5)
+    first_text = f"{initiator_text}\n" + " ".join(chunks[0])
+    answer_kwargs = {"disable_web_page_preview": True}
+    if parse_mode:
+        answer_kwargs["parse_mode"] = parse_mode
+
+    await message.answer(first_text, **answer_kwargs)
+
+    for chunk in chunks[1:]:
+        await asyncio.sleep(1.2)
+        await message.answer(" ".join(chunk), **answer_kwargs)
+
+
 def build_group_shop_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="< Назад", callback_data="shop:menu")],
@@ -1185,19 +1209,15 @@ async def cmd_all(message: types.Message):
         await message.answer("Никого не удалось собрать 😅. Добавь себя через /addme")
         return
 
-    nicks = " ".join(
-        [
-            f"{row['nick']} 👑" if has_active_subscription(chat_id, int(row["user_id"])) else row["nick"]
-            for row in rows
-        ]
+    mention_list = [
+        f"{row['nick']} 👑" if has_active_subscription(chat_id, int(row["user_id"])) else row["nick"]
+        for row in rows
+    ]
+    await send_mentions_in_batches(
+        message,
+        f"{user_name} решил всех собрать!",
+        mention_list,
     )
-    text = (
-        f"{user_name} решил всех собрать!\n"
-        f"{nicks}\n\n"
-        "Хочешь чтобы тебя тоже звали этой командой? Пиши /addme\n"
-        "Хочешь удалить себя из этого списка? Жми /deleteme"
-    )
-    await message.answer(text)
 
 # --- /all_test ---
 @dp.message(Command("all_test"))
@@ -1231,14 +1251,12 @@ async def cmd_all_test(message: types.Message):
         display_name = get_user_display_name(user_id, chat_id)
         mentions.append(f'<a href="tg://user?id={user_id}">{html.escape(display_name)}</a>')
 
-    mentions_line = " ".join(mentions)
-    text = (
-        f"{html.escape(user_name)} решил всех собрать!\n"
-        f"{mentions_line}\n\n"
-        "Хочешь чтобы тебя тоже звали этой командой? Пиши /addme\n"
-        "Хочешь удалить себя из этого списка? Жми /deleteme"
+    await send_mentions_in_batches(
+        message,
+        f"{html.escape(user_name)} решил всех собрать!",
+        mentions,
+        parse_mode="HTML",
     )
-    await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
 
 # --- /addme ---
 @dp.message(Command("addme"))

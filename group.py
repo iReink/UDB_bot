@@ -10,7 +10,7 @@ from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from sosalsa import get_sits
-from db import add_sits, get_connection, get_user_sex, get_user_display_name as db_get_user_display_name
+from db import add_sits, get_connection, get_user_sex, get_user_display_name as db_get_user_display_name, has_active_subscription
 from dick import update_dick_length
 
 from quest import update_quest_progress
@@ -145,6 +145,33 @@ def get_subscription_mentions(chat_id: int, exclude_user_id: int) -> list[str]:
             continue
         result.append(nick)
     return result
+
+
+def build_subscription_ping_text(chat_id: int, exclude_user_id: int, suffix: str) -> str | None:
+    mentions = get_subscription_mentions(chat_id, exclude_user_id=exclude_user_id)
+    if not mentions:
+        return None
+    return f"{' '.join(mentions)}\n{suffix}"
+
+
+def get_winner_mention(chat_id: int, user_id: int, fallback_name: str) -> str:
+    if not has_active_subscription(chat_id, user_id):
+        return fallback_name
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT nick
+            FROM users
+            WHERE chat_id = ? AND user_id = ?
+            """,
+            (chat_id, user_id),
+        )
+        row = cur.fetchone()
+
+    nick = (row["nick"] or "").strip() if row else ""
+    return nick or fallback_name
 
 
 # ==========================
@@ -293,12 +320,13 @@ async def start_group_event(message: types.Message, user_id: int):
     await update_quest_progress(user_id, chat_id, "group_part", 1, bot=message.bot)
 
     # Отмечаем пользователей с активной Сит-премиум подпиской, но не добавляем их автоматически.
-    subscription_mentions = get_subscription_mentions(chat_id, exclude_user_id=user_id)
-    if subscription_mentions:
-        mentions_text = " ".join(subscription_mentions)
-        await message.answer(
-            f"{mentions_text}\nСит-премиум, сбор объявлен. Если хочешь участвовать, жди открытия окна и жми кнопку."
-        )
+    subscription_ping_text = build_subscription_ping_text(
+        chat_id,
+        exclude_user_id=user_id,
+        suffix="Сит-премиум, сбор объявлен. Если хочешь участвовать, жди открытия окна и жми кнопку.",
+    )
+    if subscription_ping_text:
+        await message.answer(subscription_ping_text)
 
     await message.answer_sticker(STICKER_FILE_ID)
     await message.answer(f"С твоего счёта списано {EVENT_COST} сит за запуск ивента")
@@ -368,6 +396,14 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         state.join_msg_id = msg.message_id
         state.join_open = True
 
+        subscription_ping_text = build_subscription_ping_text(
+            chat_id,
+            exclude_user_id=state.joined_order[0] if state.joined_order else 0,
+            suffix="Окно участия открыто. Если хочешь в дело, жми кнопку.",
+        )
+        if subscription_ping_text:
+            await bot.send_message(chat_id, subscription_ping_text, **send_kwargs)
+
         # Активная фаза с напоминаниями
         await asyncio.sleep(JOIN_WINDOW_SEC - 60 - 30 - 10 - 1)
 
@@ -406,21 +442,23 @@ async def _run_event_flow(bot: Bot, chat_id: int):
 
             lucky_id = random.choice(participants)
             lucky_name = state.names.get(lucky_id) or get_user_display_name(lucky_id, chat_id)
+            lucky_mention = get_winner_mention(chat_id, lucky_id, lucky_name)
             update_dick_length(lucky_id, chat_id, 1)
             lucky_sex = get_user_sex(lucky_id, chat_id)
             verb = "мастурбировал" if lucky_sex != "f" else "мастурбировала"
             await bot.send_message(
                 chat_id,
-                f"🍆 {lucky_name} так усердно {verb}, что член подрос на 1 см! Так держать!",
+                f"🍆 {lucky_mention} так усердно {verb}, что член подрос на 1 см! Так держать!",
                 **send_kwargs,
             )
 
             # Победитель
             winner_id = random.choice(participants)
             winner_name = state.names[winner_id]
+            winner_mention = get_winner_mention(chat_id, winner_id, winner_name)
             reward = len(participants) + 1
             add_sits(chat_id, winner_id, reward)
-            await bot.send_message(chat_id, f"🎉 Победитель: {winner_name}! Получает {reward} сит!", **send_kwargs)
+            await bot.send_message(chat_id, f"🎉 Победитель: {winner_mention}! Получает {reward} сит!", **send_kwargs)
             # ОТправка уведомления в обработчик квестов
             await update_quest_progress(winner_id, chat_id, "group_win", 1, bot=bot)
             try:
