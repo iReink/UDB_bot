@@ -40,6 +40,12 @@ def ensure_matsturbator_achievement(cur: sqlite3.Cursor) -> None:
         VALUES ('matsturbator', 'Дротик', 'Дротесса')
         """
     )
+    cur.execute(
+        """
+        INSERT OR IGNORE INTO achievements (key, name_m, name_f)
+        VALUES ('matershinnik', 'Гномик-матершинник', 'Гномка-матершинка')
+        """
+    )
 
 
 def ensure_users_subscription_column(cur: sqlite3.Cursor) -> None:
@@ -57,15 +63,33 @@ def ensure_users_subscription_column(cur: sqlite3.Cursor) -> None:
         )
 
 
+def ensure_profanity_columns(cur: sqlite3.Cursor) -> None:
+    for table_name in ("daily_stats", "total_stats"):
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,),
+        )
+        if not cur.fetchone():
+            continue
+
+        cur.execute(f"PRAGMA table_info({table_name})")
+        columns = {row[1] for row in cur.fetchall()}
+        if "profanity_count" not in columns:
+            cur.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN profanity_count INTEGER DEFAULT 0"
+            )
+
+
 def migrate() -> None:
     with closing(sqlite3.connect(DB_FILE)) as conn:
         cur = conn.cursor()
         ensure_masturbate_log_table(cur)
         ensure_matsturbator_achievement(cur)
         ensure_users_subscription_column(cur)
+        ensure_profanity_columns(cur)
         conn.commit()
 
 
 if __name__ == "__main__":
     migrate()
-    print("DB migration complete: masturbate_log + matsturbator achievement + users.subscription_till.")
+    print("DB migration complete: masturbate_log + achievements + users.subscription_till + profanity_count columns.")

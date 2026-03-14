@@ -214,39 +214,41 @@ def get_achievement_title(achievement_key: str, sex: str) -> str:
 # -------------------------------
 
 def add_or_update_daily_stats(user_id: int, chat_id: int, date_str: str,
-                              messages=0, words=0, chars=0, stickers=0, coffee=0):
+                              messages=0, words=0, chars=0, stickers=0, coffee=0, profanity_count=0):
     """Добавляет или обновляет статистику за день"""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO daily_stats (user_id, chat_id, date, messages, words, chars, stickers, coffee)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO daily_stats (user_id, chat_id, date, messages, words, chars, stickers, coffee, profanity_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, chat_id, date) DO UPDATE SET
                 messages = excluded.messages,
                 words = excluded.words,
                 chars = excluded.chars,
                 stickers = excluded.stickers,
-                coffee = excluded.coffee
-        """, (user_id, chat_id, date_str, messages, words, chars, stickers, coffee))
+                coffee = excluded.coffee,
+                profanity_count = excluded.profanity_count
+        """, (user_id, chat_id, date_str, messages, words, chars, stickers, coffee, profanity_count))
         conn.commit()
 
 
 def increment_daily_stats(user_id: int, chat_id: int, date_str: str,
-                          messages=0, words=0, chars=0, stickers=0, coffee=0, rounds=0):
+                          messages=0, words=0, chars=0, stickers=0, coffee=0, rounds=0, profanity_count=0):
     """Добавляет значения к дневной статистике или создаёт новую запись"""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO daily_stats (user_id, chat_id, date, messages, words, chars, stickers, coffee, rounds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO daily_stats (user_id, chat_id, date, messages, words, chars, stickers, coffee, rounds, profanity_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, chat_id, date) DO UPDATE SET
                 messages = daily_stats.messages + excluded.messages,
                 words = daily_stats.words + excluded.words,
                 chars = daily_stats.chars + excluded.chars,
                 stickers = daily_stats.stickers + excluded.stickers,
                 coffee = daily_stats.coffee + excluded.coffee,
-                rounds = daily_stats.rounds + excluded.rounds
-        """, (user_id, chat_id, date_str, messages, words, chars, stickers, coffee, rounds))
+                rounds = daily_stats.rounds + excluded.rounds,
+                profanity_count = daily_stats.profanity_count + excluded.profanity_count
+        """, (user_id, chat_id, date_str, messages, words, chars, stickers, coffee, rounds, profanity_count))
         conn.commit()
 
 
@@ -284,38 +286,40 @@ def get_last_7_daily_stats(user_id: int, chat_id: int, days: int = 7) -> list[di
 # -------------------------------
 
 def add_or_update_total_stats(user_id: int, chat_id: int,
-                              messages=0, words=0, chars=0, stickers=0, coffee=0):
+                              messages=0, words=0, chars=0, stickers=0, coffee=0, profanity_count=0):
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO total_stats (user_id, chat_id, messages, words, chars, stickers, coffee)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO total_stats (user_id, chat_id, messages, words, chars, stickers, coffee, profanity_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 messages = excluded.messages,
                 words = excluded.words,
                 chars = excluded.chars,
                 stickers = excluded.stickers,
-                coffee = excluded.coffee
-        """, (user_id, chat_id, messages, words, chars, stickers, coffee))
+                coffee = excluded.coffee,
+                profanity_count = excluded.profanity_count
+        """, (user_id, chat_id, messages, words, chars, stickers, coffee, profanity_count))
         conn.commit()
 
 
 def increment_total_stats(user_id: int, chat_id: int,
-                          messages=0, words=0, chars=0, stickers=0, coffee=0, rounds=0):
+                          messages=0, words=0, chars=0, stickers=0, coffee=0, rounds=0, profanity_count=0):
     """Добавляет значения к общей статистике пользователя или создаёт новую запись."""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO total_stats (user_id, chat_id, messages, words, chars, stickers, coffee, rounds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO total_stats (user_id, chat_id, messages, words, chars, stickers, coffee, rounds, profanity_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 messages = total_stats.messages + excluded.messages,
                 words = total_stats.words + excluded.words,
                 chars = total_stats.chars + excluded.chars,
                 stickers = total_stats.stickers + excluded.stickers,
                 coffee = total_stats.coffee + excluded.coffee,
-                rounds = total_stats.rounds + excluded.rounds
-        """, (user_id, chat_id, messages, words, chars, stickers, coffee, rounds))
+                rounds = total_stats.rounds + excluded.rounds,
+                profanity_count = total_stats.profanity_count + excluded.profanity_count
+        """, (user_id, chat_id, messages, words, chars, stickers, coffee, rounds, profanity_count))
         conn.commit()
 
 def increment_sticker_stats(chat_id: int, file_id: str, set_name: str | None = None, date_str: str | None = None):

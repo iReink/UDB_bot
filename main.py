@@ -95,6 +95,8 @@ dick.register_dick_handlers(dp)
 import dashboard
 dashboard.register_dashboard_handlers(dp)
 
+from profanity import count_profanity
+
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -303,12 +305,29 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
         if text:
             words = len(text.split())
             chars = len(text)
+            profanity_count = count_profanity(text)
         else:
             words = 1
             chars = 1
+            profanity_count = 0
 
-        increment_daily_stats(user_id, chat_id, today_str, messages=1, words=words, chars=chars)
-        increment_total_stats(user_id, chat_id, messages=1, words=words, chars=chars)
+        increment_daily_stats(
+            user_id,
+            chat_id,
+            today_str,
+            messages=1,
+            words=words,
+            chars=chars,
+            profanity_count=profanity_count,
+        )
+        increment_total_stats(
+            user_id,
+            chat_id,
+            messages=1,
+            words=words,
+            chars=chars,
+            profanity_count=profanity_count,
+        )
         asyncio.create_task(update_quest_progress(user_id, chat_id, "messages_sent", 1, bot))
 
         if not chat_name:

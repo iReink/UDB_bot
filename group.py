@@ -6,7 +6,7 @@ from contextlib import closing
 from typing import Dict, Set, List
 
 from aiogram import types, Bot
-from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from sosalsa import get_sits
@@ -19,7 +19,6 @@ from quest import update_quest_progress
 # НАСТРОЙКИ
 # ==========================
 STICKER_FILE_ID = "CAACAgIAAyEFAASjKavKAAIDrGi31TwpfP-R-JI64M0v6eRnTCFxAAJMUAACITxRSq0hIi2dEdhQNgQ"
-VOICE_PATH = "images/poehali.ogg"
 EVENT_COST = 1  # Стоимость запуска
 JOIN_COST = 1   # Стоимость присоединения
 
@@ -378,13 +377,6 @@ async def _run_event_flow(bot: Bot, chat_id: int):
 
             text = " ".join(mentions) + " — скоро начинаем!!"
             await bot.send_message(chat_id, text, **send_kwargs)
-
-        # Голосовое перед стартом
-        try:
-            voice = FSInputFile(VOICE_PATH)
-            await bot.send_voice(chat_id, voice, **send_kwargs)
-        except Exception:
-            pass
 
         # Сообщение с кнопкой
         msg = await bot.send_message(

@@ -93,6 +93,7 @@ async def process_weekly_awards():
                 await award_biter(chat_id)
                 await award_bitten(chat_id)
                 await award_matsturbator(chat_id)
+                await award_matershinnik(chat_id)
 
             except Exception as e:
                 logging.exception(f"[weekly_awards] Ошибка при награждении в чате {chat_id}: {e}")
@@ -683,6 +684,51 @@ async def award_matsturbator(chat_id: int):
         text = (
             f"🍆 {title} недели — {winner_name} "
             f"({participations} участий)! +{ACHIEVEMENT_REWARD} сит"
+        )
+        await bot.send_message(chat_id, text)
+    finally:
+        conn.close()
+
+
+async def award_matershinnik(chat_id: int):
+    """Гномик-матершинник недели — больше всего мата за последние 7 дней."""
+    DB_FILE = "stats.db"
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                u.user_id,
+                u.name,
+                COALESCE(SUM(d.profanity_count), 0) AS week_profanity
+            FROM users u
+            JOIN daily_stats d
+              ON d.user_id = u.user_id AND d.chat_id = u.chat_id
+            WHERE u.chat_id = ?
+              AND date(d.date) >= date('now', '-6 days')
+            GROUP BY u.user_id
+            HAVING week_profanity > 0
+            ORDER BY week_profanity DESC, u.user_id ASC
+            LIMIT 1
+            """,
+            (chat_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return
+
+        winner_id, winner_name, week_profanity = row
+        winner_name = get_user_display_name(winner_id, chat_id)
+
+        add_or_update_user_achievement(winner_id, chat_id, "matershinnik")
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+
+        sex = get_user_sex(winner_id, chat_id)
+        title = get_achievement_title("matershinnik", sex)
+        text = (
+            f"🤬 {title} недели — {winner_name} "
+            f"({week_profanity} матерных слов)! +{ACHIEVEMENT_REWARD} сит"
         )
         await bot.send_message(chat_id, text)
     finally:
