@@ -1,11 +1,13 @@
 import asyncio
 import html
+import logging
 import math
 import random
 import time
 from dataclasses import dataclass, field
 
 from aiogram import Bot, Dispatcher, F, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters.command import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -70,6 +72,7 @@ class FightSession:
     choices: dict[int, FightChoice] = field(default_factory=dict)
     round_task: asyncio.Task | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    render_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     finished: bool = False
 
     def player_name(self, user_id: int) -> str:
@@ -137,6 +140,10 @@ def get_display_seconds(fight: FightSession) -> int:
     return math.ceil(remaining / ROUND_UPDATE_SECONDS) * DISPLAY_SECONDS_STEP
 
 
+def round_expired(fight: FightSession) -> bool:
+    return time.monotonic() >= fight.round_deadline
+
+
 def format_player_status(name: str, choice: FightChoice) -> str:
     safe_name = html.escape(name)
     attack_mark = "✅" if choice.attack else "❌"
@@ -152,6 +159,8 @@ def build_fight_text(fight: FightSession) -> str:
 
     if fight.finished:
         round_line = f"Раунд №{fight.round_number}. Бой завершён"
+    elif round_expired(fight):
+        round_line = f"Раунд №{fight.round_number}. Время вышло, фиксируем выбор"
     else:
         round_line = (
             f"Раунд №{fight.round_number}. "
@@ -172,16 +181,35 @@ def build_fight_text(fight: FightSession) -> str:
 
 
 async def edit_fight_message(bot: Bot, fight: FightSession) -> None:
+    async with fight.render_lock:
+        try:
+            await bot.edit_message_text(
+                chat_id=fight.chat_id,
+                message_id=fight.message_id,
+                text=build_fight_text(fight),
+                reply_markup=None if fight.finished else build_fight_keyboard(fight),
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+
+async def safe_callback_answer(
+    callback: types.CallbackQuery,
+    text: str | None = None,
+    *,
+    show_alert: bool = False,
+) -> None:
     try:
-        await bot.edit_message_text(
-            chat_id=fight.chat_id,
-            message_id=fight.message_id,
-            text=build_fight_text(fight),
-            reply_markup=None if fight.finished else build_fight_keyboard(fight),
-            parse_mode="HTML",
-        )
-    except Exception:
-        pass
+        await callback.answer(text, show_alert=show_alert)
+    except TelegramBadRequest as exc:
+        message = str(exc).lower()
+        if "query is too old" in message or "query id is invalid" in message:
+            logging.warning("[fight] callback answer expired for user %s", callback.from_user.id)
+            return
+        raise
+    except Exception as exc:
+        logging.warning("[fight] callback answer failed: %s", exc)
 
 
 def calculate_attack_line(
@@ -425,12 +453,13 @@ def register_fight_club_handlers(dp: Dispatcher):
         chat_id = callback.message.chat.id
 
         if chat_id in ACTIVE_CHALLENGES or chat_id in ACTIVE_FIGHTS:
-            await callback.answer("В этом чате уже есть активный вызов или бой.", show_alert=True)
+            await safe_callback_answer(callback, "В этом чате уже есть активный вызов или бой.", show_alert=True)
             return
 
         current_sits = await get_current_sits(challenger_id, chat_id)
         if current_sits < BET_COST:
-            await callback.answer(
+            await safe_callback_answer(
+                callback,
                 f"Недостаточно сита для вызова. Нужно {BET_COST} сита.",
                 show_alert=True,
             )
@@ -461,7 +490,7 @@ def register_fight_club_handlers(dp: Dispatcher):
         challenge.timeout_task = asyncio.create_task(challenge_timeout_check(callback.bot, chat_id, challenge_id))
         ACTIVE_CHALLENGES[chat_id] = challenge
 
-        await callback.answer("Вызов брошен. Ждём соперника.")
+        await safe_callback_answer(callback, "Вызов брошен. Ждём соперника.")
 
     @dp.callback_query(F.data.startswith("fight_accept:"))
     async def process_accept_challenge(callback: types.CallbackQuery):
@@ -470,21 +499,22 @@ def register_fight_club_handlers(dp: Dispatcher):
 
         challenge = ACTIVE_CHALLENGES.get(chat_id)
         if not challenge:
-            await callback.answer("Этот вызов уже неактивен.", show_alert=True)
+            await safe_callback_answer(callback, "Этот вызов уже неактивен.", show_alert=True)
+            return
+
+        if accepter_id == challenge.challenger_id:
+            await safe_callback_answer(callback, "Это твой собственный вызов. Жди соперника.", show_alert=True)
             return
 
         _, challenge_id_text = callback.data.split(":")
         if challenge.challenge_id != int(challenge_id_text) or challenge.message_id != callback.message.message_id:
-            await callback.answer("Этот вызов уже устарел.", show_alert=True)
-            return
-
-        if accepter_id == challenge.challenger_id:
-            await callback.answer("Нельзя принимать свой собственный вызов.", show_alert=True)
+            await safe_callback_answer(callback, "Этот вызов уже устарел.", show_alert=True)
             return
 
         current_sits = await get_current_sits(accepter_id, chat_id)
         if current_sits < BET_COST:
-            await callback.answer(
+            await safe_callback_answer(
+                callback,
                 f"Недостаточно сита для принятия вызова. Нужно {BET_COST} сита.",
                 show_alert=True,
             )
@@ -492,62 +522,70 @@ def register_fight_club_handlers(dp: Dispatcher):
 
         add_sits(chat_id, accepter_id, -BET_COST)
         accepter_name = get_user_display_name(accepter_id, chat_id)
+        await safe_callback_answer(callback, "Вызов принят. Бой начался.")
         await start_fight(callback.bot, challenge, accepter_id, accepter_name)
-
-        await callback.answer("Вызов принят. Бой начался.")
 
     @dp.callback_query(F.data.startswith("fight_action:"))
     async def process_fight_action(callback: types.CallbackQuery):
         chat_id = callback.message.chat.id
         fight = ACTIVE_FIGHTS.get(chat_id)
         if not fight:
-            await callback.answer("Этот бой уже завершён.", show_alert=True)
+            await safe_callback_answer(callback, "Этот бой уже завершён.", show_alert=True)
             return
 
         parts = callback.data.split(":")
         if len(parts) != 5:
-            await callback.answer("Некорректное действие.", show_alert=True)
+            await safe_callback_answer(callback, "Некорректное действие.", show_alert=True)
             return
 
         _, fight_id_text, round_text, action, target = parts
         if fight.fight_id != int(fight_id_text):
-            await callback.answer("Это действие относится к другому бою.", show_alert=True)
+            await safe_callback_answer(callback, "Это действие относится к другому бою.", show_alert=True)
             return
 
         user_id = callback.from_user.id
         if user_id not in (fight.player1_id, fight.player2_id):
-            await callback.answer("Только участники боя могут нажимать эти кнопки.", show_alert=True)
+            await safe_callback_answer(callback, "Только участники боя могут нажимать эти кнопки.", show_alert=True)
             return
 
         round_number = int(round_text)
         should_render = False
         should_resolve = False
         timer_task: asyncio.Task | None = None
+        answer_text: str | None = None
+        answer_alert = False
 
         async with fight.lock:
             if fight.finished:
-                await callback.answer("Этот бой уже завершён.", show_alert=True)
-                return
+                answer_text = "Этот бой уже завершён."
+                answer_alert = True
+            elif round_number != fight.round_number:
+                answer_text = "Раунд уже обновился. Нажми кнопку ещё раз."
+                answer_alert = True
+            else:
+                choice = fight.choices[user_id]
+                current_value = getattr(choice, action, None)
+                if current_value is not None:
+                    label = "Атака" if action == "attack" else "Защита"
+                    answer_text = f"{label} в этом раунде уже выбрана."
+                    answer_alert = True
+                else:
+                    setattr(choice, action, target)
+                    should_render = True
+                    label = "атаку" if action == "attack" else "защиту"
+                    answer_text = f"Выбор на {label} принят."
 
-            if round_number != fight.round_number:
-                await callback.answer("Раунд уже обновился. Нажми кнопку ещё раз.", show_alert=True)
-                return
+                    if fight_is_ready(fight):
+                        should_resolve = True
+                        should_render = False
+                        timer_task = fight.round_task
+                        fight.round_task = None
 
-            choice = fight.choices[user_id]
-            current_value = getattr(choice, action, None)
-            if current_value is not None:
-                label = "Атака" if action == "attack" else "Защита"
-                await callback.answer(f"{label} в этом раунде уже выбрана.", show_alert=True)
-                return
+        if answer_text is not None:
+            await safe_callback_answer(callback, answer_text, show_alert=answer_alert)
 
-            setattr(choice, action, target)
-            should_render = True
-
-            if fight_is_ready(fight):
-                should_resolve = True
-                should_render = False
-                timer_task = fight.round_task
-                fight.round_task = None
+        if answer_alert:
+            return
 
         if timer_task:
             timer_task.cancel()
@@ -557,6 +595,7 @@ def register_fight_club_handlers(dp: Dispatcher):
 
         if should_resolve:
             await resolve_round(callback.bot, fight)
+            return
 
-        label = "атаку" if action == "attack" else "защиту"
-        await callback.answer(f"Выбор на {label} принят.")
+        if round_expired(fight):
+            return
