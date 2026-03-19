@@ -441,7 +441,7 @@ def register_fight_club_handlers(dp: Dispatcher):
     @dp.message(Command("fight"))
     async def fight_menu(message: types.Message):
         kb = InlineKeyboardBuilder()
-        kb.row(InlineKeyboardButton(text="👊 Бросить вызов (3 сита)", callback_data="fight_challenge"))
+        kb.row(InlineKeyboardButton(text="👊 Бросить вызов (5 сит)", callback_data="fight_challenge"))
         await message.answer(
             "Добро пожаловать в Бойцовский клуб! Готов испытать свою силу и удачу?",
             reply_markup=kb.as_markup(),
