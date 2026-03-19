@@ -50,6 +50,7 @@ class PendingChallenge:
     challenger_id: int
     challenger_name: str
     message_id: int
+    thread_id: int | None
     challenger_balance_after_bet: int
     timeout_task: asyncio.Task | None = None
 
@@ -59,6 +60,7 @@ class FightSession:
     fight_id: int
     chat_id: int
     message_id: int
+    thread_id: int | None
     player1_id: int
     player1_name: str
     player2_id: int
@@ -281,6 +283,7 @@ async def finalize_fight(bot: Bot, fight: FightSession, winner_id: int, winner_r
             f"Текущий баланс: {current_balance} сита."
         ),
         parse_mode="HTML",
+        message_thread_id=fight.thread_id,
     )
 
 
@@ -419,6 +422,7 @@ async def start_fight(bot: Bot, challenge: PendingChallenge, accepter_id: int, a
         fight_id=challenge.challenge_id,
         chat_id=challenge.chat_id,
         message_id=challenge.message_id,
+        thread_id=challenge.thread_id,
         player1_id=challenge.challenger_id,
         player1_name=challenge.challenger_name,
         player2_id=accepter_id,
@@ -469,7 +473,7 @@ def register_fight_club_handlers(dp: Dispatcher):
         add_sits(chat_id, challenger_id, -BET_COST)
 
         challenge_id = next_fight_id()
-        sent_message = await callback.message.answer(
+        await callback.message.edit_text(
             (
                 f"<b>{html.escape(challenger_name)}</b> бросил вызов в Бойцовский клуб!\n"
                 f"Ставка на вход: {BET_COST} сита.\n"
@@ -484,7 +488,8 @@ def register_fight_club_handlers(dp: Dispatcher):
             chat_id=chat_id,
             challenger_id=challenger_id,
             challenger_name=challenger_name,
-            message_id=sent_message.message_id,
+            message_id=callback.message.message_id,
+            thread_id=callback.message.message_thread_id,
             challenger_balance_after_bet=current_sits - BET_COST,
         )
         challenge.timeout_task = asyncio.create_task(challenge_timeout_check(callback.bot, chat_id, challenge_id))
