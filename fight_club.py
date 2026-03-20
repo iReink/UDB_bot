@@ -440,6 +440,16 @@ async def start_fight(bot: Bot, challenge: PendingChallenge, accepter_id: int, a
 
     fight.round_task = asyncio.create_task(run_round_timer(bot, fight.chat_id, fight.fight_id, fight.round_number))
 
+    challenger_user = get_user(challenge.challenger_id, challenge.chat_id)
+    challenger_nick = (challenger_user["nick"] or "").strip() if challenger_user and "nick" in challenger_user.keys() else ""
+    challenger_ping = challenger_nick or html.escape(challenge.challenger_name)
+    await bot.send_message(
+        challenge.chat_id,
+        f"{challenger_ping}, твой вызов принял <b>{html.escape(accepter_name)}</b>! Бой начался.",
+        parse_mode="HTML",
+        message_thread_id=challenge.thread_id,
+    )
+
 
 def register_fight_club_handlers(dp: Dispatcher):
     @dp.message(Command("fight"))
