@@ -1203,6 +1203,75 @@ async def handle_give(message: types.Message):
     )
 
 
+@dp.message(Command("givedick"))
+async def handle_givedick(message: types.Message):
+    chat_id = message.chat.id
+    sender_id = message.from_user.id
+
+    parts = (message.text or "").split()
+    if len(parts) < 3:
+        await message.answer("❌ Использование: /givedick @nick amount\nПример: /givedick @vasya 3")
+        return
+
+    nick_raw = parts[1].strip()
+    amount_raw = parts[2].strip()
+
+    if not nick_raw.startswith("@") or len(nick_raw) < 2:
+        await message.answer("❌ Укажи ник в формате @username")
+        return
+
+    try:
+        amount = int(amount_raw)
+    except ValueError:
+        await message.answer("❌ Количество сантиметров должно быть целым числом")
+        return
+
+    if amount < 0:
+        await message.answer("🚫 Нет, мы закрыли эту дыру в безопасности.")
+        return
+    if amount == 0:
+        await message.answer("ℹ️ Ноль сантиметров? Операция бессмысленна, ничего не передаю.")
+        return
+
+    receiver_id = find_user_id_by_nick(chat_id, nick_raw)
+    if receiver_id is None:
+        await message.answer(
+            "❌ Пользователь с таким ником не найден в базе этого чата.\n"
+            "Попроси его написать хоть одно сообщение, чтобы я запомнил ник."
+        )
+        return
+
+    if receiver_id == sender_id:
+        await message.answer("🤔 Самому себе передавать сантиметры смысла нет.")
+        return
+
+    sender_dick = dick.get_dick(sender_id, chat_id)
+    sender_length = int(sender_dick.get("length") or 0)
+    if sender_length < amount:
+        await message.answer(f"❌ Недостаточно сантиметров. Нужно: {amount}, у тебя: {sender_length}")
+        return
+
+    receiver_dick = dick.get_dick(receiver_id, chat_id)
+    if not (receiver_dick.get("grow_date") or "").strip():
+        receiver_sex = get_user_sex(receiver_id, chat_id)
+        receiver_label = "Получательница" if receiver_sex == "f" else "Получатель"
+        await message.answer(f"❌ {receiver_label} не участвует в большой гонке")
+        return
+
+    dick.update_dick_length(sender_id, chat_id, -amount)
+    dick.update_dick_length(receiver_id, chat_id, amount)
+
+    sender_name = get_user_display_name(sender_id, chat_id)
+    receiver_name = get_user_display_name(receiver_id, chat_id)
+
+    sender_sex = get_user_sex(sender_id, chat_id)
+    verb = "передала" if sender_sex == "f" else "передал"
+
+    await message.answer(
+        f"🍆 {sender_name} {verb} {amount} см пользователю {receiver_name} {nick_raw}."
+    )
+
+
 
 # --- /all ---
 @dp.message(Command("all"))
