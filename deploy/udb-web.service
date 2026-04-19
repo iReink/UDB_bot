@@ -3,11 +3,11 @@ Description=UDB Web (FastAPI)
 After=network.target
 
 [Service]
-User=www-data
-Group=www-data
-WorkingDirectory=/opt/UDB_bot
-EnvironmentFile=/opt/UDB_bot/.env.web
-ExecStart=/opt/UDB_bot/.venv/bin/uvicorn web.server:app --host 127.0.0.1 --port 8080
+User=root
+Group=root
+WorkingDirectory=/root/UDB_bot
+EnvironmentFile=/root/UDB_bot/.env.web
+ExecStart=/root/UDB_bot/venv/bin/uvicorn web.server:app --host 127.0.0.1 --port 8080
 Restart=always
 RestartSec=3
 

@@ -53,11 +53,21 @@ uvicorn web.server:app --reload --host 127.0.0.1 --port 8080
 
 Базовые шаги:
 
-1. Склонировать проект в `/opt/UDB_bot`.
+1. Склонировать проект в `/root/UDB_bot` (или в свой путь, но тогда поправить пути в unit-файле).
 2. Создать venv и установить зависимости (`requirements-web.txt`).
-3. Создать `/opt/UDB_bot/.env.web`.
+3. Создать `/root/UDB_bot/.env.web`.
 4. Скопировать `deploy/udb-web.service` в `/etc/systemd/system/`.
 5. `sudo systemctl daemon-reload && sudo systemctl enable --now udb-web`.
 6. Скопировать `deploy/nginx-udb-web.conf` в `/etc/nginx/sites-available/`, включить сайт.
 7. `sudo nginx -t && sudo systemctl reload nginx`.
 8. Выпустить HTTPS сертификат через certbot.
+
+Быстрый вариант установки при текущем пути `/root/UDB_bot`:
+
+```bash
+cd /root/UDB_bot
+cp deploy/udb-web.service /etc/systemd/system/udb-web.service
+systemctl daemon-reload
+systemctl enable --now udb-web
+systemctl status udb-web --no-pager
+```
