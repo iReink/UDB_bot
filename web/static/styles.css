@@ -28,11 +28,51 @@ html, body {
 
 body {
     position: relative;
-    background-color: var(--accent);
+    background: var(--accent);
+}
+
+.scene {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+    pointer-events: none;
+}
+
+.scene-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.scene-layer-sky {
     background:
-        radial-gradient(1000px 600px at 8% 8%, rgba(14, 43, 72, 0.45), transparent 70%),
-        radial-gradient(1000px 650px at 90% 90%, rgba(28, 111, 136, 0.33), transparent 72%),
-        linear-gradient(140deg, var(--accent) 0%, #f344ca 45%, #ff61db 100%);
+        radial-gradient(960px 500px at 12% 10%, rgba(10, 28, 54, 0.44), transparent 70%),
+        radial-gradient(900px 460px at 86% 8%, rgba(32, 126, 151, 0.3), transparent 72%),
+        linear-gradient(160deg, var(--accent) 0%, #f344ca 45%, #ff66df 100%);
+}
+
+.scene-layer-sky-elements {
+    mix-blend-mode: normal;
+}
+
+.scene-layer-background {
+    top: 24vh;
+    background:
+        linear-gradient(to top, rgba(10, 25, 44, 0.16) 0%, rgba(10, 25, 44, 0.02) 55%, transparent 100%);
+}
+
+.scene-layer-foreground {
+    pointer-events: auto;
+}
+
+.scene-item {
+    position: absolute;
+    display: block;
+    max-width: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
 }
 
 .backdrop {
@@ -43,6 +83,7 @@ body {
         linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
     background-size: 24px 24px;
     pointer-events: none;
+    z-index: 1;
 }
 
 .app-header {
@@ -113,7 +154,7 @@ body {
     justify-content: center;
     padding: 88px 18px 20px;
     position: relative;
-    z-index: 1;
+    z-index: 2;
 }
 
 .auth-card,
