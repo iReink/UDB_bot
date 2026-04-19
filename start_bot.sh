@@ -7,6 +7,10 @@ VENV_DIR="$BOT_DIR/venv"
 LOG_FILE="$BOT_DIR/bot.log"
 WEB_SERVICE="udb-web"
 
+unit_exists() {
+    systemctl cat "$WEB_SERVICE" >/dev/null 2>&1
+}
+
 start_bot() {
     cd "$BOT_DIR" || {
         echo "Не найдена директория $BOT_DIR"
@@ -36,16 +40,20 @@ start_bot() {
 }
 
 start_web() {
-    if ! systemctl list-unit-files | grep -q "^${WEB_SERVICE}\\.service"; then
+    if ! unit_exists; then
         echo "Сервис ${WEB_SERVICE}.service не найден. Пропускаю запуск веб-сервера."
         return
     fi
 
+    systemctl restart "$WEB_SERVICE"
+    sleep 1
+
     if systemctl is-active --quiet "$WEB_SERVICE"; then
-        echo "Веб-сервер уже запущен"
-    else
-        systemctl start "$WEB_SERVICE"
         echo "Веб-сервер запущен (${WEB_SERVICE}.service)"
+    else
+        echo "Не удалось запустить веб-сервер (${WEB_SERVICE}.service)"
+        systemctl status "$WEB_SERVICE" --no-pager || true
+        exit 1
     fi
 }
 

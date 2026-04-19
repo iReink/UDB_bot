@@ -4,6 +4,10 @@ set -euo pipefail
 BOT_FILE="main.py"
 WEB_SERVICE="udb-web"
 
+unit_exists() {
+    systemctl cat "$WEB_SERVICE" >/dev/null 2>&1
+}
+
 stop_bot() {
     local pids
     pids="$(pgrep -f "python.*${BOT_FILE}" || true)"
@@ -28,7 +32,7 @@ stop_bot() {
 }
 
 stop_web() {
-    if ! systemctl list-unit-files | grep -q "^${WEB_SERVICE}\\.service"; then
+    if ! unit_exists; then
         echo "Сервис ${WEB_SERVICE}.service не найден. Пропускаю остановку веб-сервера."
         return
     fi
