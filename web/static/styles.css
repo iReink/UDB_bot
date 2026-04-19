@@ -1,0 +1,224 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap");
+
+:root {
+    --bg-0: #0d1d2a;
+    --bg-1: #16374d;
+    --bg-2: #1f5a57;
+    --card: rgba(255, 255, 255, 0.9);
+    --ink: #102030;
+    --muted: #47637b;
+    --line: rgba(16, 32, 48, 0.16);
+    --accent: #f2a24f;
+    --accent-strong: #e88a27;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    font-family: "Manrope", sans-serif;
+    color: var(--ink);
+}
+
+body {
+    position: relative;
+    background:
+        radial-gradient(1200px 600px at 10% 20%, rgba(242, 162, 79, 0.24), transparent 65%),
+        radial-gradient(900px 500px at 80% 0%, rgba(76, 193, 167, 0.2), transparent 68%),
+        linear-gradient(145deg, var(--bg-0), var(--bg-1) 55%, var(--bg-2));
+}
+
+.backdrop {
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 24px 24px;
+    pointer-events: none;
+}
+
+.app-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 18px;
+    backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.74);
+    border-bottom: 1px solid var(--line);
+    z-index: 20;
+}
+
+.brand {
+    font-weight: 800;
+    letter-spacing: 0;
+}
+
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.chat-switch-label {
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.chat-switch {
+    min-width: 170px;
+    max-width: 320px;
+    height: 36px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: #fff;
+    padding: 0 10px;
+    font: inherit;
+    color: var(--ink);
+}
+
+.ghost-btn {
+    height: 36px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    font: inherit;
+    padding: 0 12px;
+    cursor: pointer;
+}
+
+.app-main {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 88px 18px 20px;
+    position: relative;
+    z-index: 1;
+}
+
+.auth-card,
+.status-card {
+    width: min(720px, 100%);
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    padding: 26px;
+    box-shadow: 0 10px 40px rgba(6, 10, 24, 0.16);
+}
+
+.auth-card h1 {
+    margin: 0 0 8px;
+    font-size: 26px;
+}
+
+.auth-card p {
+    margin: 0 0 16px;
+    color: var(--muted);
+}
+
+.hint {
+    margin-top: 14px;
+    color: #9c2b27;
+}
+
+.status-card p {
+    margin: 0;
+    font-size: clamp(20px, 4vw, 32px);
+    line-height: 1.2;
+    font-weight: 700;
+}
+
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+}
+
+.modal-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(3, 11, 19, 0.58);
+}
+
+.modal-dialog {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(460px, calc(100% - 30px));
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #fff;
+    padding: 20px;
+    box-shadow: 0 20px 60px rgba(3, 11, 19, 0.35);
+}
+
+.modal-title {
+    margin: 0 0 12px;
+    font-size: 19px;
+    font-weight: 800;
+}
+
+.chat-list {
+    display: grid;
+    gap: 8px;
+}
+
+.chat-row {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+    font: inherit;
+    text-align: left;
+    padding: 11px 12px;
+    cursor: pointer;
+}
+
+.chat-row:hover {
+    border-color: var(--accent-strong);
+    background: #fff8ef;
+}
+
+.hidden {
+    display: none !important;
+}
+
+@media (max-width: 640px) {
+    .app-header {
+        height: auto;
+        padding: 10px 12px;
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .header-controls {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .chat-switch {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .ghost-btn {
+        width: 100%;
+    }
+
+    .app-main {
+        padding-top: 110px;
+    }
+}

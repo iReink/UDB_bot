@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UDB Web</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="backdrop"></div>
+
+<header class="app-header hidden" id="appHeader">
+    <div class="brand">UDB WEB</div>
+    <div class="header-controls">
+        <label class="chat-switch-label" for="chatSwitch">Аккаунт</label>
+        <select id="chatSwitch" class="chat-switch"></select>
+        <button id="logoutBtn" class="ghost-btn" type="button">Выйти</button>
+    </div>
+</header>
+
+<main class="app-main">
+    <section class="auth-card hidden" id="authCard">
+        <h1>Вход через Telegram</h1>
+        <p>Авторизуйтесь, чтобы выбрать чат и посмотреть баланс.</p>
+        <div id="tgAuthWidget"></div>
+        <p class="hint" id="authHint"></p>
+    </section>
+
+    <section class="status-card hidden" id="statusCard">
+        <p id="statusText"></p>
+    </section>
+</main>
+
+<div class="modal hidden" id="chatModal">
+    <div class="modal-scrim"></div>
+    <div class="modal-dialog">
+        <div class="modal-title">Выберите аккаунт</div>
+        <div class="chat-list" id="chatList"></div>
+    </div>
+</div>
+
+<script>
+    window.__BOT_USERNAME__ = {{ bot_username|tojson }};
+</script>
+<script src="/static/app.js"></script>
+</body>
+</html>
