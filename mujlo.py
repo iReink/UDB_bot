@@ -9,7 +9,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 # import re # Удаляем импорт re
 
-from db import get_connection, add_or_update_user, get_user
+from db import get_connection, get_user, add_sits
 from settings import get_setting  # Импортируем get_setting
 # или лучше сделать отдельный импорт bot через общий модуль, если есть
 
@@ -117,7 +117,7 @@ async def handle_mujlo_buy(callback: types.CallbackQuery):
             return
 
         # Обновляем данные
-        add_or_update_user(target_user_id, chat_id, user["name"], sits=user["sits"] - 2)
+        add_sits(chat_id, target_user_id, -2)
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute("UPDATE mujlo SET mujlo_freed=1 WHERE chat_id=? AND user_id=?", (chat_id, target_user_id))

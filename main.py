@@ -97,6 +97,12 @@ dashboard.register_dashboard_handlers(dp)
 
 from profanity import count_profanity
 from auth_code import issue_auth_code
+from sits import (
+    format_sits,
+    normalize_sits,
+    parse_sits,
+    sit_word as sits_word,
+)
 
 
 from dotenv import load_dotenv
@@ -576,7 +582,7 @@ async def flood_stats(message: types.Message):
     total_coffee = int(total_stats["coffee"] or 0) if total_stats else 0
 
     # Баланс sits
-    sits_balance = int(user.get("sits") or 0)
+    sits_balance = normalize_sits(user.get("sits") or 0)
     dick_stats = dick.get_dick(user_id, chat_id)
     dick_length = int(dick_stats.get("length") or 0)
 
@@ -588,7 +594,7 @@ async def flood_stats(message: types.Message):
     text += f"\n☕️ Всего кофе: {total_coffee}"
     text += f"\n🍆 Длина члена: {dick_length} см"
     if sits_balance > 0:
-        text += f"\n💦 Баланс сита: {sits_balance}"
+        text += f"\n💦 Баланс сита: {format_sits(sits_balance)}"
 
     await message.reply(text)
 
@@ -608,7 +614,7 @@ async def show_shop(message: types.Message):
     balance = get_sits(message.chat.id, message.from_user.id)
     await message.answer(
         "🏪 Магазинчик Дяди Доктора\n"
-        f"Твой баланс: {balance} сит\n\n"
+        f"Твой баланс: {format_sits(balance)} сит\n\n"
         "Выбирай товар:",
         reply_markup=build_shop_keyboard()
     )
@@ -1150,9 +1156,13 @@ async def charity_command(message: types.Message):
 
     # Количество ситов
     try:
-        amount = int(amount_arg)
+        amount = parse_sits(amount_arg)
     except ValueError:
-        await message.answer("Ошибка: количество ситов должно быть числом.")
+        await message.answer("Ошибка: количество ситов должно быть числом (например 10, 2.5 или 0.125).")
+        return
+
+    if amount <= 0:
+        await message.answer("Ошибка: количество ситов должно быть больше нуля.")
         return
 
     # Начисляем ситы
@@ -1161,8 +1171,12 @@ async def charity_command(message: types.Message):
     # Получаем имя пользователя для упоминания
     target_name = get_user_display_name(target_user_id, message.chat.id)
 
-    await message.answer(f"Спасибо {target_name} за доброе дело! {amount} сита начислено")
-    logging.info(f"[charity] Начислено {amount} сита пользователю {target_user_id} ({target_name})")
+    await message.answer(
+        f"Спасибо {target_name} за доброе дело! {format_sits(amount)} {sits_word(amount)} начислено"
+    )
+    logging.info(
+        f"[charity] Начислено {format_sits(amount)} {sits_word(amount)} пользователю {target_user_id} ({target_name})"
+    )
 
 
 
@@ -1186,9 +1200,9 @@ async def handle_give(message: types.Message):
         return
 
     try:
-        amount = int(amount_raw)
+        amount = parse_sits(amount_raw)
     except ValueError:
-        await message.answer("❌ Сумма должна быть целым числом")
+        await message.answer("❌ Сумма должна быть числом (например 3, 1.5, 0.125)")
         return
 
     if amount < 0:
@@ -1213,7 +1227,9 @@ async def handle_give(message: types.Message):
     from sosalsa import get_sits
     balance = get_sits(chat_id, sender_id)
     if balance < amount:
-        await message.answer(f"❌ Недостаточно сит. Нужно: {amount}, у тебя: {balance}")
+        await message.answer(
+            f"❌ Недостаточно сит. Нужно: {format_sits(amount)}, у тебя: {format_sits(balance)}"
+        )
         return
 
     # Списываем/начисляем
@@ -1228,7 +1244,7 @@ async def handle_give(message: types.Message):
     verb = "передала" if sender_sex == "f" else "передал"
 
     await message.answer(
-        f"💦 {sender_name} {verb} {amount} сит пользователю {receiver_name} {nick_raw}."
+        f"💦 {sender_name} {verb} {format_sits(amount)} {sits_word(amount)} пользователю {receiver_name} {nick_raw}."
     )
 
 
@@ -1583,35 +1599,30 @@ async def on_reaction_count(event: MessageReactionCountUpdated):
         conn.commit()
 
 #склонение сита
-def sit_word(n: int) -> str:
-    n = abs(int(n))
-    if n % 10 == 1 and n % 100 != 11:
-        return "сит"
-    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
-        return "сита"
-    return "сит"
+def sit_word(n: int | float) -> str:
+    return sits_word(n)
 
 
 #получение баланса сита
-def get_sits(chat_id: int, user_id: int) -> int:
+def get_sits(chat_id: int, user_id: int) -> int | float:
     from db import get_user
     user = get_user(user_id, chat_id)
     if user and user["chat_id"] == chat_id:
-        return user["sits"] or 0
+        return normalize_sits(user["sits"] or 0)
     return 0
 
 
 
-def spend_sits(chat_id: int, user_id: int, amount: int) -> tuple[bool, int]:
+def spend_sits(chat_id: int, user_id: int, amount: int | float) -> tuple[bool, int | float]:
     """
     Пытается списать amount сит.
     Возвращает (успех: bool, новый_или_текущий_баланс: int).
     """
     user = get_user(user_id, chat_id)
     if user and user["chat_id"] == chat_id:
-        current = user["sits"] or 0
+        current = normalize_sits(user["sits"] or 0)
         if current >= amount:
-            new_balance = current - amount
+            new_balance = normalize_sits(current - amount)
             add_or_update_user(user_id, chat_id, user["name"], sits=new_balance)
             return True, new_balance
         else:
@@ -1641,7 +1652,7 @@ async def handle_shop_menu(callback: types.CallbackQuery):
     balance = get_sits(callback.message.chat.id, callback.from_user.id)
     await callback.message.edit_text(
         "🏪 Магазинчик Дяди Доктора\n"
-        f"Твой баланс: {balance} сит\n\n"
+        f"Твой баланс: {format_sits(balance)} сит\n\n"
         "Выбирай товар:",
         reply_markup=build_shop_keyboard(),
     )
@@ -1662,7 +1673,10 @@ async def _handle_group_subscription_purchase(callback: types.CallbackQuery, day
     user_id = callback.from_user.id
     ok, balance_or_new = spend_sits(chat_id, user_id, price)
     if not ok:
-        await callback.answer(f"❌ Недостаточно сита. Твой баланс: {balance_or_new}", show_alert=True)
+        await callback.answer(
+            f"❌ Недостаточно сита. Твой баланс: {format_sits(balance_or_new)}",
+            show_alert=True,
+        )
         return
 
     new_till = extend_subscription(chat_id, user_id, days)
@@ -1774,13 +1788,19 @@ async def handle_shop_buy(callback: types.CallbackQuery):
         if ok:
             buy_text = item["buy_text"].format(user_name=user_name)
             try:
-                await callback.message.edit_text(f"{buy_text}\nОстаток: {new_balance} сит")
+                await callback.message.edit_text(f"{buy_text}\nОстаток: {format_sits(new_balance)} сит")
             except Exception as e:
                 logging.debug(f"Не удалось отредактировать сообщение магазина: {e}")
-            logging.info(f"{user_name} купил '{item['name']}' за {price} сит в чате {chat_id}. Остаток: {new_balance}")
+            logging.info(
+                f"{user_name} купил '{item['name']}' за {price} сит в чате {chat_id}. "
+                f"Остаток: {format_sits(new_balance)}"
+            )
             await callback.answer()
         else:
-            await callback.answer(f"❌ Недостаточно сит. Твой баланс: {new_balance}", show_alert=True)
+            await callback.answer(
+                f"❌ Недостаточно сит. Твой баланс: {format_sits(new_balance)}",
+                show_alert=True,
+            )
     except Exception as e:
         logging.exception(f"Ошибка при покупке товара: {e}")
         await callback.answer("❌ Произошла ошибка при покупке.", show_alert=True)
@@ -1850,8 +1870,8 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
 
         if n >= 4:
             add_sits(chat_id, user_id, 1)
-            new_bal = get_user(user_id, chat_id)["sits"]
-            msg = f"{user_name} получил 1 сит за фильтр. Остаток: {new_bal} сит"
+            new_bal = normalize_sits(get_user(user_id, chat_id)["sits"])
+            msg = f"{user_name} получил 1 сит за фильтр. Остаток: {format_sits(new_bal)} сит"
             await callback.message.answer(msg)
             from quest import update_quest_progress
             if n >= 5:
@@ -1882,7 +1902,10 @@ async def action_send_spider(callback: types.CallbackQuery, item: dict):
         if not is_tass and price > 0:
             ok, new_balance = spend_sits(chat_id, user_id, price)
             if not ok:
-                await callback.answer(f"❌ Недостаточно сит. Твой баланс: {get_sits(chat_id, user_id)}", show_alert=True)
+                await callback.answer(
+                    f"❌ Недостаточно сит. Твой баланс: {format_sits(get_sits(chat_id, user_id))}",
+                    show_alert=True,
+                )
                 return
 
         file_path = item.get("file", "images/spider.jpg")
@@ -1899,7 +1922,10 @@ async def action_send_spider(callback: types.CallbackQuery, item: dict):
         if new_balance is None:
             new_balance = get_sits(chat_id, user_id)
 
-        confirmation = f"✅ {user_name}, вы купили паука за {price} {sit_word(price)}. Остаток: {new_balance} сит"
+        confirmation = (
+            f"✅ {user_name}, вы купили паука за {format_sits(price)} {sit_word(price)}. "
+            f"Остаток: {format_sits(new_balance)} сит"
+        )
         if is_tass:
             confirmation = f"🎁 {user_name}, для тебя этот товар был бесплатным — паук в чате!"
 

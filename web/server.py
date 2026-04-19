@@ -22,6 +22,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from sits import normalize_sits
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -213,7 +214,7 @@ def _get_user_accounts(user_id: int) -> list[dict[str, Any]]:
                 "chat_id": chat_id,
                 "label": _resolve_chat_label(row_user_id, chat_id),
                 "name": row["name"] or "",
-                "balance": int(row["sits"] or 0),
+                "balance": normalize_sits(row["sits"] or 0),
             }
         )
     return accounts

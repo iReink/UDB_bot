@@ -19,6 +19,7 @@ from db import (
     add_sits,
     get_all_chats,
 )
+from sits import normalize_sits
 
 
 class DickStates(StatesGroup):
@@ -343,11 +344,11 @@ def build_rating_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_balance(chat_id: int, user_id: int) -> int:
+def get_balance(chat_id: int, user_id: int) -> int | float:
     user = get_user(user_id, chat_id)
     if not user:
         return 0
-    return user["sits"] or 0
+    return normalize_sits(user["sits"] or 0)
 
 
 def build_rating_text(

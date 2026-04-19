@@ -13,6 +13,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db import add_sits, get_user, get_user_display_name
+from sits import normalize_sits
 
 INITIAL_HEALTH = 100
 MIN_DAMAGE = 16
@@ -51,7 +52,7 @@ class PendingChallenge:
     challenger_name: str
     message_id: int
     thread_id: int | None
-    challenger_balance_after_bet: int
+    challenger_balance_after_bet: int | float
     timeout_task: asyncio.Task | None = None
 
 
@@ -85,9 +86,9 @@ ACTIVE_CHALLENGES: dict[int, PendingChallenge] = {}
 ACTIVE_FIGHTS: dict[int, FightSession] = {}
 
 
-async def get_current_sits(user_id: int, chat_id: int) -> int:
+async def get_current_sits(user_id: int, chat_id: int) -> int | float:
     user = get_user(user_id, chat_id)
-    return user["sits"] if user and user["sits"] else 0
+    return normalize_sits(user["sits"]) if user and user["sits"] is not None else 0
 
 
 def next_fight_id() -> int:

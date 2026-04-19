@@ -15,7 +15,7 @@ def create_tables(conn):
         user_id INTEGER NOT NULL,
         chat_id INTEGER NOT NULL,
         name TEXT,
-        sits INTEGER DEFAULT 0,
+        sits REAL DEFAULT 0,
         punished INTEGER DEFAULT 0,
         sex TEXT DEFAULT NULL,
         PRIMARY KEY (user_id, chat_id)
@@ -71,7 +71,7 @@ def migrate_from_json(conn, json_file):
         for uid_str, data in users.items():
             user_id = int(uid_str)
             name = data.get("name", "")
-            sits = int(data.get("sits", 0))
+            sits = round(float(data.get("sits", 0)), 3)
             punished = int(data.get("punished", 0))
 
             # Вставка/обновление пользователя

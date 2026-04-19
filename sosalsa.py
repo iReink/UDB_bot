@@ -9,6 +9,7 @@ import logging
 
 from db import get_connection, get_user_sex, add_sits, get_user_display_name as db_get_user_display_name
 from dick import try_bite_dick
+from sits import normalize_sits
 
 # ==========================
 # ЖЕНАТЫЕ ПАРЫ (можно добавлять новых)
@@ -426,12 +427,12 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
     return db_get_user_display_name(user_id, chat_id)
 
 
-def get_sits(chat_id: int, user_id: int) -> int:
+def get_sits(chat_id: int, user_id: int) -> int | float:
     """Возвращает баланс сит пользователя."""
     from db import get_user
     user = get_user(user_id, chat_id)
     if user and user["chat_id"] == chat_id:
-        return user["sits"] or 0
+        return normalize_sits(user["sits"] or 0)
     return 0
 
 

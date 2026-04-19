@@ -4,6 +4,7 @@ from contextlib import closing
 from typing import List, Dict, Optional
 from datetime import date, timedelta, datetime
 import os
+from sits import to_sits
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "stats.db")
@@ -42,7 +43,7 @@ def initialize_db():
                 chat_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
-                amount INTEGER NOT NULL
+                amount REAL NOT NULL
             )
         """)
         # Совместимость со статистикой укусов в sosalsa/weekly_awards.
@@ -115,13 +116,14 @@ def add_or_update_user(
     user_id: int,
     chat_id: int,
     name: Optional[str] = None,
-    sits: Optional[int] = None,
+    sits: Optional[float] = None,
     punished: Optional[int] = None,
     sex: Optional[str] = None,
     nick: Optional[str] = None,
     is_all: Optional[int] = None
 ):
     """Добавляет или обновляет пользователя. Меняем только те поля, что не None."""
+    sits_value = None if sits is None else to_sits(sits)
 
     with closing(get_connection()) as conn:
         cur = conn.cursor()
@@ -139,7 +141,7 @@ def add_or_update_user(
             user_id,
             chat_id,
             name,
-            sits,
+            sits_value,
             punished,
             sex,
             nick,
@@ -409,18 +411,22 @@ def has_active_subscription(chat_id: int, user_id: int) -> bool:
             return False
     return has_active_subscription_str(row["subscription_till"] if row else "")
 
-def add_sits(chat_id: int, user_id: int, amount: int):
+def add_sits(chat_id: int, user_id: int, amount: float):
     """Добавляет или вычитает сит для пользователя."""
     # Убеждаемся, что пользователь существует
+    delta = to_sits(amount)
+    if delta == 0:
+        return
+
     user = get_user(user_id, chat_id)
     if user is None:
         # Если пользователя нет, создаем его с указанным количеством сит
-        add_or_update_user(user_id, chat_id, name="", sits=amount)
+        add_or_update_user(user_id, chat_id, name="", sits=delta)
     else:
         # Если пользователь есть, обновляем его количество сит
-        new_sits = (user["sits"] or 0) + amount
+        new_sits = to_sits((user["sits"] or 0) + delta)
         add_or_update_user(user_id, chat_id, name=user["name"], sits=new_sits)
-    if amount > 0:
+    if delta > 0:
         now = datetime.now()
         name = get_user_display_name(user_id, chat_id)
         with closing(get_connection()) as conn:
@@ -428,7 +434,7 @@ def add_sits(chat_id: int, user_id: int, amount: int):
             cur.execute("""
                 INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (now.date().isoformat(), now.strftime("%H:%M:%S"), chat_id, user_id, name, amount))
+            """, (now.date().isoformat(), now.strftime("%H:%M:%S"), chat_id, user_id, name, delta))
             conn.commit()
 
 # --- Функции для работы с гейзером ---
