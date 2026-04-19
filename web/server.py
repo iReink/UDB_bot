@@ -13,6 +13,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from auth_code import (
+    AuthCodeConflictError,
+    AuthCodeExpiredError,
+    AuthCodeInvalidError,
+    AuthCodeUsedError,
+    consume_auth_code,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -43,6 +50,10 @@ class TelegramAuthRequest(BaseModel):
 
 class SelectChatRequest(BaseModel):
     chat_id: int
+
+
+class CodeAuthRequest(BaseModel):
+    code: str = ""
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -83,6 +94,23 @@ def _get_user_accounts(user_id: int) -> list[dict[str, Any]]:
             }
         )
     return accounts
+
+
+def _get_user_name_for_session(user_id: int) -> str:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(name, '') AS name
+            FROM users
+            WHERE user_id = ? AND COALESCE(name, '') <> ''
+            ORDER BY CASE WHEN chat_id = user_id THEN 0 ELSE 1 END, chat_id
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+    return row["name"] if row else ""
 
 
 def _build_data_check_string(auth_data: dict[str, Any]) -> str:
@@ -247,6 +275,34 @@ def auth_telegram(data: TelegramAuthRequest) -> JSONResponse:
         "first_name": str(auth_data.get("first_name", "")),
         "last_name": str(auth_data.get("last_name", "")),
         "username": str(auth_data.get("username", "")),
+        "selected_chat_id": None,
+    }
+
+    state, next_payload = _prepare_state(payload)
+    response = JSONResponse(state)
+    _set_session_cookie(response, next_payload)
+    return response
+
+
+@app.post("/api/auth/code")
+def auth_by_code(data: CodeAuthRequest) -> JSONResponse:
+    try:
+        user_id = consume_auth_code(data.code)
+    except AuthCodeInvalidError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    except AuthCodeExpiredError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    except AuthCodeUsedError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    except AuthCodeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    display_name = _get_user_name_for_session(user_id)
+    payload: dict[str, Any] = {
+        "telegram_user_id": user_id,
+        "first_name": display_name,
+        "last_name": "",
+        "username": "",
         "selected_chat_id": None,
     }
 

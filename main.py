@@ -96,6 +96,7 @@ import dashboard
 dashboard.register_dashboard_handlers(dp)
 
 from profanity import count_profanity
+from auth_code import issue_auth_code
 
 
 from dotenv import load_dotenv
@@ -432,6 +433,34 @@ async def daily_reward_task():
 
 
 # ---------- Хэндлеры ----------
+
+@dp.message(Command("auth"))
+async def auth_code_command(message: types.Message):
+    if message.chat.type != "private":
+        await message.answer(
+            "Отправьте командлу в личные сообщения. Я не буду выдавать секретную информациюв чате"
+        )
+        return
+
+    if not message.from_user:
+        await message.answer("Не удалось определить пользователя.")
+        return
+
+    try:
+        issued = issue_auth_code(message.from_user.id)
+    except Exception as e:
+        logging.exception(f"Ошибка генерации auth-кода: {e}")
+        await message.answer("Не удалось выдать код. Попробуйте позже.")
+        return
+
+    expires_dt = datetime.fromtimestamp(issued.expires_at)
+    await message.answer(
+        "Код для входа в веб: "
+        f"<code>{issued.code}</code>\n"
+        f"Код действует до {expires_dt.strftime('%H:%M')} по времени сервера.",
+        parse_mode=ParseMode.HTML,
+    )
+
 
 @dp.message(Command("weeklytop"))
 async def weekly_top(message: types.Message):

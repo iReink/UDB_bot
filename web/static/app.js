@@ -3,6 +3,9 @@ const BOT_USERNAME = window.__BOT_USERNAME__ || "";
 const appHeader = document.getElementById("appHeader");
 const authCard = document.getElementById("authCard");
 const authHint = document.getElementById("authHint");
+const codeAuthHint = document.getElementById("codeAuthHint");
+const authCodeInput = document.getElementById("authCodeInput");
+const authCodeBtn = document.getElementById("authCodeBtn");
 const statusCard = document.getElementById("statusCard");
 const statusText = document.getElementById("statusText");
 const chatSwitch = document.getElementById("chatSwitch");
@@ -12,6 +15,7 @@ const chatList = document.getElementById("chatList");
 const tgAuthWidget = document.getElementById("tgAuthWidget");
 
 let widgetRendered = false;
+let codeAuthInFlight = false;
 
 function hostLooksLikeIp(host) {
     return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host);
@@ -88,8 +92,8 @@ function renderAuthWidget() {
         authHint.textContent = "На сервере не задан BOT_USERNAME, виджет авторизации недоступен.";
         return;
     }
-    authHint.textContent = getTelegramDomainHint();
 
+    authHint.textContent = getTelegramDomainHint();
     const script = document.createElement("script");
     script.async = true;
     script.src = "https://telegram.org/js/telegram-widget.js?22";
@@ -162,8 +166,45 @@ async function refresh() {
     try {
         const state = await fetchState();
         renderState(state);
-    } catch (error) {
+    } catch (_error) {
         setLoadingMessage("Ошибка загрузки страницы.");
+    }
+}
+
+async function submitCodeAuth() {
+    if (codeAuthInFlight) {
+        return;
+    }
+    const code = (authCodeInput.value || "").replace(/\D/g, "").slice(0, 4);
+    authCodeInput.value = code;
+
+    if (code.length !== 4) {
+        codeAuthHint.textContent = "Введите 4 цифры из сообщения бота.";
+        return;
+    }
+
+    codeAuthInFlight = true;
+    codeAuthBtn.disabled = true;
+    codeAuthHint.textContent = "";
+    try {
+        const response = await fetch("/api/auth/code", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+        });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail || "Ошибка авторизации по коду.");
+        }
+        const state = await response.json();
+        renderState(state);
+        authCodeInput.value = "";
+    } catch (error) {
+        codeAuthHint.textContent = error.message || "Ошибка авторизации по коду.";
+    } finally {
+        codeAuthInFlight = false;
+        codeAuthBtn.disabled = false;
     }
 }
 
@@ -177,7 +218,7 @@ window.onTelegramAuth = async function onTelegramAuth(user) {
         });
         if (!response.ok) {
             const payload = await response.json().catch(() => ({}));
-            throw new Error(payload.detail || "Ошибка авторизации");
+            throw new Error(payload.detail || "Ошибка авторизации.");
         }
         const state = await response.json();
         renderState(state);
@@ -185,6 +226,25 @@ window.onTelegramAuth = async function onTelegramAuth(user) {
         authHint.textContent = error.message;
     }
 };
+
+authCodeBtn.addEventListener("click", async () => {
+    await submitCodeAuth();
+});
+
+authCodeInput.addEventListener("input", async () => {
+    authCodeInput.value = authCodeInput.value.replace(/\D/g, "").slice(0, 4);
+    codeAuthHint.textContent = "";
+    if (authCodeInput.value.length === 4) {
+        await submitCodeAuth();
+    }
+});
+
+authCodeInput.addEventListener("keydown", async (event) => {
+    if (event.key === "Enter") {
+        event.preventDefault();
+        await submitCodeAuth();
+    }
+});
 
 chatSwitch.addEventListener("change", async (event) => {
     try {

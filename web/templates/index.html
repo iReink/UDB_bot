@@ -20,8 +20,29 @@
 
 <main class="app-main">
     <section class="auth-card hidden" id="authCard">
-        <h1>Вход через Telegram</h1>
-        <p>Авторизуйтесь, чтобы выбрать чат и посмотреть баланс.</p>
+        <h1>Вход в веб-кабинет</h1>
+        <p>Напишите боту в личные сообщения команду <code>/auth</code> и введите полученный 4-значный код.</p>
+
+        <div class="code-auth">
+            <div class="code-row">
+                <input
+                    id="authCodeInput"
+                    class="code-input"
+                    type="text"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
+                    maxlength="4"
+                    placeholder="0000"
+                    aria-label="Код авторизации"
+                >
+                <button id="authCodeBtn" class="accent-btn" type="button">Войти</button>
+            </div>
+            <p class="hint" id="codeAuthHint"></p>
+        </div>
+
+        <div class="auth-separator"><span>или</span></div>
+
+        <p>Авторизация через Telegram Login:</p>
         <div id="tgAuthWidget"></div>
         <p class="hint" id="authHint"></p>
     </section>
