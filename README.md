@@ -71,3 +71,24 @@ systemctl daemon-reload
 systemctl enable --now udb-web
 systemctl status udb-web --no-pager
 ```
+
+### Скрипты запуска/остановки
+
+В репозитории есть:
+
+- `start_bot.sh` — запускает бота (`main.py`) и `udb-web.service`.
+- `stop_bot.sh` — останавливает бота и `udb-web.service`.
+
+На сервере один раз дать права:
+
+```bash
+cd /root/UDB_bot
+chmod +x start_bot.sh stop_bot.sh
+```
+
+Использование:
+
+```bash
+./start_bot.sh
+./stop_bot.sh
+```
