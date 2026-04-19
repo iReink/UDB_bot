@@ -13,6 +13,27 @@ const tgAuthWidget = document.getElementById("tgAuthWidget");
 
 let widgetRendered = false;
 
+function hostLooksLikeIp(host) {
+    return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host);
+}
+
+function getTelegramDomainHint() {
+    const host = window.location.hostname;
+    const hints = [];
+
+    if (hostLooksLikeIp(host)) {
+        hints.push("Открыт IP-адрес. Для Telegram Login нужен домен.");
+    }
+
+    const isLocalhost = host === "localhost" || host === "127.0.0.1";
+    if (!isLocalhost && window.location.protocol !== "https:") {
+        hints.push("Для Telegram Login нужен HTTPS.");
+    }
+
+    hints.push("Проверьте в BotFather: /setdomain -> ваш домен.");
+    return hints.join(" ");
+}
+
 function setHidden(element, hidden) {
     if (hidden) {
         element.classList.add("hidden");
@@ -67,7 +88,7 @@ function renderAuthWidget() {
         authHint.textContent = "На сервере не задан BOT_USERNAME, виджет авторизации недоступен.";
         return;
     }
-    authHint.textContent = "";
+    authHint.textContent = getTelegramDomainHint();
 
     const script = document.createElement("script");
     script.async = true;

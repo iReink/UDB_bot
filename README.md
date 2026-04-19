@@ -33,6 +33,12 @@ cp .env.web.example .env.web
 - `BOT_USERNAME` (без `@`)
 - `WEB_SESSION_SECRET`
 
+Если на странице входа видно `Bot domain invalid`, это не ошибка кода:
+
+1. В `BotFather` выполнить `/setdomain` и указать ваш домен.
+2. Открывать сайт по этому домену, не по IP.
+3. Для внешнего доступа использовать HTTPS.
+
 Запуск:
 
 ```bash

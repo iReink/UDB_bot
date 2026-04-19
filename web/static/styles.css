@@ -1,15 +1,17 @@
 @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap");
 
 :root {
-    --bg-0: #0d1d2a;
-    --bg-1: #16374d;
-    --bg-2: #1f5a57;
+    --accent: #ff47d1;
+    --accent-strong: #de33b5;
+    --accent-soft: #ff9be9;
+
+    --bg-ink: #0f2b43;
+    --bg-teal: #1d6f88;
+
     --card: rgba(255, 255, 255, 0.9);
     --ink: #102030;
-    --muted: #47637b;
+    --muted: #3d5d79;
     --line: rgba(16, 32, 48, 0.16);
-    --accent: #f2a24f;
-    --accent-strong: #e88a27;
 }
 
 * {
@@ -26,10 +28,11 @@ html, body {
 
 body {
     position: relative;
+    background-color: var(--accent);
     background:
-        radial-gradient(1200px 600px at 10% 20%, rgba(242, 162, 79, 0.24), transparent 65%),
-        radial-gradient(900px 500px at 80% 0%, rgba(76, 193, 167, 0.2), transparent 68%),
-        linear-gradient(145deg, var(--bg-0), var(--bg-1) 55%, var(--bg-2));
+        radial-gradient(1000px 600px at 8% 8%, rgba(14, 43, 72, 0.45), transparent 70%),
+        radial-gradient(1000px 650px at 90% 90%, rgba(28, 111, 136, 0.33), transparent 72%),
+        linear-gradient(140deg, var(--accent) 0%, #f344ca 45%, #ff61db 100%);
 }
 
 .backdrop {
@@ -61,6 +64,7 @@ body {
 .brand {
     font-weight: 800;
     letter-spacing: 0;
+    color: var(--accent-strong);
 }
 
 .header-controls {
@@ -97,6 +101,11 @@ body {
     cursor: pointer;
 }
 
+.ghost-btn:hover {
+    border-color: var(--accent-strong);
+    color: var(--accent-strong);
+}
+
 .app-main {
     min-height: 100vh;
     display: flex;
@@ -129,7 +138,7 @@ body {
 
 .hint {
     margin-top: 14px;
-    color: #9c2b27;
+    color: #7f1e55;
 }
 
 .status-card p {
@@ -188,7 +197,7 @@ body {
 
 .chat-row:hover {
     border-color: var(--accent-strong);
-    background: #fff8ef;
+    background: #fff3fc;
 }
 
 .hidden {
