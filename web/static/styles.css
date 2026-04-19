@@ -43,9 +43,11 @@ body {
     position: absolute;
     inset: 0;
     pointer-events: none;
+    z-index: 0;
 }
 
 .scene-layer-sky {
+    z-index: 1;
     background:
         radial-gradient(960px 500px at 12% 10%, rgba(10, 28, 54, 0.44), transparent 70%),
         radial-gradient(900px 460px at 86% 8%, rgba(32, 126, 151, 0.3), transparent 72%),
@@ -53,14 +55,17 @@ body {
 }
 
 .scene-layer-sky-elements {
+    z-index: 2;
     mix-blend-mode: normal;
 }
 
 .scene-layer-background {
+    z-index: 3;
     background: transparent;
 }
 
 .scene-layer-foreground {
+    z-index: 4;
     pointer-events: auto;
 }
 

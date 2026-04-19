@@ -24,8 +24,7 @@
         "src": "/static/scene/assets/sky_elements/sun.png",
         "alt": "Sun",
         "style": {
-          "width": "220px",
-          "zIndex": "2"
+          "width": "220px"
         },
         "animation": {
           "type": "arc-horizontal",
