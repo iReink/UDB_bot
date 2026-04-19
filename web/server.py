@@ -7,12 +7,9 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
 from auth_code import (
     AuthCodeConflictError,
     AuthCodeExpiredError,
@@ -20,6 +17,11 @@ from auth_code import (
     AuthCodeUsedError,
     consume_auth_code,
 )
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -31,6 +33,7 @@ STATIC_DIR = WEB_DIR / "static"
 COOKIE_NAME = "udb_web_session"
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 TELEGRAM_AUTH_MAX_AGE_SECONDS = 60 * 60 * 24
+CHAT_TITLE_CACHE_TTL_SECONDS = 12 * 60 * 60
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
@@ -62,10 +65,108 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
-def _chat_label(user_id: int, chat_id: int) -> str:
+def _fallback_chat_label(user_id: int, chat_id: int) -> str:
     if user_id == chat_id:
         return "ЛС"
     return f"Чат {chat_id}"
+
+
+def _ensure_chat_titles_table() -> None:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_chat_titles (
+                chat_id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
+def _read_cached_chat_title(chat_id: int) -> tuple[str | None, int | None]:
+    _ensure_chat_titles_table()
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT title, updated_at FROM web_chat_titles WHERE chat_id = ?",
+            (chat_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None, None
+    return str(row["title"]), int(row["updated_at"])
+
+
+def _upsert_cached_chat_title(chat_id: int, title: str) -> None:
+    _ensure_chat_titles_table()
+    now_ts = int(time.time())
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO web_chat_titles (chat_id, title, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(chat_id) DO UPDATE SET
+                title = excluded.title,
+                updated_at = excluded.updated_at
+            """,
+            (chat_id, title, now_ts),
+        )
+        conn.commit()
+
+
+def _fetch_chat_title_from_telegram(chat_id: int) -> str | None:
+    if not BOT_TOKEN:
+        return None
+
+    query = urlencode({"chat_id": str(chat_id)})
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChat?{query}"
+
+    try:
+        with urlopen(url, timeout=2.5) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        return None
+
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+
+    title = result.get("title")
+    if not title:
+        username = result.get("username")
+        if username:
+            title = f"@{username}"
+    if not title:
+        return None
+
+    title = str(title).strip()
+    return title or None
+
+
+def _resolve_chat_label(user_id: int, chat_id: int) -> str:
+    if user_id == chat_id:
+        return "ЛС"
+
+    now_ts = int(time.time())
+    cached_title, cached_updated_at = _read_cached_chat_title(chat_id)
+    if cached_title and cached_updated_at and (now_ts - cached_updated_at) <= CHAT_TITLE_CACHE_TTL_SECONDS:
+        return cached_title
+
+    fetched_title = _fetch_chat_title_from_telegram(chat_id)
+    if fetched_title:
+        _upsert_cached_chat_title(chat_id, fetched_title)
+        return fetched_title
+
+    if cached_title:
+        return cached_title
+    return _fallback_chat_label(user_id, chat_id)
 
 
 def _get_user_accounts(user_id: int) -> list[dict[str, Any]]:
@@ -85,10 +186,11 @@ def _get_user_accounts(user_id: int) -> list[dict[str, Any]]:
     accounts: list[dict[str, Any]] = []
     for row in rows:
         chat_id = int(row["chat_id"])
+        row_user_id = int(row["user_id"])
         accounts.append(
             {
                 "chat_id": chat_id,
-                "label": _chat_label(int(row["user_id"]), chat_id),
+                "label": _resolve_chat_label(row_user_id, chat_id),
                 "name": row["name"] or "",
                 "balance": int(row["sits"] or 0),
             }
