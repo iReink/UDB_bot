@@ -4,12 +4,29 @@ const codeAuthHint = document.getElementById("codeAuthHint");
 const authCodeInput = document.getElementById("authCodeInput");
 const statusCard = document.getElementById("statusCard");
 const statusText = document.getElementById("statusText");
+const chatBalanceLabel = document.getElementById("chatBalanceLabel");
 const chatSwitch = document.getElementById("chatSwitch");
 const logoutBtn = document.getElementById("logoutBtn");
 const chatModal = document.getElementById("chatModal");
 const chatList = document.getElementById("chatList");
 
 let codeAuthInFlight = false;
+
+function sitWord(amount) {
+    const n = Math.abs(Number(amount) || 0);
+    if (n % 10 === 1 && n % 100 !== 11) {
+        return "сит";
+    }
+    return "сита";
+}
+
+function setHeaderBalance(amount) {
+    if (!chatBalanceLabel) {
+        return;
+    }
+    const value = Number.isFinite(Number(amount)) ? Number(amount) : 0;
+    chatBalanceLabel.textContent = `${value} ${sitWord(value)}`;
+}
 
 function setHidden(element, hidden) {
     if (hidden) {
@@ -62,6 +79,7 @@ function renderState(state) {
         setHidden(statusCard, true);
         closeChatModal();
         setHidden(authCard, false);
+        setHeaderBalance(0);
         return;
     }
 
@@ -71,6 +89,7 @@ function renderState(state) {
 
     const chats = state.chats || [];
     fillChatSwitch(chats, state.selected_chat_id);
+    setHeaderBalance(state.balance);
 
     if (!chats.length) {
         closeChatModal();
@@ -85,7 +104,7 @@ function renderState(state) {
     }
 
     closeChatModal();
-    statusText.textContent = `Вы вошли через чат ${state.selected_chat_label}, ваш баланс ${state.balance} сит`;
+    statusText.textContent = `Вы вошли через чат ${state.selected_chat_label}, ваш баланс ${state.balance} ${sitWord(state.balance)}`;
 }
 
 async function fetchState() {
