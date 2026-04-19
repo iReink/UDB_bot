@@ -34,6 +34,7 @@ COOKIE_NAME = "udb_web_session"
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 TELEGRAM_AUTH_MAX_AGE_SECONDS = 60 * 60 * 24
 CHAT_TITLE_CACHE_TTL_SECONDS = 12 * 60 * 60
+CHAT_TITLE_FETCH_TIMEOUT_SECONDS = 0.8
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
@@ -118,6 +119,17 @@ def _upsert_cached_chat_title(chat_id: int, title: str) -> None:
         conn.commit()
 
 
+def _touch_cached_chat_title(chat_id: int) -> None:
+    now_ts = int(time.time())
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE web_chat_titles SET updated_at = ? WHERE chat_id = ?",
+            (now_ts, chat_id),
+        )
+        conn.commit()
+
+
 def _fetch_chat_title_from_telegram(chat_id: int) -> str | None:
     if not BOT_TOKEN:
         return None
@@ -126,7 +138,7 @@ def _fetch_chat_title_from_telegram(chat_id: int) -> str | None:
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChat?{query}"
 
     try:
-        with urlopen(url, timeout=2.5) as resp:
+        with urlopen(url, timeout=CHAT_TITLE_FETCH_TIMEOUT_SECONDS) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except Exception:
         return None
@@ -154,6 +166,7 @@ def _resolve_chat_label(user_id: int, chat_id: int) -> str:
     if user_id == chat_id:
         return "ЛС"
 
+    fallback_label = _fallback_chat_label(user_id, chat_id)
     now_ts = int(time.time())
     cached_title, cached_updated_at = _read_cached_chat_title(chat_id)
     if cached_title and cached_updated_at and (now_ts - cached_updated_at) <= CHAT_TITLE_CACHE_TTL_SECONDS:
@@ -164,9 +177,17 @@ def _resolve_chat_label(user_id: int, chat_id: int) -> str:
         _upsert_cached_chat_title(chat_id, fetched_title)
         return fetched_title
 
+    # Cache failed lookups too, so switching chats does not trigger repeated Telegram API calls.
     if cached_title:
-        return cached_title
-    return _fallback_chat_label(user_id, chat_id)
+        if cached_title != fallback_label:
+            _upsert_cached_chat_title(chat_id, fallback_label)
+        else:
+            _touch_cached_chat_title(chat_id)
+        return fallback_label
+
+    _upsert_cached_chat_title(chat_id, fallback_label)
+    return fallback_label
+
 
 
 def _get_user_accounts(user_id: int) -> list[dict[str, Any]]:
