@@ -33,3 +33,18 @@ Supported style keys:
 - `width`, `height`
 - `minWidth`, `maxWidth`, `minHeight`, `maxHeight`
 - `transform`, `opacity`, `zIndex`, `filter`, `mixBlendMode`
+- `objectFit`, `objectPosition`
+
+Animation example (for sun arc):
+
+```json
+{
+  "animation": {
+    "type": "arc-horizontal",
+    "durationMs": 60000,
+    "yMin": 40,
+    "yMax": 300,
+    "xPadding": 220
+  }
+}
+```

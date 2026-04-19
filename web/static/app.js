@@ -2,8 +2,6 @@ const appHeader = document.getElementById("appHeader");
 const authCard = document.getElementById("authCard");
 const codeAuthHint = document.getElementById("codeAuthHint");
 const authCodeInput = document.getElementById("authCodeInput");
-const statusCard = document.getElementById("statusCard");
-const statusText = document.getElementById("statusText");
 const chatBalanceLabel = document.getElementById("chatBalanceLabel");
 const chatSwitch = document.getElementById("chatSwitch");
 const logoutBtn = document.getElementById("logoutBtn");
@@ -18,6 +16,8 @@ const sceneLayerNodes = Array.from(document.querySelectorAll("[data-scene-layer]
 }, {});
 
 let codeAuthInFlight = false;
+let sceneAnimationFrameId = null;
+const sceneAnimations = [];
 const SCENE_LAYER_ORDER = ["sky", "sky_elements", "background", "foreground"];
 const SCENE_ITEM_STYLE_KEYS = [
     "left",
@@ -35,6 +35,8 @@ const SCENE_ITEM_STYLE_KEYS = [
     "zIndex",
     "filter",
     "mixBlendMode",
+    "objectFit",
+    "objectPosition",
 ];
 
 function applySceneItemStyle(element, style) {
@@ -48,6 +50,67 @@ function applySceneItemStyle(element, style) {
         }
         element.style[styleKey] = String(value);
     });
+}
+
+function clearSceneAnimations() {
+    if (sceneAnimationFrameId !== null) {
+        cancelAnimationFrame(sceneAnimationFrameId);
+        sceneAnimationFrameId = null;
+    }
+    sceneAnimations.length = 0;
+}
+
+function registerSceneAnimation(element, animationConfig) {
+    if (!animationConfig || typeof animationConfig !== "object") {
+        return;
+    }
+    const type = String(animationConfig.type || "").toLowerCase();
+    if (type !== "arc-horizontal") {
+        return;
+    }
+
+    const durationMs = Number(animationConfig.durationMs);
+    const yMin = Number(animationConfig.yMin);
+    const yMax = Number(animationConfig.yMax);
+    const xPadding = Number(animationConfig.xPadding);
+
+    const resolvedDurationMs = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 60000;
+    const resolvedYMin = Number.isFinite(yMin) ? yMin : 40;
+    const resolvedYMax = Number.isFinite(yMax) ? yMax : 300;
+    const resolvedPadding = Number.isFinite(xPadding) && xPadding >= 0 ? xPadding : 180;
+
+    sceneAnimations.push({
+        type: "arc-horizontal",
+        element,
+        durationMs: resolvedDurationMs,
+        yMin: Math.min(resolvedYMin, resolvedYMax),
+        yMax: Math.max(resolvedYMin, resolvedYMax),
+        xPadding: resolvedPadding,
+    });
+}
+
+function runSceneAnimations() {
+    if (!sceneAnimations.length) {
+        return;
+    }
+
+    const animate = (now) => {
+        sceneAnimations.forEach((anim) => {
+            if (anim.type !== "arc-horizontal") {
+                return;
+            }
+            const progress = ((now % anim.durationMs) + anim.durationMs) % anim.durationMs / anim.durationMs;
+            const xFrom = -anim.xPadding;
+            const xTo = window.innerWidth + anim.xPadding;
+            const x = xFrom + (xTo - xFrom) * progress;
+            const y = anim.yMax - (anim.yMax - anim.yMin) * Math.sin(Math.PI * progress);
+            anim.element.style.left = `${Math.round(x)}px`;
+            anim.element.style.top = `${Math.round(y)}px`;
+        });
+        sceneAnimationFrameId = requestAnimationFrame(animate);
+    };
+
+    sceneAnimationFrameId = requestAnimationFrame(animate);
 }
 
 function renderSceneLayer(layerName, items) {
@@ -86,15 +149,18 @@ function renderSceneLayer(layerName, items) {
         }
         applySceneItemStyle(image, item.style);
         layerNode.appendChild(image);
+        registerSceneAnimation(image, item.animation);
     });
 }
 
 function renderScene(sceneConfig) {
+    clearSceneAnimations();
     const layers = sceneConfig && typeof sceneConfig === "object" ? sceneConfig.layers : null;
     SCENE_LAYER_ORDER.forEach((layerName) => {
         const layerItems = layers && typeof layers === "object" ? layers[layerName] : [];
         renderSceneLayer(layerName, layerItems);
     });
+    runSceneAnimations();
 }
 
 async function loadScene() {
@@ -128,6 +194,9 @@ function setHeaderBalance(amount) {
 }
 
 function setHidden(element, hidden) {
+    if (!element) {
+        return;
+    }
     if (hidden) {
         element.classList.add("hidden");
     } else {
@@ -136,8 +205,13 @@ function setHidden(element, hidden) {
 }
 
 function setLoadingMessage(message) {
-    setHidden(statusCard, false);
-    statusText.textContent = message;
+    if (codeAuthHint && !authCard.classList.contains("hidden")) {
+        codeAuthHint.textContent = message;
+        return;
+    }
+    if (message) {
+        console.error(message);
+    }
 }
 
 function openChatModal(chats) {
@@ -175,7 +249,6 @@ function fillChatSwitch(chats, selectedChatId) {
 function renderState(state) {
     if (!state.authorized) {
         setHidden(appHeader, true);
-        setHidden(statusCard, true);
         closeChatModal();
         setHidden(authCard, false);
         setHeaderBalance(0);
@@ -184,7 +257,6 @@ function renderState(state) {
 
     setHidden(authCard, true);
     setHidden(appHeader, false);
-    setHidden(statusCard, false);
 
     const chats = state.chats || [];
     fillChatSwitch(chats, state.selected_chat_id);
@@ -192,18 +264,17 @@ function renderState(state) {
 
     if (!chats.length) {
         closeChatModal();
-        statusText.textContent = "Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.";
+        setLoadingMessage("Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.");
         return;
     }
 
     if (state.selected_chat_id == null) {
-        setLoadingMessage("Выберите чат для продолжения.");
+        setLoadingMessage("");
         openChatModal(chats);
         return;
     }
 
     closeChatModal();
-    statusText.textContent = `Вы вошли через чат ${state.selected_chat_label}, ваш баланс ${state.balance} ${sitWord(state.balance)}`;
 }
 
 async function fetchState() {

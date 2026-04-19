@@ -1,9 +1,57 @@
 {
   "version": 1,
   "layers": {
-    "sky": [],
-    "sky_elements": [],
-    "background": [],
+    "sky": [
+      {
+        "id": "sky-main",
+        "kind": "image",
+        "src": "/static/scene/assets/sky/sky.png",
+        "alt": "Sky",
+        "style": {
+          "left": "0",
+          "top": "0",
+          "width": "100vw",
+          "height": "100vh",
+          "objectFit": "cover",
+          "objectPosition": "left top"
+        }
+      }
+    ],
+    "sky_elements": [
+      {
+        "id": "sun-main",
+        "kind": "image",
+        "src": "/static/scene/assets/sky_elements/sun.png",
+        "alt": "Sun",
+        "style": {
+          "width": "220px",
+          "zIndex": "2"
+        },
+        "animation": {
+          "type": "arc-horizontal",
+          "durationMs": 60000,
+          "yMin": 40,
+          "yMax": 300,
+          "xPadding": 220
+        }
+      }
+    ],
+    "background": [
+      {
+        "id": "background-main",
+        "kind": "image",
+        "src": "/static/scene/assets/background/bg.png",
+        "alt": "Background",
+        "style": {
+          "left": "0",
+          "top": "0",
+          "width": "100vw",
+          "height": "100vh",
+          "objectFit": "cover",
+          "objectPosition": "left top"
+        }
+      }
+    ],
     "foreground": []
   }
 }

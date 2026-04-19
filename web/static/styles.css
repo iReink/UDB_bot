@@ -57,9 +57,7 @@ body {
 }
 
 .scene-layer-background {
-    top: 24vh;
-    background:
-        linear-gradient(to top, rgba(10, 25, 44, 0.16) 0%, rgba(10, 25, 44, 0.02) 55%, transparent 100%);
+    background: transparent;
 }
 
 .scene-layer-foreground {
@@ -157,8 +155,7 @@ body {
     z-index: 2;
 }
 
-.auth-card,
-.status-card {
+.auth-card {
     width: min(720px, 100%);
     border-radius: 8px;
     border: 1px solid var(--line);
@@ -208,13 +205,6 @@ body {
 .hint {
     margin-top: 14px;
     color: #7f1e55;
-}
-
-.status-card p {
-    margin: 0;
-    font-size: clamp(20px, 4vw, 32px);
-    line-height: 1.2;
-    font-weight: 700;
 }
 
 .modal {
