@@ -31,7 +31,8 @@
           "durationMs": 60000,
           "yMin": 40,
           "yMax": 300,
-          "xPadding": 220
+          "xStart": -140,
+          "xEnd": 140
         }
       }
     ],

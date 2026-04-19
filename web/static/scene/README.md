@@ -44,7 +44,15 @@ Animation example (for sun arc):
     "durationMs": 60000,
     "yMin": 40,
     "yMax": 300,
-    "xPadding": 220
+    "xStart": -140,
+    "xEnd": 140
   }
 }
 ```
+
+`xStart` and `xEnd` are offsets in pixels:
+
+- `xStart` is the left/start position.
+- `xEnd` is added to viewport width for the right/end position.
+
+Legacy `xPadding` is still supported as fallback.

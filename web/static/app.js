@@ -73,11 +73,15 @@ function registerSceneAnimation(element, animationConfig) {
     const yMin = Number(animationConfig.yMin);
     const yMax = Number(animationConfig.yMax);
     const xPadding = Number(animationConfig.xPadding);
+    const xStart = Number(animationConfig.xStart);
+    const xEnd = Number(animationConfig.xEnd);
 
     const resolvedDurationMs = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 60000;
     const resolvedYMin = Number.isFinite(yMin) ? yMin : 40;
     const resolvedYMax = Number.isFinite(yMax) ? yMax : 300;
-    const resolvedPadding = Number.isFinite(xPadding) && xPadding >= 0 ? xPadding : 180;
+    const defaultPadding = Number.isFinite(xPadding) && xPadding >= 0 ? xPadding : 180;
+    const resolvedXStart = Number.isFinite(xStart) ? xStart : -defaultPadding;
+    const resolvedXEnd = Number.isFinite(xEnd) ? xEnd : defaultPadding;
 
     sceneAnimations.push({
         type: "arc-horizontal",
@@ -85,7 +89,8 @@ function registerSceneAnimation(element, animationConfig) {
         durationMs: resolvedDurationMs,
         yMin: Math.min(resolvedYMin, resolvedYMax),
         yMax: Math.max(resolvedYMin, resolvedYMax),
-        xPadding: resolvedPadding,
+        xStart: resolvedXStart,
+        xEnd: resolvedXEnd,
     });
 }
 
@@ -100,8 +105,8 @@ function runSceneAnimations() {
                 return;
             }
             const progress = ((now % anim.durationMs) + anim.durationMs) % anim.durationMs / anim.durationMs;
-            const xFrom = -anim.xPadding;
-            const xTo = window.innerWidth + anim.xPadding;
+            const xFrom = anim.xStart;
+            const xTo = window.innerWidth + anim.xEnd;
             const x = xFrom + (xTo - xFrom) * progress;
             const y = anim.yMax - (anim.yMax - anim.yMin) * Math.sin(Math.PI * progress);
             anim.element.style.left = `${Math.round(x)}px`;
