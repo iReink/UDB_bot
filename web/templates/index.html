@@ -20,7 +20,7 @@
 
 <main class="app-main">
     <section class="auth-card hidden" id="authCard">
-        <h1>Вход в веб-кабинет</h1>
+        <h1>Сит-аворизация</h1>
         <p>Напишите боту в личные сообщения команду <code>/auth</code> и введите полученный 4-значный код.</p>
 
         <div class="code-auth">
@@ -35,16 +35,9 @@
                     placeholder="0000"
                     aria-label="Код авторизации"
                 >
-                <button id="authCodeBtn" class="accent-btn" type="button">Войти</button>
             </div>
             <p class="hint" id="codeAuthHint"></p>
         </div>
-
-        <div class="auth-separator"><span>или</span></div>
-
-        <p>Авторизация через Telegram Login:</p>
-        <div id="tgAuthWidget"></div>
-        <p class="hint" id="authHint"></p>
     </section>
 
     <section class="status-card hidden" id="statusCard">
@@ -60,9 +53,6 @@
     </div>
 </div>
 
-<script>
-    window.__BOT_USERNAME__ = {{ bot_username|tojson }};
-</script>
 <script src="/static/app.js"></script>
 </body>
 </html>

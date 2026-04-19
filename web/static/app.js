@@ -1,42 +1,15 @@
-const BOT_USERNAME = window.__BOT_USERNAME__ || "";
-
 const appHeader = document.getElementById("appHeader");
 const authCard = document.getElementById("authCard");
-const authHint = document.getElementById("authHint");
 const codeAuthHint = document.getElementById("codeAuthHint");
 const authCodeInput = document.getElementById("authCodeInput");
-const authCodeBtn = document.getElementById("authCodeBtn");
 const statusCard = document.getElementById("statusCard");
 const statusText = document.getElementById("statusText");
 const chatSwitch = document.getElementById("chatSwitch");
 const logoutBtn = document.getElementById("logoutBtn");
 const chatModal = document.getElementById("chatModal");
 const chatList = document.getElementById("chatList");
-const tgAuthWidget = document.getElementById("tgAuthWidget");
 
-let widgetRendered = false;
 let codeAuthInFlight = false;
-
-function hostLooksLikeIp(host) {
-    return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host);
-}
-
-function getTelegramDomainHint() {
-    const host = window.location.hostname;
-    const hints = [];
-
-    if (hostLooksLikeIp(host)) {
-        hints.push("Открыт IP-адрес. Для Telegram Login нужен домен.");
-    }
-
-    const isLocalhost = host === "localhost" || host === "127.0.0.1";
-    if (!isLocalhost && window.location.protocol !== "https:") {
-        hints.push("Для Telegram Login нужен HTTPS.");
-    }
-
-    hints.push("Проверьте в BotFather: /setdomain -> ваш домен.");
-    return hints.join(" ");
-}
 
 function setHidden(element, hidden) {
     if (hidden) {
@@ -83,36 +56,12 @@ function fillChatSwitch(chats, selectedChatId) {
     });
 }
 
-function renderAuthWidget() {
-    if (widgetRendered) {
-        return;
-    }
-    tgAuthWidget.innerHTML = "";
-    if (!BOT_USERNAME) {
-        authHint.textContent = "На сервере не задан BOT_USERNAME, виджет авторизации недоступен.";
-        return;
-    }
-
-    authHint.textContent = getTelegramDomainHint();
-    const script = document.createElement("script");
-    script.async = true;
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.setAttribute("data-telegram-login", BOT_USERNAME);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-userpic", "false");
-    script.setAttribute("data-request-access", "write");
-    script.setAttribute("data-onauth", "onTelegramAuth(user)");
-    tgAuthWidget.appendChild(script);
-    widgetRendered = true;
-}
-
 function renderState(state) {
     if (!state.authorized) {
         setHidden(appHeader, true);
         setHidden(statusCard, true);
         closeChatModal();
         setHidden(authCard, false);
-        renderAuthWidget();
         return;
     }
 
@@ -184,7 +133,6 @@ async function submitCodeAuth() {
     }
 
     codeAuthInFlight = true;
-    codeAuthBtn.disabled = true;
     codeAuthHint.textContent = "";
     try {
         const response = await fetch("/api/auth/code", {
@@ -204,32 +152,8 @@ async function submitCodeAuth() {
         codeAuthHint.textContent = error.message || "Ошибка авторизации по коду.";
     } finally {
         codeAuthInFlight = false;
-        codeAuthBtn.disabled = false;
     }
 }
-
-window.onTelegramAuth = async function onTelegramAuth(user) {
-    try {
-        const response = await fetch("/api/auth/telegram", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ auth_data: user }),
-        });
-        if (!response.ok) {
-            const payload = await response.json().catch(() => ({}));
-            throw new Error(payload.detail || "Ошибка авторизации.");
-        }
-        const state = await response.json();
-        renderState(state);
-    } catch (error) {
-        authHint.textContent = error.message;
-    }
-};
-
-authCodeBtn.addEventListener("click", async () => {
-    await submitCodeAuth();
-});
 
 authCodeInput.addEventListener("input", async () => {
     authCodeInput.value = authCodeInput.value.replace(/\D/g, "").slice(0, 4);
