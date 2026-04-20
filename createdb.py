@@ -1,9 +1,17 @@
-import sqlite3
 import math
+import sqlite3
 from contextlib import closing
 
 DB_FILE = "stats.db"
 MAX_BUILDING_LEVEL = 20
+
+IDLE_BUILDING_ORDER = {
+    "sitopilka": 1,
+    "kolodec_sita": 2,
+    "sitoferma": 3,
+    "masitskaya": 4,
+    "sitvolny_zavod": 5,
+}
 
 
 def _table_exists(cur: sqlite3.Cursor, table_name: str) -> bool:
@@ -26,8 +34,7 @@ def _rebuild_table_with_real_column(cur: sqlite3.Cursor, table_name: str, column
         "WHERE type='index' AND tbl_name=? AND sql IS NOT NULL",
         (table_name,),
     )
-    for row in cur.fetchall():
-        indexes.append((row[0], row[1]))
+    indexes = [(row[0], row[1]) for row in cur.fetchall()]
 
     tmp_table = f"{table_name}__tmp_real"
     cur.execute(f'DROP TABLE IF EXISTS "{tmp_table}"')
@@ -37,8 +44,7 @@ def _rebuild_table_with_real_column(cur: sqlite3.Cursor, table_name: str, column
     select_exprs: list[str] = []
     pk_columns: list[tuple[int, str]] = []
 
-    for cid, name, col_type, notnull, default_value, pk_order in columns:
-        _ = cid  # unused
+    for _cid, name, col_type, notnull, default_value, pk_order in columns:
         normalized_type = (col_type or "TEXT").strip()
         if name == column_name:
             normalized_type = "REAL"
@@ -121,10 +127,7 @@ def ensure_masturbate_log_table(cur: sqlite3.Cursor) -> None:
 
 
 def ensure_matsturbator_achievement(cur: sqlite3.Cursor) -> None:
-    cur.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='achievements'"
-    )
-    if not cur.fetchone():
+    if not _table_exists(cur, "achievements"):
         return
 
     cur.execute(
@@ -142,29 +145,19 @@ def ensure_matsturbator_achievement(cur: sqlite3.Cursor) -> None:
 
 
 def ensure_users_subscription_column(cur: sqlite3.Cursor) -> None:
-    cur.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
-    )
-    if not cur.fetchone():
+    if not _table_exists(cur, "users"):
         return
 
     cur.execute("PRAGMA table_info(users)")
     columns = {row[1] for row in cur.fetchall()}
     if "subscription_till" not in columns:
-        cur.execute(
-            "ALTER TABLE users ADD COLUMN subscription_till TEXT DEFAULT ''"
-        )
+        cur.execute("ALTER TABLE users ADD COLUMN subscription_till TEXT DEFAULT ''")
 
 
 def ensure_profanity_columns(cur: sqlite3.Cursor) -> None:
     for table_name in ("daily_stats", "total_stats"):
-        cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (table_name,),
-        )
-        if not cur.fetchone():
+        if not _table_exists(cur, table_name):
             continue
-
         cur.execute(f"PRAGMA table_info({table_name})")
         columns = {row[1] for row in cur.fetchall()}
         if "profanity_count" not in columns:
@@ -178,81 +171,76 @@ def _floor_to_one_decimal(value: float) -> float:
     return round(floored, 1)
 
 
-def _build_idle_level_rows() -> list[tuple[str, str, str, int, float, int]]:
-    rows: list[tuple[str, str, str, int, float, int]] = []
+def _build_idle_level_rows() -> list[tuple[str, str, str, int, int, float, int]]:
+    rows: list[tuple[str, str, str, int, int, float, int]] = []
 
     for level in range(1, MAX_BUILDING_LEVEL + 1):
-        sitopilka_cost = _floor_to_one_decimal((level ** 0.85) + 3.0)
-        sitopilka_income_microsits = level
         rows.append(
             (
                 "sitopilka",
                 "Ситопилка",
                 "sitopilka.png",
+                IDLE_BUILDING_ORDER["sitopilka"],
                 level,
-                sitopilka_cost,
-                sitopilka_income_microsits,
-            )
-        )
-
-    for level in range(1, MAX_BUILDING_LEVEL + 1):
-        sitoferma_cost = _floor_to_one_decimal((level ** 1.1) + 7.0)
-        sitoferma_income_microsits = level * 2
-        rows.append(
-            (
-                "sitoferma",
-                "Ситоферма",
-                "sitoferma.png",
+                _floor_to_one_decimal((level ** 0.85) + 3.0),
                 level,
-                sitoferma_cost,
-                sitoferma_income_microsits,
             )
         )
 
     kolodec_income = 0
     for level in range(1, MAX_BUILDING_LEVEL + 1):
-        kolodec_cost = _floor_to_one_decimal((level ** 0.95) + 3.0) + (level // 10)
-        kolodec_cost = round(kolodec_cost, 1)
         kolodec_income += 1 + (level // 10)
         rows.append(
             (
                 "kolodec_sita",
                 "Колодец сита",
                 "colodec.png",
+                IDLE_BUILDING_ORDER["kolodec_sita"],
                 level,
-                kolodec_cost,
+                round(_floor_to_one_decimal((level ** 0.95) + 3.0) + (level // 10), 1),
                 kolodec_income,
+            )
+        )
+
+    for level in range(1, MAX_BUILDING_LEVEL + 1):
+        rows.append(
+            (
+                "sitoferma",
+                "Ситоферма",
+                "sitoferma.png",
+                IDLE_BUILDING_ORDER["sitoferma"],
+                level,
+                _floor_to_one_decimal((level ** 1.1) + 7.0),
+                level * 2,
             )
         )
 
     masitskaya_income = 0
     for level in range(1, MAX_BUILDING_LEVEL + 1):
-        masitskaya_cost = _floor_to_one_decimal((level ** 1.1) + 7.0) + ((level // 10) * 4)
-        masitskaya_cost = round(masitskaya_cost, 1)
         masitskaya_income += 2 + (level // 10)
         rows.append(
             (
                 "masitskaya",
                 "Маситская",
                 "masit.png",
+                IDLE_BUILDING_ORDER["masitskaya"],
                 level,
-                masitskaya_cost,
+                round(_floor_to_one_decimal((level ** 1.1) + 7.0) + ((level // 10) * 4), 1),
                 masitskaya_income,
             )
         )
 
     sitvolny_income = 0
     for level in range(1, MAX_BUILDING_LEVEL + 1):
-        sitvolny_cost = _floor_to_one_decimal((level ** 1.4) + 12.0) + ((level // 10) * 5)
-        sitvolny_cost = round(sitvolny_cost, 1)
         sitvolny_income += 3 + (level // 6)
         rows.append(
             (
                 "sitvolny_zavod",
                 "Ситвольный завод",
                 "sitovol.png",
+                IDLE_BUILDING_ORDER["sitvolny_zavod"],
                 level,
-                sitvolny_cost,
+                round(_floor_to_one_decimal((level ** 1.4) + 12.0) + ((level // 10) * 5), 1),
                 sitvolny_income,
             )
         )
@@ -267,6 +255,7 @@ def ensure_idle_game_tables(cur: sqlite3.Cursor) -> None:
             building_code TEXT NOT NULL,
             building_name TEXT NOT NULL,
             image_file TEXT NOT NULL,
+            "order" INTEGER NOT NULL CHECK("order" > 0),
             level INTEGER NOT NULL CHECK(level BETWEEN 1 AND 20),
             upgrade_cost_sits REAL NOT NULL,
             income_microsits_per_hour INTEGER NOT NULL CHECK(income_microsits_per_hour >= 0),
@@ -276,6 +265,9 @@ def ensure_idle_game_tables(cur: sqlite3.Cursor) -> None:
     )
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_idle_building_levels_code ON idle_building_levels(building_code)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_idle_building_levels_order ON idle_building_levels(\"order\", level)"
     )
 
     cur.execute(
@@ -316,10 +308,14 @@ def ensure_idle_game_tables(cur: sqlite3.Cursor) -> None:
     cur.execute("PRAGMA table_info(idle_building_levels)")
     columns = {row[1] for row in cur.fetchall()}
     if "income_microsits_per_hour" not in columns:
-        # Legacy compatibility path in case table was created with old naming.
         cur.execute(
             "ALTER TABLE idle_building_levels "
             "ADD COLUMN income_microsits_per_hour INTEGER NOT NULL DEFAULT 0"
+        )
+    if "order" not in columns:
+        cur.execute(
+            "ALTER TABLE idle_building_levels "
+            "ADD COLUMN \"order\" INTEGER NOT NULL DEFAULT 0"
         )
 
     for row in _build_idle_level_rows():
@@ -329,14 +325,16 @@ def ensure_idle_game_tables(cur: sqlite3.Cursor) -> None:
                 building_code,
                 building_name,
                 image_file,
+                "order",
                 level,
                 upgrade_cost_sits,
                 income_microsits_per_hour
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(building_code, level) DO UPDATE SET
                 building_name = excluded.building_name,
                 image_file = excluded.image_file,
+                "order" = excluded."order",
                 upgrade_cost_sits = excluded.upgrade_cost_sits,
                 income_microsits_per_hour = excluded.income_microsits_per_hour
             """,

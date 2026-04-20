@@ -16,7 +16,21 @@
 <div class="backdrop"></div>
 
 <header class="app-header hidden" id="appHeader">
-    <div class="brand">UDB WEB</div>
+    <div class="header-left">
+        <div class="brand">UDB WEB</div>
+        <button
+            id="buildingsToggleBtn"
+            class="tool-toggle-btn"
+            type="button"
+            aria-label="Панель зданий"
+            aria-pressed="false"
+            title="Панель зданий"
+        >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 20V8h7v12H4Zm9 0V4h7v16h-7ZM6 18h3v-8H6v8Zm9 0h3V6h-3v12Z"></path>
+            </svg>
+        </button>
+    </div>
     <div class="header-controls">
         <label class="chat-switch-label" id="chatBalanceLabel" for="chatSwitch">0 сита</label>
         <select id="chatSwitch" class="chat-switch"></select>
@@ -24,11 +38,16 @@
     </div>
 </header>
 
+<section class="buildings-panel hidden" id="buildingsPanel">
+    <div class="buildings-panel-inner">
+        <div class="buildings-list" id="buildingsList"></div>
+    </div>
+</section>
+
 <main class="app-main">
     <section class="auth-card hidden" id="authCard">
         <h1>Сит-авторизация</h1>
         <p>Напишите боту в личные сообщения команду <code>/auth</code> и введите полученный 4-значный код.</p>
-
         <div class="code-auth">
             <div class="code-row">
                 <input
@@ -45,7 +64,6 @@
             <p class="hint" id="codeAuthHint"></p>
         </div>
     </section>
-
 </main>
 
 <div class="modal hidden" id="chatModal">

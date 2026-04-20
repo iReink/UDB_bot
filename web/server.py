@@ -41,6 +41,7 @@ CHAT_TITLE_CACHE_TTL_SECONDS = 12 * 60 * 60
 CHAT_TITLE_FETCH_TIMEOUT_SECONDS = 0.8
 IDLE_MICROSITS_IN_SIT = 1000
 IDLE_MAX_LEVEL = 20
+IDLE_UNLOCK_PREVIOUS_LEVEL = 10
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
@@ -115,6 +116,18 @@ def _parse_hour_key(value: str | None) -> datetime | None:
         return datetime.strptime(value, "%Y-%m-%d %H:00:00")
     except ValueError:
         return None
+
+
+def _to_microsits(sits_value: float | int | None) -> int:
+    value = float(sits_value or 0)
+    return int(round(value * IDLE_MICROSITS_IN_SIT))
+
+
+def _icon_file_name(image_file: str) -> str:
+    image_path = Path(image_file)
+    if image_path.suffix:
+        return f"{image_path.stem}_icon{image_path.suffix}"
+    return f"{image_file}_icon"
 
 
 def _get_last_idle_income_hour() -> datetime | None:
@@ -284,24 +297,31 @@ def _get_idle_buildings_state(user_id: int, chat_id: int) -> list[dict[str, Any]
         cur = conn.cursor()
         cur.execute(
             """
+            WITH defs AS (
+                SELECT
+                    building_code,
+                    building_name,
+                    image_file,
+                    "order"
+                FROM idle_building_levels
+                WHERE level = 1
+            )
             SELECT
                 defs.building_code AS building_code,
                 defs.building_name AS building_name,
                 defs.image_file AS image_file,
+                defs."order" AS building_order,
                 COALESCE(pb.current_level, 0) AS current_level,
                 COALESCE(pb.lifetime_earned_microsits, 0) AS lifetime_earned_microsits,
                 COALESCE(cur_lvl.upgrade_cost_sits, 0) AS current_level_upgrade_cost_sits,
                 COALESCE(cur_lvl.income_microsits_per_hour, 0) AS current_income_microsits_per_hour,
                 next_lvl.level AS next_level,
-                next_lvl.upgrade_cost_sits AS next_upgrade_cost_sits
-            FROM (
-                SELECT
-                    building_code,
-                    MIN(building_name) AS building_name,
-                    MIN(image_file) AS image_file
-                FROM idle_building_levels
-                GROUP BY building_code
-            ) defs
+                next_lvl.upgrade_cost_sits AS next_upgrade_cost_sits,
+                next_lvl.income_microsits_per_hour AS next_income_microsits_per_hour,
+                prev_defs.building_code AS unlock_prev_building_code,
+                prev_defs.building_name AS unlock_prev_building_name,
+                COALESCE(prev_pb.current_level, 0) AS unlock_prev_building_level
+            FROM defs
             LEFT JOIN idle_player_buildings pb
               ON pb.user_id = ?
              AND pb.chat_id = ?
@@ -312,37 +332,96 @@ def _get_idle_buildings_state(user_id: int, chat_id: int) -> list[dict[str, Any]
             LEFT JOIN idle_building_levels next_lvl
               ON next_lvl.building_code = defs.building_code
              AND next_lvl.level = COALESCE(pb.current_level, 0) + 1
-            ORDER BY defs.building_code
+            LEFT JOIN defs prev_defs
+              ON prev_defs."order" = defs."order" - 1
+            LEFT JOIN idle_player_buildings prev_pb
+              ON prev_pb.user_id = ?
+             AND prev_pb.chat_id = ?
+             AND prev_pb.building_code = prev_defs.building_code
+            ORDER BY defs."order"
             """,
-            (user_id, chat_id),
+            (user_id, chat_id, user_id, chat_id),
         )
         rows = cur.fetchall()
 
+    if not rows:
+        return []
+
     items: list[dict[str, Any]] = []
     for row in rows:
+        building_order = int(row["building_order"] or 0)
         current_level = int(row["current_level"] or 0)
+        current_income = int(row["current_income_microsits_per_hour"] or 0)
         next_level = row["next_level"]
         next_upgrade_cost = row["next_upgrade_cost_sits"]
+        next_income = int(row["next_income_microsits_per_hour"] or 0)
+        unlock_prev_level = int(row["unlock_prev_building_level"] or 0)
+        unlock_prev_name = row["unlock_prev_building_name"]
+        unlock_prev_code = row["unlock_prev_building_code"]
+
+        is_locked_for_buy = (
+            current_level == 0
+            and building_order > 1
+            and unlock_prev_level < IDLE_UNLOCK_PREVIOUS_LEVEL
+        )
+        if current_level >= IDLE_MAX_LEVEL:
+            card_state = "max_level"
+        elif current_level == 0 and is_locked_for_buy:
+            card_state = "zero_locked"
+        elif current_level == 0:
+            card_state = "zero_unlocked"
+        else:
+            card_state = "default"
+
+        next_upgrade_cost_microsits = (
+            _to_microsits(next_upgrade_cost) if next_upgrade_cost is not None else None
+        )
+        next_income_delta = max(next_income - current_income, 0) if next_level is not None else 0
+
         items.append(
             {
                 "building_code": str(row["building_code"]),
+                "building_order": building_order,
                 "name": str(row["building_name"]),
                 "image_file": str(row["image_file"]),
+                "icon_file": _icon_file_name(str(row["image_file"])),
                 "level": current_level,
                 "max_level": IDLE_MAX_LEVEL,
-                "income_microsits_per_hour": int(row["current_income_microsits_per_hour"] or 0),
+                "income_microsits_per_hour": current_income,
                 "lifetime_earned_microsits": int(row["lifetime_earned_microsits"] or 0),
                 "current_level_upgrade_cost_sits": normalize_sits(row["current_level_upgrade_cost_sits"] or 0),
                 "next_level": int(next_level) if next_level is not None else None,
                 "next_upgrade_cost_sits": normalize_sits(next_upgrade_cost) if next_upgrade_cost is not None else None,
-                "can_upgrade": next_level is not None,
+                "next_upgrade_cost_microsits": next_upgrade_cost_microsits,
+                "next_income_microsits_per_hour": next_income if next_level is not None else None,
+                "next_income_delta_microsits": next_income_delta if next_level is not None else None,
+                "unlock_required_prev_level": IDLE_UNLOCK_PREVIOUS_LEVEL if building_order > 1 else None,
+                "unlock_prev_building_code": str(unlock_prev_code) if unlock_prev_code else None,
+                "unlock_prev_building_name": str(unlock_prev_name) if unlock_prev_name else None,
+                "unlock_prev_building_level": unlock_prev_level if building_order > 1 else None,
+                "unlock_condition_met": not is_locked_for_buy,
+                "can_upgrade": next_level is not None and not is_locked_for_buy,
+                "state": card_state,
             }
         )
 
-    return items
+    purchased_codes = {item["building_code"] for item in items if item["level"] > 0}
+    purchased_orders = [item["building_order"] for item in items if item["level"] > 0]
+
+    visible_codes = set(purchased_codes)
+    if purchased_orders:
+        next_order = max(purchased_orders) + 1
+        next_item = next((item for item in items if item["building_order"] == next_order), None)
+        if next_item:
+            visible_codes.add(next_item["building_code"])
+    else:
+        first_item = min(items, key=lambda item: item["building_order"])
+        visible_codes.add(first_item["building_code"])
+
+    return [item for item in items if item["building_code"] in visible_codes]
 
 
-def _purchase_idle_building(user_id: int, chat_id: int, building_code: str) -> dict[str, Any]:
+def _purchase_idle_building_legacy(user_id: int, chat_id: int, building_code: str) -> dict[str, Any]:
     with _get_connection() as conn:
         cur = conn.cursor()
         cur.execute("BEGIN IMMEDIATE")
@@ -446,6 +525,169 @@ def _purchase_idle_building(user_id: int, chat_id: int, building_code: str) -> d
         "income_microsits_per_hour": int(target_level_row["income_microsits_per_hour"] or 0),
         "lifetime_earned_microsits": lifetime_earned,
         "balance": new_balance,
+    }
+
+
+def _purchase_idle_building(user_id: int, chat_id: int, building_code: str) -> dict[str, Any]:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+
+        cur.execute(
+            """
+            SELECT COALESCE(sits, 0) AS sits
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        user_row = cur.fetchone()
+        if not user_row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Пользователь не найден в выбранном чате")
+
+        cur.execute(
+            """
+            SELECT current_level, lifetime_earned_microsits
+            FROM idle_player_buildings
+            WHERE user_id = ? AND chat_id = ? AND building_code = ?
+            """,
+            (user_id, chat_id, building_code),
+        )
+        owned_row = cur.fetchone()
+        current_level = int(owned_row["current_level"]) if owned_row else 0
+        target_level = current_level + 1
+        if target_level > IDLE_MAX_LEVEL:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Достигнут максимальный уровень здания")
+
+        cur.execute(
+            """
+            SELECT
+                building_name,
+                image_file,
+                "order" AS building_order,
+                upgrade_cost_sits,
+                income_microsits_per_hour
+            FROM idle_building_levels
+            WHERE building_code = ? AND level = ?
+            """,
+            (building_code, target_level),
+        )
+        target_level_row = cur.fetchone()
+        if not target_level_row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Постройка не найдена")
+
+        building_order = int(target_level_row["building_order"] or 0)
+        unlock_prev_name: str | None = None
+        unlock_prev_level: int | None = None
+        if building_order > 1 and current_level == 0:
+            cur.execute(
+                """
+                SELECT
+                    prev_defs.building_name AS building_name,
+                    COALESCE(prev_pb.current_level, 0) AS current_level
+                FROM idle_building_levels prev_defs
+                LEFT JOIN idle_player_buildings prev_pb
+                  ON prev_pb.user_id = ?
+                 AND prev_pb.chat_id = ?
+                 AND prev_pb.building_code = prev_defs.building_code
+                WHERE prev_defs.level = 1
+                  AND prev_defs."order" = ?
+                """,
+                (user_id, chat_id, building_order - 1),
+            )
+            prev_row = cur.fetchone()
+            unlock_prev_name = str(prev_row["building_name"]) if prev_row else None
+            unlock_prev_level = int(prev_row["current_level"] or 0) if prev_row else 0
+            if unlock_prev_level < IDLE_UNLOCK_PREVIOUS_LEVEL:
+                conn.rollback()
+                if unlock_prev_name:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Открой {IDLE_UNLOCK_PREVIOUS_LEVEL} уровень {unlock_prev_name}",
+                    )
+                raise HTTPException(status_code=409, detail="Постройка пока заблокирована")
+
+        balance = float(user_row["sits"] or 0)
+        upgrade_cost = float(target_level_row["upgrade_cost_sits"] or 0)
+        if balance + 1e-9 < upgrade_cost:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="недостаточно сита")
+
+        new_balance = normalize_sits(balance - upgrade_cost)
+        cur.execute(
+            """
+            UPDATE users
+            SET sits = ?
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (new_balance, user_id, chat_id),
+        )
+
+        if owned_row:
+            cur.execute(
+                """
+                UPDATE idle_player_buildings
+                SET current_level = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND chat_id = ? AND building_code = ?
+                """,
+                (target_level, user_id, chat_id, building_code),
+            )
+            lifetime_earned = int(owned_row["lifetime_earned_microsits"] or 0)
+        else:
+            cur.execute(
+                """
+                INSERT INTO idle_player_buildings (
+                    user_id,
+                    chat_id,
+                    building_code,
+                    current_level,
+                    lifetime_earned_microsits
+                )
+                VALUES (?, ?, ?, ?, 0)
+                """,
+                (user_id, chat_id, building_code, target_level),
+            )
+            lifetime_earned = 0
+
+        conn.commit()
+
+    next_level = target_level + 1
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                level,
+                upgrade_cost_sits,
+                income_microsits_per_hour
+            FROM idle_building_levels
+            WHERE building_code = ? AND level = ?
+            """,
+            (building_code, next_level),
+        )
+        next_row = cur.fetchone()
+
+    return {
+        "building_code": building_code,
+        "building_order": building_order,
+        "name": str(target_level_row["building_name"]),
+        "image_file": str(target_level_row["image_file"]),
+        "icon_file": _icon_file_name(str(target_level_row["image_file"])),
+        "level": target_level,
+        "max_level": IDLE_MAX_LEVEL,
+        "income_microsits_per_hour": int(target_level_row["income_microsits_per_hour"] or 0),
+        "lifetime_earned_microsits": lifetime_earned,
+        "balance": new_balance,
+        "next_level": int(next_row["level"]) if next_row else None,
+        "next_upgrade_cost_sits": normalize_sits(next_row["upgrade_cost_sits"]) if next_row else None,
+        "next_upgrade_cost_microsits": _to_microsits(next_row["upgrade_cost_sits"]) if next_row else None,
+        "next_income_microsits_per_hour": int(next_row["income_microsits_per_hour"]) if next_row else None,
+        "unlock_required_prev_level": IDLE_UNLOCK_PREVIOUS_LEVEL if building_order > 1 else None,
+        "unlock_prev_building_name": unlock_prev_name,
+        "unlock_prev_building_level": unlock_prev_level,
     }
 
 

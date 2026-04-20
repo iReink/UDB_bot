@@ -7,6 +7,10 @@ const chatSwitch = document.getElementById("chatSwitch");
 const logoutBtn = document.getElementById("logoutBtn");
 const chatModal = document.getElementById("chatModal");
 const chatList = document.getElementById("chatList");
+const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
+const buildingsPanel = document.getElementById("buildingsPanel");
+const buildingsList = document.getElementById("buildingsList");
+
 const sceneLayerNodes = Array.from(document.querySelectorAll("[data-scene-layer]")).reduce((acc, node) => {
     const layerName = node.dataset.sceneLayer;
     if (layerName) {
@@ -15,16 +19,11 @@ const sceneLayerNodes = Array.from(document.querySelectorAll("[data-scene-layer]
     return acc;
 }, {});
 
-let codeAuthInFlight = false;
-let sceneAnimationFrameId = null;
-const sceneAnimations = [];
-const sceneSpawnIntervals = [];
-const sceneSpawnStartupTimeouts = [];
-const sceneSpawnCleanupTimeouts = [];
-const sceneSpawnedElements = [];
 const SCENE_LAYER_ORDER = ["sky", "sky_elements", "background", "foreground"];
 const DEFAULT_SCENE_BASE_SIZE = { width: 1920, height: 1080 };
-let sceneBaseSize = { ...DEFAULT_SCENE_BASE_SIZE };
+const IDLE_ASSETS_BASE = "/static/assets/buildings";
+const MICRO_FORMATTER = new Intl.NumberFormat("ru-RU");
+
 const SCENE_ITEM_STYLE_KEYS = [
     "left",
     "right",
@@ -46,6 +45,19 @@ const SCENE_ITEM_STYLE_KEYS = [
     "pointerEvents",
 ];
 
+let codeAuthInFlight = false;
+let sceneAnimationFrameId = null;
+let sceneBaseSize = { ...DEFAULT_SCENE_BASE_SIZE };
+const sceneAnimations = [];
+const sceneSpawnIntervals = [];
+const sceneSpawnStartupTimeouts = [];
+const sceneSpawnCleanupTimeouts = [];
+const sceneSpawnedElements = [];
+
+let buildingsPanelOpen = false;
+let idleBuildingsRequestInFlight = false;
+let activeSelectedChatId = null;
+
 function applySceneItemStyle(element, style) {
     if (!style || typeof style !== "object") {
         return;
@@ -65,14 +77,14 @@ function clearSceneAnimations() {
         sceneAnimationFrameId = null;
     }
     sceneAnimations.length = 0;
-    sceneSpawnIntervals.forEach((intervalId) => clearInterval(intervalId));
+    sceneSpawnIntervals.forEach((id) => clearInterval(id));
     sceneSpawnIntervals.length = 0;
-    sceneSpawnStartupTimeouts.forEach((timeoutId) => clearTimeout(timeoutId));
+    sceneSpawnStartupTimeouts.forEach((id) => clearTimeout(id));
     sceneSpawnStartupTimeouts.length = 0;
-    sceneSpawnCleanupTimeouts.forEach((timeoutId) => clearTimeout(timeoutId));
+    sceneSpawnCleanupTimeouts.forEach((id) => clearTimeout(id));
     sceneSpawnCleanupTimeouts.length = 0;
     sceneSpawnedElements.forEach((element) => {
-        if (element && element.parentNode) {
+        if (element.parentNode) {
             element.parentNode.removeChild(element);
         }
     });
@@ -172,17 +184,14 @@ function parseScenePoint(point) {
         }
         return null;
     }
-
     if (!point || typeof point !== "object") {
         return null;
     }
-
     const x = Number(point.x);
     const y = Number(point.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
         return null;
     }
-
     return { x, y };
 }
 
@@ -205,26 +214,22 @@ function pickRandomScenePoint(points) {
     if (!Array.isArray(points) || !points.length) {
         return null;
     }
-    const index = Math.floor(Math.random() * points.length);
-    return points[index];
+    return points[Math.floor(Math.random() * points.length)];
 }
 
 function spawnTimedSceneItem(spawnConfig) {
     if (!spawnConfig || typeof spawnConfig !== "object") {
         return;
     }
-
     const layerName = String(spawnConfig.layer || "foreground");
     const layerNode = sceneLayerNodes[layerName];
     if (!layerNode) {
         return;
     }
-
     const src = String(spawnConfig.src || "");
     if (!src) {
         return;
     }
-
     const viewportPoint = mapScenePointToViewport(pickRandomScenePoint(spawnConfig.points));
     if (!viewportPoint) {
         return;
@@ -248,14 +253,14 @@ function spawnTimedSceneItem(spawnConfig) {
     const displayMs = Number(spawnConfig.displayMs);
     const resolvedDisplayMs = Number.isFinite(displayMs) && displayMs > 0 ? displayMs : 2200;
     const scheduleCleanup = () => {
-        const cleanupTimeoutId = window.setTimeout(() => {
+        const timeoutId = window.setTimeout(() => {
             removeSceneSpawnedElement(image);
-            const timeoutIndex = sceneSpawnCleanupTimeouts.indexOf(cleanupTimeoutId);
-            if (timeoutIndex >= 0) {
-                sceneSpawnCleanupTimeouts.splice(timeoutIndex, 1);
+            const index = sceneSpawnCleanupTimeouts.indexOf(timeoutId);
+            if (index >= 0) {
+                sceneSpawnCleanupTimeouts.splice(index, 1);
             }
         }, resolvedDisplayMs);
-        sceneSpawnCleanupTimeouts.push(cleanupTimeoutId);
+        sceneSpawnCleanupTimeouts.push(timeoutId);
     };
 
     if (image.complete) {
@@ -263,10 +268,7 @@ function spawnTimedSceneItem(spawnConfig) {
     } else {
         image.addEventListener("load", scheduleCleanup, { once: true });
     }
-
-    image.addEventListener("error", () => {
-        removeSceneSpawnedElement(image);
-    }, { once: true });
+    image.addEventListener("error", () => removeSceneSpawnedElement(image), { once: true });
 }
 
 function registerSceneTimedSpawns(sceneConfig) {
@@ -294,7 +296,6 @@ function registerSceneTimedSpawns(sceneConfig) {
             }, resolvedIntervalMs);
             sceneSpawnIntervals.push(intervalId);
         }, resolvedInitialDelayMs);
-
         sceneSpawnStartupTimeouts.push(startupTimeoutId);
     });
 }
@@ -305,7 +306,6 @@ function renderSceneLayer(layerName, items) {
         return;
     }
     layerNode.innerHTML = "";
-
     if (!Array.isArray(items) || !items.length) {
         return;
     }
@@ -314,16 +314,9 @@ function renderSceneLayer(layerName, items) {
         if (!item || typeof item !== "object") {
             return;
         }
-
-        const kind = (item.kind || "image").toLowerCase();
-        if (kind !== "image") {
+        if (String(item.kind || "image").toLowerCase() !== "image" || !item.src) {
             return;
         }
-
-        if (!item.src) {
-            return;
-        }
-
         const image = document.createElement("img");
         image.className = "scene-item";
         image.src = String(item.src);
@@ -365,20 +358,49 @@ async function loadScene() {
     }
 }
 
+function normalizeSits(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) {
+        return 0;
+    }
+    const rounded = Math.round(amount * 1000) / 1000;
+    if (Math.abs(rounded - Math.round(rounded)) <= 1e-9) {
+        return Math.round(rounded);
+    }
+    return rounded;
+}
+
 function sitWord(amount) {
-    const n = Math.abs(Number(amount) || 0);
+    const normalized = normalizeSits(amount);
+    if (!Number.isInteger(normalized)) {
+        return "сита";
+    }
+    const n = Math.abs(normalized);
     if (n % 10 === 1 && n % 100 !== 11) {
         return "сит";
     }
     return "сита";
 }
 
+function formatSits(amount) {
+    const normalized = normalizeSits(amount);
+    if (Number.isInteger(normalized)) {
+        return MICRO_FORMATTER.format(normalized);
+    }
+    return String(normalized);
+}
+
+function formatMicrosits(value) {
+    const amount = Math.max(0, Math.trunc(Number(value) || 0));
+    return MICRO_FORMATTER.format(amount);
+}
+
 function setHeaderBalance(amount) {
     if (!chatBalanceLabel) {
         return;
     }
-    const value = Number.isFinite(Number(amount)) ? Number(amount) : 0;
-    chatBalanceLabel.textContent = `${value} ${sitWord(value)}`;
+    const value = normalizeSits(amount);
+    chatBalanceLabel.textContent = `${formatSits(value)} ${sitWord(value)}`;
 }
 
 function setHidden(element, hidden) {
@@ -399,6 +421,222 @@ function setLoadingMessage(message) {
     }
     if (message) {
         console.error(message);
+    }
+}
+
+function setBuildingsPanelOpen(isOpen) {
+    buildingsPanelOpen = Boolean(isOpen);
+    if (buildingsToggleBtn) {
+        buildingsToggleBtn.classList.toggle("is-active", buildingsPanelOpen);
+        buildingsToggleBtn.setAttribute("aria-pressed", buildingsPanelOpen ? "true" : "false");
+    }
+    if (buildingsPanel) {
+        buildingsPanel.classList.toggle("hidden", !buildingsPanelOpen);
+    }
+}
+
+function clearBuildingsPanel() {
+    if (buildingsList) {
+        buildingsList.innerHTML = "";
+    }
+}
+
+function buildingAssetPath(fileName) {
+    return `${IDLE_ASSETS_BASE}/${fileName}`;
+}
+
+function buildActionButtonConfig(building) {
+    const state = String(building.state || "");
+    if (state === "max_level") {
+        return {
+            disabled: true,
+            main: "Максимальный уровень",
+            sub: "",
+            action: null,
+        };
+    }
+    if (state === "zero_locked") {
+        const reqLevel = Number(building.unlock_required_prev_level) || 10;
+        const reqName = String(building.unlock_prev_building_name || "предыдущее здание");
+        return {
+            disabled: true,
+            main: `Открой ${reqLevel} уровень ${reqName}`,
+            sub: "",
+            action: null,
+        };
+    }
+
+    const costMicrosits = formatMicrosits(building.next_upgrade_cost_microsits || 0);
+    const incomeDelta = formatMicrosits(building.next_income_delta_microsits || 0);
+    if (state === "zero_unlocked") {
+        return {
+            disabled: false,
+            main: `Купить за ${costMicrosits} мкрсит`,
+            sub: `+${incomeDelta} микросит в час`,
+            action: "buy",
+        };
+    }
+    return {
+        disabled: false,
+        main: `Улучшить за ${costMicrosits} мкрсит`,
+        sub: `+${incomeDelta} микросит в час`,
+        action: "upgrade",
+    };
+}
+
+function renderBuildingCard(building) {
+    const card = document.createElement("article");
+    const state = String(building.state || "default");
+    card.className = `building-card building-card--${state}`;
+    card.dataset.buildingCode = String(building.building_code || "");
+
+    const iconWrap = document.createElement("div");
+    iconWrap.className = "building-icon";
+    const icon = document.createElement("img");
+    icon.alt = String(building.name || "");
+    icon.src = buildingAssetPath(building.icon_file || "");
+    icon.addEventListener("error", () => {
+        icon.src = buildingAssetPath(building.image_file || "");
+    }, { once: true });
+    iconWrap.appendChild(icon);
+    card.appendChild(iconWrap);
+
+    const main = document.createElement("div");
+    main.className = "building-main";
+    const titleRow = document.createElement("div");
+    titleRow.className = "building-title-row";
+    const title = document.createElement("h3");
+    title.className = "building-title";
+    title.textContent = String(building.name || "");
+    titleRow.appendChild(title);
+    if ((Number(building.level) || 0) > 0) {
+        const level = document.createElement("span");
+        level.className = "building-level";
+        level.textContent = `${Number(building.level)} ур.`;
+        titleRow.appendChild(level);
+    }
+    main.appendChild(titleRow);
+    if ((Number(building.level) || 0) > 0) {
+        const income = document.createElement("div");
+        income.className = "building-income";
+        income.textContent = `${formatMicrosits(building.income_microsits_per_hour)} микросит в час`;
+        main.appendChild(income);
+    }
+    card.appendChild(main);
+
+    const lifetimeBlock = document.createElement("div");
+    lifetimeBlock.className = "building-lifetime";
+    if ((Number(building.level) || 0) > 0) {
+        const lifetimeTitle = document.createElement("div");
+        lifetimeTitle.className = "building-lifetime-title";
+        lifetimeTitle.textContent = "Доход за всё время";
+        lifetimeBlock.appendChild(lifetimeTitle);
+        const lifetimeValue = document.createElement("div");
+        lifetimeValue.className = "building-lifetime-value";
+        lifetimeValue.textContent = `${formatMicrosits(building.lifetime_earned_microsits)} микросит`;
+        lifetimeBlock.appendChild(lifetimeValue);
+    }
+    card.appendChild(lifetimeBlock);
+
+    const actionWrap = document.createElement("div");
+    actionWrap.className = "building-action";
+    const actionConfig = buildActionButtonConfig(building);
+    const actionBtn = document.createElement("button");
+    actionBtn.type = "button";
+    actionBtn.className = "upgrade-btn";
+    actionBtn.disabled = actionConfig.disabled || !building.can_upgrade;
+    actionBtn.dataset.buildingCode = String(building.building_code || "");
+
+    const mainText = document.createElement("span");
+    mainText.className = "upgrade-btn-main";
+    mainText.textContent = actionConfig.main;
+    actionBtn.appendChild(mainText);
+
+    if (actionConfig.sub) {
+        const subText = document.createElement("span");
+        subText.className = "upgrade-btn-sub";
+        subText.textContent = actionConfig.sub;
+        actionBtn.appendChild(subText);
+    }
+
+    actionBtn.addEventListener("click", async () => {
+        if (actionBtn.disabled) {
+            return;
+        }
+        actionBtn.disabled = true;
+        try {
+            await purchaseBuilding(String(building.building_code || ""));
+        } catch (error) {
+            setLoadingMessage(error.message || "Ошибка покупки здания");
+        } finally {
+            actionBtn.disabled = false;
+        }
+    });
+
+    actionWrap.appendChild(actionBtn);
+    card.appendChild(actionWrap);
+    return card;
+}
+
+function renderBuildingsPanel(buildings) {
+    if (!buildingsList) {
+        return;
+    }
+    buildingsList.innerHTML = "";
+
+    const sorted = Array.isArray(buildings)
+        ? [...buildings].sort((a, b) => (Number(a.building_order) || 0) - (Number(b.building_order) || 0))
+        : [];
+
+    sorted.forEach((building) => {
+        buildingsList.appendChild(renderBuildingCard(building));
+    });
+}
+
+async function fetchIdleBuildings() {
+    const response = await fetch("/api/idle/buildings", { credentials: "include" });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Ошибка загрузки зданий");
+    }
+    return response.json();
+}
+
+async function purchaseBuilding(buildingCode) {
+    const response = await fetch("/api/idle/buildings/purchase", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ building_code: buildingCode }),
+    });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Ошибка покупки здания");
+    }
+    const payload = await response.json();
+    if (payload && payload.balance !== undefined) {
+        setHeaderBalance(payload.balance);
+    }
+    if (payload && Array.isArray(payload.buildings)) {
+        renderBuildingsPanel(payload.buildings);
+    }
+}
+
+async function refreshIdleBuildings() {
+    if (idleBuildingsRequestInFlight || activeSelectedChatId == null) {
+        return;
+    }
+    idleBuildingsRequestInFlight = true;
+    try {
+        const payload = await fetchIdleBuildings();
+        if (activeSelectedChatId == null || Number(payload.chat_id) !== Number(activeSelectedChatId)) {
+            return;
+        }
+        renderBuildingsPanel(payload.buildings || []);
+    } catch (error) {
+        console.error(error);
+    } finally {
+        idleBuildingsRequestInFlight = false;
     }
 }
 
@@ -436,8 +674,15 @@ function fillChatSwitch(chats, selectedChatId) {
 
 function renderState(state) {
     if (!state.authorized) {
+        activeSelectedChatId = null;
         setHidden(appHeader, true);
+        setHidden(buildingsPanel, true);
+        if (buildingsToggleBtn) {
+            buildingsToggleBtn.classList.remove("is-active");
+        }
+        buildingsPanelOpen = false;
         closeChatModal();
+        clearBuildingsPanel();
         setHidden(authCard, false);
         setHeaderBalance(0);
         return;
@@ -451,18 +696,29 @@ function renderState(state) {
     setHeaderBalance(state.balance);
 
     if (!chats.length) {
+        activeSelectedChatId = null;
+        setBuildingsPanelOpen(false);
+        clearBuildingsPanel();
         closeChatModal();
         setLoadingMessage("Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.");
         return;
     }
 
     if (state.selected_chat_id == null) {
+        activeSelectedChatId = null;
+        setBuildingsPanelOpen(false);
+        clearBuildingsPanel();
         setLoadingMessage("");
         openChatModal(chats);
         return;
     }
 
     closeChatModal();
+    activeSelectedChatId = Number(state.selected_chat_id);
+    if (buildingsPanelOpen) {
+        setHidden(buildingsPanel, false);
+    }
+    void refreshIdleBuildings();
 }
 
 async function fetchState() {
@@ -554,6 +810,18 @@ chatSwitch.addEventListener("change", async (event) => {
         setLoadingMessage(error.message);
     }
 });
+
+if (buildingsToggleBtn) {
+    buildingsToggleBtn.addEventListener("click", () => {
+        if (activeSelectedChatId == null) {
+            return;
+        }
+        setBuildingsPanelOpen(!buildingsPanelOpen);
+        if (buildingsPanelOpen) {
+            void refreshIdleBuildings();
+        }
+    });
+}
 
 logoutBtn.addEventListener("click", async () => {
     await fetch("/api/logout", { method: "POST", credentials: "include" });
