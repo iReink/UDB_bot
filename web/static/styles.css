@@ -82,6 +82,37 @@ body {
     pointer-events: none;
 }
 
+.scene-building {
+    position: absolute;
+    transform-origin: left top;
+    pointer-events: none;
+    z-index: 6;
+}
+
+.scene-building-image {
+    display: block;
+    max-width: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
+}
+
+.scene-building-placeholder {
+    min-width: 120px;
+    min-height: 72px;
+    border-radius: 10px;
+    border: 1px solid rgba(72, 28, 76, 0.34);
+    background: rgba(247, 214, 244, 0.88);
+    color: #4c3656;
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 8px 10px;
+}
+
 .backdrop {
     position: fixed;
     inset: 0;

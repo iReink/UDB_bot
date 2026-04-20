@@ -23,6 +23,10 @@ const SCENE_LAYER_ORDER = ["sky", "sky_elements", "background", "foreground"];
 const DEFAULT_SCENE_BASE_SIZE = { width: 1920, height: 1080 };
 const IDLE_ASSETS_BASE = "/static/assets/buildings";
 const MICRO_FORMATTER = new Intl.NumberFormat("ru-RU");
+const BUILDING_SCENE_POINTS = {
+    sitopilka: { x: 895, y: 845 },
+    kolodec_sita: { x: 603, y: 786 },
+};
 
 const SCENE_ITEM_STYLE_KEYS = [
     "left",
@@ -57,6 +61,8 @@ const sceneSpawnedElements = [];
 let buildingsPanelOpen = false;
 let idleBuildingsRequestInFlight = false;
 let activeSelectedChatId = null;
+let lastIdleBuildings = [];
+const sceneBuildingNodes = [];
 
 function applySceneItemStyle(element, style) {
     if (!style || typeof style !== "object") {
@@ -90,6 +96,7 @@ function clearSceneAnimations() {
     });
     sceneSpawnedElements.length = 0;
     sceneBaseSize = { ...DEFAULT_SCENE_BASE_SIZE };
+    clearSceneBuildings();
 }
 
 function registerSceneAnimation(element, animationConfig) {
@@ -208,6 +215,88 @@ function mapScenePointToViewport(point) {
         x: Math.round(parsedPoint.x * scale),
         y: Math.round(parsedPoint.y * scale),
     };
+}
+
+function getSceneScale() {
+    return Math.max(
+        window.innerWidth / sceneBaseSize.width,
+        window.innerHeight / sceneBaseSize.height,
+    );
+}
+
+function clearSceneBuildings() {
+    while (sceneBuildingNodes.length) {
+        const node = sceneBuildingNodes.pop();
+        if (node && node.parentNode) {
+            node.parentNode.removeChild(node);
+        }
+    }
+}
+
+function getBuildingScenePoint(building) {
+    const code = String(building.building_code || "");
+    if (BUILDING_SCENE_POINTS[code]) {
+        return BUILDING_SCENE_POINTS[code];
+    }
+    const order = Math.max(1, Number(building.building_order) || 1);
+    return {
+        x: 760 + (order - 1) * 165,
+        y: 860 - (order - 1) * 28,
+    };
+}
+
+function renderSceneBuildings(buildings) {
+    clearSceneBuildings();
+    const layerNode = sceneLayerNodes.foreground;
+    if (!layerNode) {
+        return;
+    }
+
+    const purchased = Array.isArray(buildings)
+        ? buildings
+            .filter((building) => (Number(building.level) || 0) > 0)
+            .sort((a, b) => (Number(a.building_order) || 0) - (Number(b.building_order) || 0))
+        : [];
+    if (!purchased.length) {
+        return;
+    }
+
+    const scale = getSceneScale();
+    purchased.forEach((building) => {
+        const basePoint = getBuildingScenePoint(building);
+        const mappedPoint = mapScenePointToViewport(basePoint);
+        if (!mappedPoint) {
+            return;
+        }
+
+        const node = document.createElement("div");
+        node.className = "scene-building";
+        node.style.left = `${mappedPoint.x}px`;
+        node.style.top = `${mappedPoint.y}px`;
+        node.style.transform = `scale(${scale})`;
+        node.dataset.buildingCode = String(building.building_code || "");
+
+        const image = document.createElement("img");
+        image.className = "scene-building-image";
+        image.src = buildingAssetPath(building.image_file || "");
+        image.alt = String(building.name || "");
+        image.decoding = "async";
+        image.loading = "lazy";
+
+        const placeholder = document.createElement("div");
+        placeholder.className = "scene-building-placeholder hidden";
+        placeholder.textContent = String(building.name || "");
+
+        image.addEventListener("error", () => {
+            image.classList.add("hidden");
+            placeholder.classList.remove("hidden");
+        }, { once: true });
+
+        node.appendChild(image);
+        node.appendChild(placeholder);
+        layerNode.appendChild(node);
+        sceneBuildingNodes.push(node);
+    });
 }
 
 function pickRandomScenePoint(points) {
@@ -342,6 +431,7 @@ function renderScene(sceneConfig) {
     });
     registerSceneTimedSpawns(sceneConfig);
     runSceneAnimations();
+    renderSceneBuildings(lastIdleBuildings);
 }
 
 async function loadScene() {
@@ -618,7 +708,9 @@ async function purchaseBuilding(buildingCode) {
         setHeaderBalance(payload.balance);
     }
     if (payload && Array.isArray(payload.buildings)) {
-        renderBuildingsPanel(payload.buildings);
+        lastIdleBuildings = payload.buildings;
+        renderBuildingsPanel(lastIdleBuildings);
+        renderSceneBuildings(lastIdleBuildings);
     }
 }
 
@@ -632,7 +724,9 @@ async function refreshIdleBuildings() {
         if (activeSelectedChatId == null || Number(payload.chat_id) !== Number(activeSelectedChatId)) {
             return;
         }
-        renderBuildingsPanel(payload.buildings || []);
+        lastIdleBuildings = payload.buildings || [];
+        renderBuildingsPanel(lastIdleBuildings);
+        renderSceneBuildings(lastIdleBuildings);
     } catch (error) {
         console.error(error);
     } finally {
@@ -675,6 +769,7 @@ function fillChatSwitch(chats, selectedChatId) {
 function renderState(state) {
     if (!state.authorized) {
         activeSelectedChatId = null;
+        lastIdleBuildings = [];
         setHidden(appHeader, true);
         setHidden(buildingsPanel, true);
         if (buildingsToggleBtn) {
@@ -683,6 +778,7 @@ function renderState(state) {
         buildingsPanelOpen = false;
         closeChatModal();
         clearBuildingsPanel();
+        clearSceneBuildings();
         setHidden(authCard, false);
         setHeaderBalance(0);
         return;
@@ -697,8 +793,10 @@ function renderState(state) {
 
     if (!chats.length) {
         activeSelectedChatId = null;
+        lastIdleBuildings = [];
         setBuildingsPanelOpen(false);
         clearBuildingsPanel();
+        clearSceneBuildings();
         closeChatModal();
         setLoadingMessage("Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.");
         return;
@@ -706,8 +804,10 @@ function renderState(state) {
 
     if (state.selected_chat_id == null) {
         activeSelectedChatId = null;
+        lastIdleBuildings = [];
         setBuildingsPanelOpen(false);
         clearBuildingsPanel();
+        clearSceneBuildings();
         setLoadingMessage("");
         openChatModal(chats);
         return;
@@ -826,6 +926,13 @@ if (buildingsToggleBtn) {
 logoutBtn.addEventListener("click", async () => {
     await fetch("/api/logout", { method: "POST", credentials: "include" });
     await refresh();
+});
+
+window.addEventListener("resize", () => {
+    if (!lastIdleBuildings.length) {
+        return;
+    }
+    renderSceneBuildings(lastIdleBuildings);
 });
 
 loadScene();
