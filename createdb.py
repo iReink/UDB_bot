@@ -195,6 +195,20 @@ def _build_idle_level_rows() -> list[tuple[str, str, str, int, float, int]]:
             )
         )
 
+    for level in range(1, MAX_BUILDING_LEVEL + 1):
+        sitoferma_cost = _floor_to_one_decimal((level ** 1.1) + 7.0)
+        sitoferma_income_microsits = level * 2
+        rows.append(
+            (
+                "sitoferma",
+                "Ситоферма",
+                "sitoferma.png",
+                level,
+                sitoferma_cost,
+                sitoferma_income_microsits,
+            )
+        )
+
     kolodec_income = 0
     for level in range(1, MAX_BUILDING_LEVEL + 1):
         kolodec_cost = _floor_to_one_decimal((level ** 0.95) + 3.0) + (level // 10)
@@ -208,6 +222,38 @@ def _build_idle_level_rows() -> list[tuple[str, str, str, int, float, int]]:
                 level,
                 kolodec_cost,
                 kolodec_income,
+            )
+        )
+
+    masitskaya_income = 0
+    for level in range(1, MAX_BUILDING_LEVEL + 1):
+        masitskaya_cost = _floor_to_one_decimal((level ** 1.1) + 7.0) + ((level // 10) * 4)
+        masitskaya_cost = round(masitskaya_cost, 1)
+        masitskaya_income += 2 + (level // 10)
+        rows.append(
+            (
+                "masitskaya",
+                "Маситская",
+                "masit.png",
+                level,
+                masitskaya_cost,
+                masitskaya_income,
+            )
+        )
+
+    sitvolny_income = 0
+    for level in range(1, MAX_BUILDING_LEVEL + 1):
+        sitvolny_cost = _floor_to_one_decimal((level ** 1.4) + 12.0) + ((level // 10) * 5)
+        sitvolny_cost = round(sitvolny_cost, 1)
+        sitvolny_income += 3 + (level // 6)
+        rows.append(
+            (
+                "sitvolny_zavod",
+                "Ситвольный завод",
+                "masit.png",
+                level,
+                sitvolny_cost,
+                sitvolny_income,
             )
         )
 
