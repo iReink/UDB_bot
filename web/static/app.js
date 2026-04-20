@@ -73,6 +73,10 @@ const sceneBuildingNodes = [];
 let screenLoaderDepth = 0;
 let currentBalanceSits = 0;
 let currentHourlyIncomeMicrosits = 0;
+let sceneTooltipTimerId = null;
+let sceneTooltipPointerX = 0;
+let sceneTooltipPointerY = 0;
+const SCENE_TOOLTIP_DELAY_MS = 1000;
 
 function applySceneItemStyle(element, style) {
     if (!style || typeof style !== "object") {
@@ -241,6 +245,13 @@ function hideSceneTooltip() {
     sceneTooltip.classList.add("hidden");
 }
 
+function clearSceneTooltipTimer() {
+    if (sceneTooltipTimerId !== null) {
+        clearTimeout(sceneTooltipTimerId);
+        sceneTooltipTimerId = null;
+    }
+}
+
 function positionSceneTooltip(clientX, clientY) {
     if (!sceneTooltip || sceneTooltip.classList.contains("hidden")) {
         return;
@@ -275,7 +286,16 @@ function showSceneTooltip(building, event) {
     positionSceneTooltip(event.clientX, event.clientY);
 }
 
+function scheduleSceneTooltip(building) {
+    clearSceneTooltipTimer();
+    sceneTooltipTimerId = window.setTimeout(() => {
+        sceneTooltipTimerId = null;
+        showSceneTooltip(building, { clientX: sceneTooltipPointerX, clientY: sceneTooltipPointerY });
+    }, SCENE_TOOLTIP_DELAY_MS);
+}
+
 function clearSceneBuildings() {
+    clearSceneTooltipTimer();
     hideSceneTooltip();
     while (sceneBuildingNodes.length) {
         const node = sceneBuildingNodes.pop();
@@ -345,12 +365,19 @@ function renderSceneBuildings(buildings) {
         }, { once: true });
 
         node.addEventListener("mouseenter", (event) => {
-            showSceneTooltip(building, event);
+            sceneTooltipPointerX = event.clientX;
+            sceneTooltipPointerY = event.clientY;
+            scheduleSceneTooltip(building);
         });
         node.addEventListener("mousemove", (event) => {
-            positionSceneTooltip(event.clientX, event.clientY);
+            sceneTooltipPointerX = event.clientX;
+            sceneTooltipPointerY = event.clientY;
+            if (sceneTooltip && !sceneTooltip.classList.contains("hidden")) {
+                positionSceneTooltip(event.clientX, event.clientY);
+            }
         });
         node.addEventListener("mouseleave", () => {
+            clearSceneTooltipTimer();
             hideSceneTooltip();
         });
 
