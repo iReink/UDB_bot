@@ -1,5 +1,9 @@
 {
   "version": 1,
+  "base": {
+    "width": 1920,
+    "height": 1080
+  },
   "layers": {
     "sky": [
       {
@@ -53,5 +57,24 @@
       }
     ],
     "foreground": []
+  },
+  "events": {
+    "timedSpawns": [
+      {
+        "id": "geyser-random",
+        "layer": "foreground",
+        "src": "/static/scene/assets/foreground/gayser.webp",
+        "alt": "Geyser",
+        "intervalMs": 30000,
+        "initialDelayMs": 30000,
+        "displayMs": 2200,
+        "points": [
+          [196, 413],
+          [1662, 508],
+          [1157, 165],
+          [755, 588]
+        ]
+      }
+    ]
   }
 }

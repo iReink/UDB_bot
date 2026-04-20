@@ -9,6 +9,17 @@ Use this structure for static scene layers:
 
 Main config: `scene.json`
 
+Base resolution for coordinate mapping:
+
+```json
+{
+  "base": {
+    "width": 1920,
+    "height": 1080
+  }
+}
+```
+
 Example item in any layer:
 
 ```json
@@ -56,3 +67,24 @@ Animation example (for sun arc):
 - `xEnd` is added to viewport width for the right/end position.
 
 Legacy `xPadding` is still supported as fallback.
+
+Timed foreground spawn example:
+
+```json
+{
+  "events": {
+    "timedSpawns": [
+      {
+        "id": "geyser-random",
+        "layer": "foreground",
+        "src": "/static/scene/assets/foreground/gayser.webp",
+        "intervalMs": 30000,
+        "displayMs": 2200,
+        "points": [[196, 413], [1662, 508], [1157, 165], [755, 588]]
+      }
+    ]
+  }
+}
+```
+
+`points` are interpreted in base resolution pixels and are scaled to current viewport.
