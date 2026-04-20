@@ -11,6 +11,9 @@ const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
 const buildingsPanel = document.getElementById("buildingsPanel");
 const buildingsList = document.getElementById("buildingsList");
 const screenLoader = document.getElementById("screenLoader");
+const sceneTooltip = document.getElementById("sceneTooltip");
+const sceneTooltipTitle = document.getElementById("sceneTooltipTitle");
+const sceneTooltipMeta = document.getElementById("sceneTooltipMeta");
 
 const sceneLayerNodes = Array.from(document.querySelectorAll("[data-scene-layer]")).reduce((acc, node) => {
     const layerName = node.dataset.sceneLayer;
@@ -24,8 +27,8 @@ const SCENE_LAYER_ORDER = ["sky", "sky_elements", "background", "foreground"];
 const DEFAULT_SCENE_BASE_SIZE = { width: 1920, height: 1080 };
 const IDLE_ASSETS_BASE = "/static/assets/buildings";
 const BUILDING_SCENE_POINTS = {
-    sitopilka: { x: 895, y: 795 },
-    kolodec_sita: { x: 603, y: 736 },
+    sitopilka: { x: 895, y: 745 },
+    kolodec_sita: { x: 603, y: 686 },
 };
 
 const SCENE_ITEM_STYLE_KEYS = [
@@ -59,11 +62,14 @@ const sceneSpawnCleanupTimeouts = [];
 const sceneSpawnedElements = [];
 
 let buildingsPanelOpen = false;
+let buildingsPanelAutoOpened = false;
 let idleBuildingsRequestInFlight = false;
 let activeSelectedChatId = null;
 let lastIdleBuildings = [];
 const sceneBuildingNodes = [];
 let screenLoaderDepth = 0;
+let currentBalanceSits = 0;
+let currentHourlyIncomeMicrosits = 0;
 
 function applySceneItemStyle(element, style) {
     if (!style || typeof style !== "object") {
@@ -225,7 +231,49 @@ function getSceneScale() {
     );
 }
 
+function hideSceneTooltip() {
+    if (!sceneTooltip) {
+        return;
+    }
+    sceneTooltip.classList.add("hidden");
+}
+
+function positionSceneTooltip(clientX, clientY) {
+    if (!sceneTooltip || sceneTooltip.classList.contains("hidden")) {
+        return;
+    }
+    const offset = 14;
+    const margin = 8;
+    const rect = sceneTooltip.getBoundingClientRect();
+
+    let left = clientX + offset;
+    let top = clientY + offset;
+    if (left + rect.width > window.innerWidth - margin) {
+        left = clientX - rect.width - offset;
+    }
+    if (top + rect.height > window.innerHeight - margin) {
+        top = clientY - rect.height - offset;
+    }
+    left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
+    top = Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin));
+    sceneTooltip.style.left = `${Math.round(left)}px`;
+    sceneTooltip.style.top = `${Math.round(top)}px`;
+}
+
+function showSceneTooltip(building, event) {
+    if (!sceneTooltip || !sceneTooltipTitle || !sceneTooltipMeta) {
+        return;
+    }
+    const level = Math.max(0, Number(building.level) || 0);
+    const incomeMicrosits = Math.max(0, Math.trunc(Number(building.income_microsits_per_hour) || 0));
+    sceneTooltipTitle.textContent = String(building.name || "");
+    sceneTooltipMeta.textContent = `${level} ур. | ${formatMicrosits(incomeMicrosits)} микросит в час`;
+    sceneTooltip.classList.remove("hidden");
+    positionSceneTooltip(event.clientX, event.clientY);
+}
+
 function clearSceneBuildings() {
+    hideSceneTooltip();
     while (sceneBuildingNodes.length) {
         const node = sceneBuildingNodes.pop();
         if (node && node.parentNode) {
@@ -292,6 +340,16 @@ function renderSceneBuildings(buildings) {
             image.classList.add("hidden");
             placeholder.classList.remove("hidden");
         }, { once: true });
+
+        node.addEventListener("mouseenter", (event) => {
+            showSceneTooltip(building, event);
+        });
+        node.addEventListener("mousemove", (event) => {
+            positionSceneTooltip(event.clientX, event.clientY);
+        });
+        node.addEventListener("mouseleave", () => {
+            hideSceneTooltip();
+        });
 
         node.appendChild(image);
         node.appendChild(placeholder);
@@ -503,12 +561,50 @@ function formatWithNarrowSpace(value) {
     return `${sign}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202F")}`;
 }
 
-function setHeaderBalance(amount) {
+function formatSitsFixed3(amount) {
+    const value = Number(amount);
+    if (!Number.isFinite(value)) {
+        return "0,000";
+    }
+    const rounded = Math.round(value * 1000) / 1000;
+    const sign = rounded < 0 ? "-" : "";
+    const [intPartRaw, fractionRaw] = Math.abs(rounded).toFixed(3).split(".");
+    const intPart = formatWithNarrowSpace(Number(intPartRaw));
+    return `${sign}${intPart},${fractionRaw}`;
+}
+
+function renderHeaderBalance() {
     if (!chatBalanceLabel) {
         return;
     }
-    const value = normalizeSits(amount);
-    chatBalanceLabel.textContent = `${formatSits(value)} ${sitWord(value)}`;
+    const balance = normalizeSits(currentBalanceSits);
+    const incomeSitsPerHour = currentHourlyIncomeMicrosits / 1000;
+    chatBalanceLabel.textContent = `${formatSits(balance)} (+${formatSitsFixed3(incomeSitsPerHour)}) ${sitWord(balance)}`;
+}
+
+function setHeaderBalance(amount) {
+    currentBalanceSits = normalizeSits(amount);
+    renderHeaderBalance();
+}
+
+function setHourlyIncomeMicrosits(amount) {
+    const value = Math.max(0, Math.trunc(Number(amount) || 0));
+    currentHourlyIncomeMicrosits = value;
+    renderHeaderBalance();
+}
+
+function calculateHourlyIncomeMicrosits(buildings) {
+    if (!Array.isArray(buildings)) {
+        return 0;
+    }
+    return buildings.reduce((total, building) => {
+        const level = Math.max(0, Number(building.level) || 0);
+        if (level <= 0) {
+            return total;
+        }
+        const income = Math.max(0, Math.trunc(Number(building.income_microsits_per_hour) || 0));
+        return total + income;
+    }, 0);
 }
 
 function setHidden(element, hidden) {
@@ -741,6 +837,7 @@ async function purchaseBuilding(buildingCode) {
     }
     if (payload && Array.isArray(payload.buildings)) {
         lastIdleBuildings = payload.buildings;
+        setHourlyIncomeMicrosits(calculateHourlyIncomeMicrosits(lastIdleBuildings));
         renderBuildingsPanel(lastIdleBuildings);
         renderSceneBuildings(lastIdleBuildings);
     }
@@ -758,6 +855,7 @@ async function refreshIdleBuildings(options = {}) {
             return;
         }
         lastIdleBuildings = payload.buildings || [];
+        setHourlyIncomeMicrosits(calculateHourlyIncomeMicrosits(lastIdleBuildings));
         renderBuildingsPanel(lastIdleBuildings);
         renderSceneBuildings(lastIdleBuildings);
     } catch (error) {
@@ -809,10 +907,12 @@ function renderState(state) {
             buildingsToggleBtn.classList.remove("is-active");
         }
         buildingsPanelOpen = false;
+        buildingsPanelAutoOpened = false;
         closeChatModal();
         clearBuildingsPanel();
         clearSceneBuildings();
         setHidden(authCard, false);
+        setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         return false;
     }
@@ -822,15 +922,17 @@ function renderState(state) {
 
     const chats = state.chats || [];
     fillChatSwitch(chats, state.selected_chat_id);
-    setHeaderBalance(state.balance);
 
     if (!chats.length) {
         activeSelectedChatId = null;
         lastIdleBuildings = [];
         setBuildingsPanelOpen(false);
+        buildingsPanelAutoOpened = false;
         clearBuildingsPanel();
         clearSceneBuildings();
         closeChatModal();
+        setHourlyIncomeMicrosits(0);
+        setHeaderBalance(0);
         setLoadingMessage("Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.");
         return false;
     }
@@ -839,15 +941,28 @@ function renderState(state) {
         activeSelectedChatId = null;
         lastIdleBuildings = [];
         setBuildingsPanelOpen(false);
+        buildingsPanelAutoOpened = false;
         clearBuildingsPanel();
         clearSceneBuildings();
+        setHourlyIncomeMicrosits(0);
+        setHeaderBalance(0);
         setLoadingMessage("");
         openChatModal(chats);
         return false;
     }
 
+    const selectedChatId = Number(state.selected_chat_id);
+    if (activeSelectedChatId !== null && Number(activeSelectedChatId) !== selectedChatId) {
+        setHourlyIncomeMicrosits(0);
+    }
+
     closeChatModal();
-    activeSelectedChatId = Number(state.selected_chat_id);
+    activeSelectedChatId = selectedChatId;
+    setHeaderBalance(state.balance);
+    if (!buildingsPanelAutoOpened) {
+        setBuildingsPanelOpen(true);
+        buildingsPanelAutoOpened = true;
+    }
     if (buildingsPanelOpen) {
         setHidden(buildingsPanel, false);
     }
@@ -869,6 +984,7 @@ async function selectChat(chatId, options = {}) {
     }
     try {
         lastIdleBuildings = [];
+        setHourlyIncomeMicrosits(0);
         clearSceneBuildings();
         clearBuildingsPanel();
         const response = await fetch("/api/select-chat", {
