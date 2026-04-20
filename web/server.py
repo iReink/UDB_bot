@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
+from createdb import ensure_idle_game_tables
 from auth_code import (
     AuthCodeConflictError,
     AuthCodeExpiredError,
@@ -48,6 +50,8 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
 SESSION_SECRET = os.getenv("WEB_SESSION_SECRET", "").strip()
 logger = logging.getLogger(__name__)
 idle_income_task: asyncio.Task[None] | None = None
+idle_catalog_ready = False
+idle_catalog_lock = threading.Lock()
 
 if not SESSION_SECRET and BOT_TOKEN:
     SESSION_SECRET = hashlib.sha256(f"{BOT_TOKEN}:web-session".encode("utf-8")).hexdigest()
@@ -99,6 +103,21 @@ def _ensure_idle_service_tables() -> None:
             """
         )
         conn.commit()
+
+
+def _ensure_idle_catalog_ready(force: bool = False) -> None:
+    global idle_catalog_ready
+    if idle_catalog_ready and not force:
+        return
+
+    with idle_catalog_lock:
+        if idle_catalog_ready and not force:
+            return
+        with _get_connection() as conn:
+            cur = conn.cursor()
+            ensure_idle_game_tables(cur)
+            conn.commit()
+        idle_catalog_ready = True
 
 
 def _to_hour(dt: datetime) -> datetime:
@@ -1087,6 +1106,7 @@ def logout() -> JSONResponse:
 @app.on_event("startup")
 async def startup_idle_income_worker() -> None:
     global idle_income_task
+    _ensure_idle_catalog_ready(force=True)
     _ensure_idle_service_tables()
     try:
         _catch_up_idle_income()
@@ -1111,6 +1131,7 @@ async def shutdown_idle_income_worker() -> None:
 
 @app.get("/api/idle/buildings")
 def get_idle_buildings(request: Request) -> JSONResponse:
+    _ensure_idle_catalog_ready()
     try:
         _catch_up_idle_income()
     except Exception:
@@ -1135,6 +1156,7 @@ def get_idle_buildings(request: Request) -> JSONResponse:
 
 @app.post("/api/idle/buildings/purchase")
 def purchase_idle_building(request: Request, data: PurchaseIdleBuildingRequest) -> JSONResponse:
+    _ensure_idle_catalog_ready()
     building_code = str(data.building_code or "").strip().lower()
     if not building_code:
         raise HTTPException(status_code=400, detail="building_code is required")
