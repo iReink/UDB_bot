@@ -1,7 +1,9 @@
 import sqlite3
+import math
 from contextlib import closing
 
 DB_FILE = "stats.db"
+MAX_BUILDING_LEVEL = 20
 
 
 def _table_exists(cur: sqlite3.Cursor, table_name: str) -> bool:
@@ -171,6 +173,131 @@ def ensure_profanity_columns(cur: sqlite3.Cursor) -> None:
             )
 
 
+def _floor_to_one_decimal(value: float) -> float:
+    floored = math.floor(value * 10.0) / 10.0
+    return round(floored, 1)
+
+
+def _build_idle_level_rows() -> list[tuple[str, str, str, int, float, int]]:
+    rows: list[tuple[str, str, str, int, float, int]] = []
+
+    for level in range(1, MAX_BUILDING_LEVEL + 1):
+        sitopilka_cost = _floor_to_one_decimal((level ** 0.85) + 3.0)
+        sitopilka_income_microsits = level
+        rows.append(
+            (
+                "sitopilka",
+                "Ситопилка",
+                "sitopilka.png",
+                level,
+                sitopilka_cost,
+                sitopilka_income_microsits,
+            )
+        )
+
+    kolodec_income = 0
+    for level in range(1, MAX_BUILDING_LEVEL + 1):
+        kolodec_cost = _floor_to_one_decimal((level ** 0.95) + 3.0) + (level // 10)
+        kolodec_cost = round(kolodec_cost, 1)
+        kolodec_income += 1 + (level // 10)
+        rows.append(
+            (
+                "kolodec_sita",
+                "Колодец сита",
+                "colodec.png",
+                level,
+                kolodec_cost,
+                kolodec_income,
+            )
+        )
+
+    return rows
+
+
+def ensure_idle_game_tables(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS idle_building_levels (
+            building_code TEXT NOT NULL,
+            building_name TEXT NOT NULL,
+            image_file TEXT NOT NULL,
+            level INTEGER NOT NULL CHECK(level BETWEEN 1 AND 20),
+            upgrade_cost_sits REAL NOT NULL,
+            income_microsits_per_hour INTEGER NOT NULL CHECK(income_microsits_per_hour >= 0),
+            PRIMARY KEY (building_code, level)
+        )
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_idle_building_levels_code ON idle_building_levels(building_code)"
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS idle_player_buildings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            building_code TEXT NOT NULL,
+            current_level INTEGER NOT NULL CHECK(current_level BETWEEN 1 AND 20),
+            lifetime_earned_microsits INTEGER NOT NULL DEFAULT 0 CHECK(lifetime_earned_microsits >= 0),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, chat_id, building_code),
+            FOREIGN KEY (building_code, current_level)
+                REFERENCES idle_building_levels(building_code, level)
+        )
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_idle_player_buildings_owner "
+        "ON idle_player_buildings(chat_id, user_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_idle_player_buildings_building "
+        "ON idle_player_buildings(building_code)"
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS idle_hourly_income_ticks (
+            hour_key TEXT PRIMARY KEY,
+            processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    cur.execute("PRAGMA table_info(idle_building_levels)")
+    columns = {row[1] for row in cur.fetchall()}
+    if "income_microsits_per_hour" not in columns:
+        # Legacy compatibility path in case table was created with old naming.
+        cur.execute(
+            "ALTER TABLE idle_building_levels "
+            "ADD COLUMN income_microsits_per_hour INTEGER NOT NULL DEFAULT 0"
+        )
+
+    for row in _build_idle_level_rows():
+        cur.execute(
+            """
+            INSERT INTO idle_building_levels (
+                building_code,
+                building_name,
+                image_file,
+                level,
+                upgrade_cost_sits,
+                income_microsits_per_hour
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(building_code, level) DO UPDATE SET
+                building_name = excluded.building_name,
+                image_file = excluded.image_file,
+                upgrade_cost_sits = excluded.upgrade_cost_sits,
+                income_microsits_per_hour = excluded.income_microsits_per_hour
+            """,
+            row,
+        )
+
+
 def migrate() -> None:
     with closing(sqlite3.connect(DB_FILE)) as conn:
         cur = conn.cursor()
@@ -179,9 +306,10 @@ def migrate() -> None:
         ensure_matsturbator_achievement(cur)
         ensure_users_subscription_column(cur)
         ensure_profanity_columns(cur)
+        ensure_idle_game_tables(cur)
         conn.commit()
 
 
 if __name__ == "__main__":
     migrate()
-    print("DB migration complete: fractional sits + masturbate_log + achievements + users.subscription_till + profanity_count columns.")
+    print("DB migration complete: fractional sits + misc tables + idle game tables.")

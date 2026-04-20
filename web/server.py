@@ -1,10 +1,13 @@
+import asyncio
 import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import sqlite3
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -36,10 +39,14 @@ SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 TELEGRAM_AUTH_MAX_AGE_SECONDS = 60 * 60 * 24
 CHAT_TITLE_CACHE_TTL_SECONDS = 12 * 60 * 60
 CHAT_TITLE_FETCH_TIMEOUT_SECONDS = 0.8
+IDLE_MICROSITS_IN_SIT = 1000
+IDLE_MAX_LEVEL = 20
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
 SESSION_SECRET = os.getenv("WEB_SESSION_SECRET", "").strip()
+logger = logging.getLogger(__name__)
+idle_income_task: asyncio.Task[None] | None = None
 
 if not SESSION_SECRET and BOT_TOKEN:
     SESSION_SECRET = hashlib.sha256(f"{BOT_TOKEN}:web-session".encode("utf-8")).hexdigest()
@@ -61,10 +68,385 @@ class CodeAuthRequest(BaseModel):
     code: str = ""
 
 
+class PurchaseIdleBuildingRequest(BaseModel):
+    building_code: str
+
+
 def _get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _table_exists(cur: sqlite3.Cursor, table_name: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
+        (table_name,),
+    )
+    return cur.fetchone() is not None
+
+
+def _ensure_idle_service_tables() -> None:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS idle_hourly_income_ticks (
+                hour_key TEXT PRIMARY KEY,
+                processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+
+
+def _to_hour(dt: datetime) -> datetime:
+    return dt.replace(minute=0, second=0, microsecond=0)
+
+
+def _hour_key(dt: datetime) -> str:
+    return _to_hour(dt).strftime("%Y-%m-%d %H:00:00")
+
+
+def _parse_hour_key(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:00:00")
+    except ValueError:
+        return None
+
+
+def _get_last_idle_income_hour() -> datetime | None:
+    _ensure_idle_service_tables()
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(hour_key) AS hour_key FROM idle_hourly_income_ticks")
+        row = cur.fetchone()
+    if not row:
+        return None
+    return _parse_hour_key(row["hour_key"])
+
+
+def _apply_idle_income_for_hour(hour_start: datetime) -> bool:
+    _ensure_idle_service_tables()
+    hour_start = _to_hour(hour_start)
+    hour_key = _hour_key(hour_start)
+    date_value = hour_start.date().isoformat()
+    time_value = hour_start.strftime("%H:%M:%S")
+
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute(
+                "INSERT INTO idle_hourly_income_ticks (hour_key) VALUES (?)",
+                (hour_key,),
+            )
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return False
+
+        cur.execute(
+            """
+            UPDATE idle_player_buildings
+            SET lifetime_earned_microsits = lifetime_earned_microsits + (
+                SELECT income_microsits_per_hour
+                FROM idle_building_levels levels
+                WHERE levels.building_code = idle_player_buildings.building_code
+                  AND levels.level = idle_player_buildings.current_level
+            ),
+            updated_at = CURRENT_TIMESTAMP
+            WHERE current_level BETWEEN 1 AND ?
+            """,
+            (IDLE_MAX_LEVEL,),
+        )
+
+        cur.execute(
+            """
+            SELECT
+                pb.user_id,
+                pb.chat_id,
+                COALESCE(u.name, '') AS name,
+                SUM(levels.income_microsits_per_hour) AS income_microsits
+            FROM idle_player_buildings pb
+            JOIN idle_building_levels levels
+              ON levels.building_code = pb.building_code
+             AND levels.level = pb.current_level
+            JOIN users u
+              ON u.user_id = pb.user_id
+             AND u.chat_id = pb.chat_id
+            GROUP BY pb.user_id, pb.chat_id, u.name
+            HAVING income_microsits > 0
+            """
+        )
+        income_rows = cur.fetchall()
+
+        can_write_sit_stats = _table_exists(cur, "sit_stats")
+        for row in income_rows:
+            income_microsits = int(row["income_microsits"] or 0)
+            if income_microsits <= 0:
+                continue
+
+            income_sits = income_microsits / IDLE_MICROSITS_IN_SIT
+            cur.execute(
+                """
+                UPDATE users
+                SET sits = ROUND(COALESCE(sits, 0) + ?, 3)
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (income_sits, int(row["user_id"]), int(row["chat_id"])),
+            )
+
+            if can_write_sit_stats:
+                cur.execute(
+                    """
+                    INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        date_value,
+                        time_value,
+                        int(row["chat_id"]),
+                        int(row["user_id"]),
+                        str(row["name"] or ""),
+                        income_sits,
+                    ),
+                )
+
+        conn.commit()
+        return True
+
+
+def _catch_up_idle_income() -> int:
+    processed_count = 0
+    now_hour = _to_hour(datetime.now())
+    last_hour = _get_last_idle_income_hour()
+
+    if last_hour is None:
+        if _apply_idle_income_for_hour(now_hour):
+            processed_count += 1
+        return processed_count
+
+    next_hour = last_hour + timedelta(hours=1)
+    while next_hour <= now_hour:
+        if _apply_idle_income_for_hour(next_hour):
+            processed_count += 1
+        next_hour += timedelta(hours=1)
+    return processed_count
+
+
+async def _idle_income_worker() -> None:
+    while True:
+        try:
+            _catch_up_idle_income()
+        except Exception:
+            logger.exception("Idle income worker failed")
+
+        now = datetime.now()
+        next_hour = _to_hour(now) + timedelta(hours=1)
+        sleep_seconds = max((next_hour - now).total_seconds(), 1.0)
+        await asyncio.sleep(sleep_seconds)
+
+
+def _require_selected_user_chat(request: Request) -> tuple[int, int]:
+    payload = _require_session(request)
+    user_id = int(payload["telegram_user_id"])
+    selected_chat_id = payload.get("selected_chat_id")
+    if selected_chat_id is None:
+        raise HTTPException(status_code=400, detail="Сначала выберите чат")
+
+    try:
+        chat_id = int(selected_chat_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный чат")
+
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT 1
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        exists = cur.fetchone() is not None
+
+    if not exists:
+        raise HTTPException(status_code=403, detail="Чат недоступен для выбранной сессии")
+
+    return user_id, chat_id
+
+
+def _get_idle_buildings_state(user_id: int, chat_id: int) -> list[dict[str, Any]]:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                defs.building_code AS building_code,
+                defs.building_name AS building_name,
+                defs.image_file AS image_file,
+                COALESCE(pb.current_level, 0) AS current_level,
+                COALESCE(pb.lifetime_earned_microsits, 0) AS lifetime_earned_microsits,
+                COALESCE(cur_lvl.upgrade_cost_sits, 0) AS current_level_upgrade_cost_sits,
+                COALESCE(cur_lvl.income_microsits_per_hour, 0) AS current_income_microsits_per_hour,
+                next_lvl.level AS next_level,
+                next_lvl.upgrade_cost_sits AS next_upgrade_cost_sits
+            FROM (
+                SELECT
+                    building_code,
+                    MIN(building_name) AS building_name,
+                    MIN(image_file) AS image_file
+                FROM idle_building_levels
+                GROUP BY building_code
+            ) defs
+            LEFT JOIN idle_player_buildings pb
+              ON pb.user_id = ?
+             AND pb.chat_id = ?
+             AND pb.building_code = defs.building_code
+            LEFT JOIN idle_building_levels cur_lvl
+              ON cur_lvl.building_code = defs.building_code
+             AND cur_lvl.level = pb.current_level
+            LEFT JOIN idle_building_levels next_lvl
+              ON next_lvl.building_code = defs.building_code
+             AND next_lvl.level = COALESCE(pb.current_level, 0) + 1
+            ORDER BY defs.building_code
+            """,
+            (user_id, chat_id),
+        )
+        rows = cur.fetchall()
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        current_level = int(row["current_level"] or 0)
+        next_level = row["next_level"]
+        next_upgrade_cost = row["next_upgrade_cost_sits"]
+        items.append(
+            {
+                "building_code": str(row["building_code"]),
+                "name": str(row["building_name"]),
+                "image_file": str(row["image_file"]),
+                "level": current_level,
+                "max_level": IDLE_MAX_LEVEL,
+                "income_microsits_per_hour": int(row["current_income_microsits_per_hour"] or 0),
+                "lifetime_earned_microsits": int(row["lifetime_earned_microsits"] or 0),
+                "current_level_upgrade_cost_sits": normalize_sits(row["current_level_upgrade_cost_sits"] or 0),
+                "next_level": int(next_level) if next_level is not None else None,
+                "next_upgrade_cost_sits": normalize_sits(next_upgrade_cost) if next_upgrade_cost is not None else None,
+                "can_upgrade": next_level is not None,
+            }
+        )
+
+    return items
+
+
+def _purchase_idle_building(user_id: int, chat_id: int, building_code: str) -> dict[str, Any]:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+
+        cur.execute(
+            """
+            SELECT COALESCE(sits, 0) AS sits
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        user_row = cur.fetchone()
+        if not user_row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Пользователь не найден в выбранном чате")
+
+        cur.execute(
+            """
+            SELECT current_level, lifetime_earned_microsits
+            FROM idle_player_buildings
+            WHERE user_id = ? AND chat_id = ? AND building_code = ?
+            """,
+            (user_id, chat_id, building_code),
+        )
+        owned_row = cur.fetchone()
+        current_level = int(owned_row["current_level"]) if owned_row else 0
+        target_level = current_level + 1
+
+        if target_level > IDLE_MAX_LEVEL:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Достигнут максимальный уровень здания")
+
+        cur.execute(
+            """
+            SELECT
+                building_name,
+                image_file,
+                upgrade_cost_sits,
+                income_microsits_per_hour
+            FROM idle_building_levels
+            WHERE building_code = ? AND level = ?
+            """,
+            (building_code, target_level),
+        )
+        target_level_row = cur.fetchone()
+        if not target_level_row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Постройка не найдена")
+
+        balance = float(user_row["sits"] or 0)
+        upgrade_cost = float(target_level_row["upgrade_cost_sits"] or 0)
+        if balance + 1e-9 < upgrade_cost:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="недостаточно сита")
+
+        new_balance = normalize_sits(balance - upgrade_cost)
+        cur.execute(
+            """
+            UPDATE users
+            SET sits = ?
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (new_balance, user_id, chat_id),
+        )
+
+        if owned_row:
+            cur.execute(
+                """
+                UPDATE idle_player_buildings
+                SET current_level = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND chat_id = ? AND building_code = ?
+                """,
+                (target_level, user_id, chat_id, building_code),
+            )
+            lifetime_earned = int(owned_row["lifetime_earned_microsits"] or 0)
+        else:
+            cur.execute(
+                """
+                INSERT INTO idle_player_buildings (
+                    user_id,
+                    chat_id,
+                    building_code,
+                    current_level,
+                    lifetime_earned_microsits
+                )
+                VALUES (?, ?, ?, ?, 0)
+                """,
+                (user_id, chat_id, building_code, target_level),
+            )
+            lifetime_earned = 0
+
+        conn.commit()
+
+    return {
+        "building_code": building_code,
+        "name": str(target_level_row["building_name"]),
+        "image_file": str(target_level_row["image_file"]),
+        "level": target_level,
+        "max_level": IDLE_MAX_LEVEL,
+        "income_microsits_per_hour": int(target_level_row["income_microsits_per_hour"] or 0),
+        "lifetime_earned_microsits": lifetime_earned,
+        "balance": new_balance,
+    }
 
 
 def _fallback_chat_label(user_id: int, chat_id: int) -> str:
@@ -458,6 +840,87 @@ def logout() -> JSONResponse:
     response = JSONResponse({"ok": True})
     _clear_session_cookie(response)
     return response
+
+
+@app.on_event("startup")
+async def startup_idle_income_worker() -> None:
+    global idle_income_task
+    _ensure_idle_service_tables()
+    try:
+        _catch_up_idle_income()
+    except Exception:
+        logger.exception("Initial idle income catch-up failed")
+    if idle_income_task is None or idle_income_task.done():
+        idle_income_task = asyncio.create_task(_idle_income_worker())
+
+
+@app.on_event("shutdown")
+async def shutdown_idle_income_worker() -> None:
+    global idle_income_task
+    if idle_income_task is None:
+        return
+    idle_income_task.cancel()
+    try:
+        await idle_income_task
+    except asyncio.CancelledError:
+        pass
+    idle_income_task = None
+
+
+@app.get("/api/idle/buildings")
+def get_idle_buildings(request: Request) -> JSONResponse:
+    try:
+        _catch_up_idle_income()
+    except Exception:
+        logger.exception("Idle income catch-up failed before reading buildings")
+
+    user_id, chat_id = _require_selected_user_chat(request)
+    try:
+        buildings = _get_idle_buildings_state(user_id, chat_id)
+    except sqlite3.OperationalError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Idle-таблицы не найдены. Выполните createdb.py на сервере.",
+        ) from exc
+    return JSONResponse(
+        {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "buildings": buildings,
+        }
+    )
+
+
+@app.post("/api/idle/buildings/purchase")
+def purchase_idle_building(request: Request, data: PurchaseIdleBuildingRequest) -> JSONResponse:
+    building_code = str(data.building_code or "").strip().lower()
+    if not building_code:
+        raise HTTPException(status_code=400, detail="building_code is required")
+
+    try:
+        _catch_up_idle_income()
+    except Exception:
+        logger.exception("Idle income catch-up failed before purchase")
+
+    user_id, chat_id = _require_selected_user_chat(request)
+    try:
+        purchased = _purchase_idle_building(user_id, chat_id, building_code)
+        buildings = _get_idle_buildings_state(user_id, chat_id)
+    except sqlite3.OperationalError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Idle-таблицы не найдены. Выполните createdb.py на сервере.",
+        ) from exc
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "balance": purchased["balance"],
+            "purchased": purchased,
+            "buildings": buildings,
+        }
+    )
 
 
 @app.get("/api/health")
