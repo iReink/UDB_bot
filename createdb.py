@@ -263,12 +263,6 @@ def ensure_idle_game_tables(cur: sqlite3.Cursor) -> None:
         )
         """
     )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_idle_building_levels_code ON idle_building_levels(building_code)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_idle_building_levels_order ON idle_building_levels(\"order\", level)"
-    )
 
     cur.execute(
         """
@@ -317,6 +311,13 @@ def ensure_idle_game_tables(cur: sqlite3.Cursor) -> None:
             "ALTER TABLE idle_building_levels "
             "ADD COLUMN \"order\" INTEGER NOT NULL DEFAULT 0"
         )
+
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_idle_building_levels_code ON idle_building_levels(building_code)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_idle_building_levels_order ON idle_building_levels(\"order\", level)"
+    )
 
     for row in _build_idle_level_rows():
         cur.execute(
