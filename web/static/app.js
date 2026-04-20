@@ -10,6 +10,7 @@ const chatList = document.getElementById("chatList");
 const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
 const buildingsPanel = document.getElementById("buildingsPanel");
 const buildingsList = document.getElementById("buildingsList");
+const screenLoader = document.getElementById("screenLoader");
 
 const sceneLayerNodes = Array.from(document.querySelectorAll("[data-scene-layer]")).reduce((acc, node) => {
     const layerName = node.dataset.sceneLayer;
@@ -63,6 +64,7 @@ let idleBuildingsRequestInFlight = false;
 let activeSelectedChatId = null;
 let lastIdleBuildings = [];
 const sceneBuildingNodes = [];
+let screenLoaderDepth = 0;
 
 function applySceneItemStyle(element, style) {
     if (!style || typeof style !== "object") {
@@ -504,6 +506,20 @@ function setHidden(element, hidden) {
     }
 }
 
+function beginScreenLoading() {
+    screenLoaderDepth += 1;
+    if (screenLoader) {
+        screenLoader.classList.remove("hidden");
+    }
+}
+
+function endScreenLoading() {
+    screenLoaderDepth = Math.max(0, screenLoaderDepth - 1);
+    if (screenLoader && screenLoaderDepth === 0) {
+        screenLoader.classList.add("hidden");
+    }
+}
+
 function setLoadingMessage(message) {
     if (codeAuthHint && !authCard.classList.contains("hidden")) {
         codeAuthHint.textContent = message;
@@ -714,8 +730,9 @@ async function purchaseBuilding(buildingCode) {
     }
 }
 
-async function refreshIdleBuildings() {
-    if (idleBuildingsRequestInFlight || activeSelectedChatId == null) {
+async function refreshIdleBuildings(options = {}) {
+    const force = Boolean(options.force);
+    if ((idleBuildingsRequestInFlight && !force) || activeSelectedChatId == null) {
         return;
     }
     idleBuildingsRequestInFlight = true;
@@ -781,7 +798,7 @@ function renderState(state) {
         clearSceneBuildings();
         setHidden(authCard, false);
         setHeaderBalance(0);
-        return;
+        return false;
     }
 
     setHidden(authCard, true);
@@ -799,7 +816,7 @@ function renderState(state) {
         clearSceneBuildings();
         closeChatModal();
         setLoadingMessage("Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.");
-        return;
+        return false;
     }
 
     if (state.selected_chat_id == null) {
@@ -810,7 +827,7 @@ function renderState(state) {
         clearSceneBuildings();
         setLoadingMessage("");
         openChatModal(chats);
-        return;
+        return false;
     }
 
     closeChatModal();
@@ -818,7 +835,7 @@ function renderState(state) {
     if (buildingsPanelOpen) {
         setHidden(buildingsPanel, false);
     }
-    void refreshIdleBuildings();
+    return true;
 }
 
 async function fetchState() {
@@ -829,27 +846,49 @@ async function fetchState() {
     return response.json();
 }
 
-async function selectChat(chatId) {
-    const response = await fetch("/api/select-chat", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: Number(chatId) }),
+async function selectChat(chatId, options = {}) {
+    const withLoader = options.withLoader !== false;
+    if (withLoader) {
+        beginScreenLoading();
+    }
+    try {
+        lastIdleBuildings = [];
+        clearSceneBuildings();
+        clearBuildingsPanel();
+        const response = await fetch("/api/select-chat", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: Number(chatId) }),
     });
     if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload.detail || "Ошибка выбора чата");
     }
-    const state = await response.json();
-    renderState(state);
+        const state = await response.json();
+        const hasSelectedChat = renderState(state);
+        if (hasSelectedChat) {
+            await refreshIdleBuildings({ force: true });
+        }
+    } finally {
+        if (withLoader) {
+            endScreenLoading();
+        }
+    }
 }
 
 async function refresh() {
+    beginScreenLoading();
     try {
         const state = await fetchState();
-        renderState(state);
+        const hasSelectedChat = renderState(state);
+        if (hasSelectedChat) {
+            await refreshIdleBuildings({ force: true });
+        }
     } catch (_error) {
         setLoadingMessage("Ошибка загрузки страницы.");
+    } finally {
+        endScreenLoading();
     }
 }
 
@@ -879,7 +918,10 @@ async function submitCodeAuth() {
             throw new Error(payload.detail || "Ошибка авторизации по коду.");
         }
         const state = await response.json();
-        renderState(state);
+        const hasSelectedChat = renderState(state);
+        if (hasSelectedChat) {
+            await refreshIdleBuildings({ force: true });
+        }
         authCodeInput.value = "";
     } catch (error) {
         codeAuthHint.textContent = error.message || "Ошибка авторизации по коду.";
