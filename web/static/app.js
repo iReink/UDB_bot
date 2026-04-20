@@ -29,6 +29,9 @@ const IDLE_ASSETS_BASE = "/static/assets/buildings";
 const BUILDING_SCENE_POINTS = {
     sitopilka: { x: 895, y: 745 },
     kolodec_sita: { x: 603, y: 686 },
+    sitoferma: { x: 1305, y: 469 },
+    masitskaya: { x: 452, y: 340 },
+    sitvolny_zavod: { x: 900, y: 397 },
 };
 
 const SCENE_ITEM_STYLE_KEYS = [
