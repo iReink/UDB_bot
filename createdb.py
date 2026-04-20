@@ -31,6 +31,9 @@ def ensure_idle_game_tables(cur: sqlite3.Cursor) -> None:
             'ALTER TABLE idle_building_levels ADD COLUMN "order" INTEGER NOT NULL DEFAULT 0'
         )
 
+    # Если индекс поврежден, удаляем его и создаем заново ниже.
+    cur.execute('DROP INDEX IF EXISTS idx_idle_building_levels_order')
+
     for building_code, building_order in IDLE_BUILDING_ORDER.items():
         cur.execute(
             'UPDATE idle_building_levels SET "order" = ? WHERE building_code = ?',
