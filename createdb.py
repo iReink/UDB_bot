@@ -250,7 +250,7 @@ def _build_idle_level_rows() -> list[tuple[str, str, str, int, float, int]]:
             (
                 "sitvolny_zavod",
                 "Ситвольный завод",
-                "masit.png",
+                "sitovol.png",
                 level,
                 sitvolny_cost,
                 sitvolny_income,
