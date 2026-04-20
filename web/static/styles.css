@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap");
 
 :root {
     --accent: #ff47d1;
@@ -28,7 +28,7 @@ html, body {
     margin: 0;
     padding: 0;
     min-height: 100%;
-    font-family: "Inter", sans-serif;
+    font-family: "Roboto", sans-serif;
     color: var(--ink);
 }
 
@@ -268,14 +268,14 @@ body {
 }
 
 .building-card {
-    min-height: 122px;
+    min-height: 96px;
     border-radius: 8px;
     background: var(--panel-row);
     border: 1px solid rgba(104, 64, 125, 0.2);
-    padding: 18px 20px;
+    padding: 12px 14px;
     display: grid;
-    grid-template-columns: 108px minmax(200px, 1fr) minmax(180px, 300px) minmax(260px, 1fr);
-    gap: 14px;
+    grid-template-columns: 56px minmax(180px, 1fr) minmax(170px, 260px) minmax(220px, 1fr);
+    gap: 10px;
     align-items: center;
 }
 
@@ -284,9 +284,9 @@ body {
 }
 
 .building-icon {
-    width: 96px;
-    height: 96px;
-    border-radius: 14px;
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
     background: rgba(213, 213, 218, 0.96);
     overflow: hidden;
     display: flex;
@@ -313,8 +313,8 @@ body {
 
 .building-title {
     margin: 0;
-    font-size: 56px;
-    font-weight: 800;
+    font-size: 24px;
+    font-weight: 600;
     line-height: 1;
     color: #121215;
     white-space: nowrap;
@@ -323,15 +323,17 @@ body {
 }
 
 .building-level {
-    font-size: 28px;
+    font-size: 16px;
     line-height: 1;
+    font-weight: 400;
     color: #5b546a;
     white-space: nowrap;
 }
 
 .building-income {
-    margin-top: 8px;
-    font-size: 22px;
+    margin-top: 4px;
+    font-size: 16px;
+    font-weight: 400;
     color: var(--muted);
 }
 
@@ -343,11 +345,13 @@ body {
 .building-lifetime-title {
     font-size: 16px;
     line-height: 1.2;
+    font-weight: 400;
 }
 
 .building-lifetime-value {
-    margin-top: 6px;
+    margin-top: 4px;
     font-size: 16px;
+    font-weight: 400;
     color: var(--muted);
 }
 
@@ -357,7 +361,7 @@ body {
 }
 
 .upgrade-btn {
-    width: min(530px, 100%);
+    width: min(320px, 100%);
     min-height: 52px;
     border: none;
     border-radius: 14px;
@@ -374,16 +378,16 @@ body {
 }
 
 .upgrade-btn-main {
-    font-size: 18px;
+    font-size: 14px;
     line-height: 1.1;
-    font-weight: 800;
+    font-weight: 500;
     text-align: center;
 }
 
 .upgrade-btn-sub {
-    font-size: 15px;
+    font-size: 12px;
     line-height: 1.1;
-    font-weight: 500;
+    font-weight: 400;
     color: var(--btn-subtext);
     text-align: center;
 }
@@ -530,7 +534,7 @@ body {
 
 @media (max-width: 1580px) {
     .building-card {
-        grid-template-columns: 108px minmax(200px, 1fr) minmax(240px, 1fr);
+        grid-template-columns: 56px minmax(180px, 1fr) minmax(240px, 1fr);
         grid-template-areas:
             "icon main action"
             "icon lifetime action";
@@ -553,9 +557,7 @@ body {
         grid-area: action;
     }
 
-    .building-title {
-        font-size: 42px;
-    }
+    .building-title { font-size: 24px; }
 }
 
 @media (max-width: 1020px) {
@@ -579,16 +581,14 @@ body {
         display: none;
     }
 
-    .building-title {
-        font-size: 34px;
-    }
+    .building-title { font-size: 22px; }
 
     .building-level {
-        font-size: 22px;
+        font-size: 16px;
     }
 
     .building-income {
-        font-size: 18px;
+        font-size: 16px;
     }
 
     .building-lifetime {

@@ -23,10 +23,9 @@ const sceneLayerNodes = Array.from(document.querySelectorAll("[data-scene-layer]
 const SCENE_LAYER_ORDER = ["sky", "sky_elements", "background", "foreground"];
 const DEFAULT_SCENE_BASE_SIZE = { width: 1920, height: 1080 };
 const IDLE_ASSETS_BASE = "/static/assets/buildings";
-const MICRO_FORMATTER = new Intl.NumberFormat("ru-RU");
 const BUILDING_SCENE_POINTS = {
-    sitopilka: { x: 895, y: 845 },
-    kolodec_sita: { x: 603, y: 786 },
+    sitopilka: { x: 895, y: 795 },
+    kolodec_sita: { x: 603, y: 736 },
 };
 
 const SCENE_ITEM_STYLE_KEYS = [
@@ -477,14 +476,31 @@ function sitWord(amount) {
 function formatSits(amount) {
     const normalized = normalizeSits(amount);
     if (Number.isInteger(normalized)) {
-        return MICRO_FORMATTER.format(normalized);
+        return formatWithNarrowSpace(normalized);
     }
-    return String(normalized);
+    const sign = normalized < 0 ? "-" : "";
+    const [intPartRaw, fractionRaw] = Math.abs(normalized).toFixed(3).split(".");
+    const intPart = formatWithNarrowSpace(Number(intPartRaw));
+    const fraction = fractionRaw.replace(/0+$/, "");
+    if (!fraction) {
+        return `${sign}${intPart}`;
+    }
+    return `${sign}${intPart},${fraction}`;
 }
 
 function formatMicrosits(value) {
     const amount = Math.max(0, Math.trunc(Number(value) || 0));
-    return MICRO_FORMATTER.format(amount);
+    return formatWithNarrowSpace(amount);
+}
+
+function formatWithNarrowSpace(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+        return "0";
+    }
+    const sign = num < 0 ? "-" : "";
+    const digits = String(Math.abs(Math.trunc(num)));
+    return `${sign}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202F")}`;
 }
 
 function setHeaderBalance(amount) {
@@ -577,14 +593,14 @@ function buildActionButtonConfig(building) {
     if (state === "zero_unlocked") {
         return {
             disabled: false,
-            main: `Купить за ${costMicrosits} мкрсит`,
+            main: `Купить за ${costMicrosits}`,
             sub: `+${incomeDelta} микросит в час`,
             action: "buy",
         };
     }
     return {
         disabled: false,
-        main: `Улучшить за ${costMicrosits} мкрсит`,
+        main: `Улучшить за ${costMicrosits}`,
         sub: `+${incomeDelta} микросит в час`,
         action: "upgrade",
     };
