@@ -14,7 +14,6 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-from createdb import ensure_idle_game_tables
 from auth_code import (
     AuthCodeConflictError,
     AuthCodeExpiredError,
@@ -110,14 +109,23 @@ def _ensure_idle_catalog_ready(force: bool = False) -> None:
     if idle_catalog_ready and not force:
         return
 
+    try:
+        from createdb import ensure_idle_game_tables as ensure_idle_catalog_tables
+    except Exception:
+        logger.exception("Failed to import idle catalog migration helpers")
+        return
+
     with idle_catalog_lock:
         if idle_catalog_ready and not force:
             return
-        with _get_connection() as conn:
-            cur = conn.cursor()
-            ensure_idle_game_tables(cur)
-            conn.commit()
-        idle_catalog_ready = True
+        try:
+            with _get_connection() as conn:
+                cur = conn.cursor()
+                ensure_idle_catalog_tables(cur)
+                conn.commit()
+            idle_catalog_ready = True
+        except Exception:
+            logger.exception("Failed to ensure idle catalog tables")
 
 
 def _to_hour(dt: datetime) -> datetime:
