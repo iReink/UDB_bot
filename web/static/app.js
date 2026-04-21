@@ -317,6 +317,41 @@ function getBuildingScenePoint(building) {
     };
 }
 
+function getSceneSpriteTier(levelValue) {
+    const level = Math.max(0, Math.trunc(Number(levelValue) || 0));
+    if (level >= 16) {
+        return 4;
+    }
+    if (level >= 11) {
+        return 3;
+    }
+    if (level >= 6) {
+        return 2;
+    }
+    if (level >= 1) {
+        return 1;
+    }
+    return null;
+}
+
+function resolveSceneBuildingSpriteFile(baseFileName, levelValue) {
+    const fileName = String(baseFileName || "");
+    if (!fileName) {
+        return fileName;
+    }
+    const tier = getSceneSpriteTier(levelValue);
+    if (tier == null) {
+        return fileName;
+    }
+    const dotIndex = fileName.lastIndexOf(".");
+    if (dotIndex <= 0) {
+        return `${fileName}_${tier}`;
+    }
+    const stem = fileName.slice(0, dotIndex);
+    const ext = fileName.slice(dotIndex);
+    return `${stem}_${tier}${ext}`;
+}
+
 function renderSceneBuildings(buildings) {
     clearSceneBuildings();
     const layerNode = sceneLayerNodes.foreground;
@@ -350,7 +385,12 @@ function renderSceneBuildings(buildings) {
 
         const image = document.createElement("img");
         image.className = "scene-building-image";
-        image.src = buildingAssetPath(building.image_file || "");
+        const baseSpriteFile = String(building.image_file || "");
+        const tierSpriteFile = resolveSceneBuildingSpriteFile(baseSpriteFile, building.level);
+        const baseSpritePath = buildingAssetPath(baseSpriteFile);
+        const tierSpritePath = buildingAssetPath(tierSpriteFile);
+        let fallbackToBaseTried = tierSpriteFile === baseSpriteFile;
+        image.src = tierSpritePath;
         image.alt = String(building.name || "");
         image.decoding = "async";
         image.loading = "lazy";
@@ -360,9 +400,14 @@ function renderSceneBuildings(buildings) {
         placeholder.textContent = String(building.name || "");
 
         image.addEventListener("error", () => {
+            if (!fallbackToBaseTried && baseSpriteFile) {
+                fallbackToBaseTried = true;
+                image.src = baseSpritePath;
+                return;
+            }
             image.classList.add("hidden");
             placeholder.classList.remove("hidden");
-        }, { once: true });
+        });
 
         node.addEventListener("mouseenter", (event) => {
             sceneTooltipPointerX = event.clientX;
