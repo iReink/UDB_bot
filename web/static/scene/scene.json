@@ -32,7 +32,28 @@
         },
         "animation": {
           "type": "arc-horizontal",
-          "durationMs": 60000,
+          "clockSource": "server",
+          "windowStartHour": 8,
+          "windowEndHour": 20,
+          "yMin": 40,
+          "yMax": 300,
+          "xStart": -140,
+          "xEnd": 140
+        }
+      },
+      {
+        "id": "moon-main",
+        "kind": "image",
+        "src": "/static/scene/assets/sky_elements/moon.png",
+        "alt": "Moon",
+        "style": {
+          "width": "160px"
+        },
+        "animation": {
+          "type": "arc-horizontal",
+          "clockSource": "server",
+          "windowStartHour": 20,
+          "windowEndHour": 8,
           "yMin": 40,
           "yMax": 300,
           "xStart": -140,

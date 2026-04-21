@@ -136,6 +136,10 @@ def _today_date_key() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
+def _server_now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
 def _get_geyser_catches_for_today(user_id: int, chat_id: int) -> int:
     _ensure_geyser_tables()
     date_key = _today_date_key()
@@ -1119,6 +1123,7 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     state = {
         "authorized": True,
         "bot_username": BOT_USERNAME,
+        "server_now_iso": _server_now_iso(),
         "user": {
             "id": user_id,
             "first_name": payload.get("first_name", ""),
@@ -1151,7 +1156,13 @@ def index(request: Request) -> HTMLResponse:
 def get_state(request: Request) -> JSONResponse:
     payload = _read_payload(request.cookies.get(COOKIE_NAME))
     if not payload:
-        return JSONResponse({"authorized": False, "bot_username": BOT_USERNAME})
+        return JSONResponse(
+            {
+                "authorized": False,
+                "bot_username": BOT_USERNAME,
+                "server_now_iso": _server_now_iso(),
+            }
+        )
 
     state, next_payload = _prepare_state(payload)
     response = JSONResponse(state)

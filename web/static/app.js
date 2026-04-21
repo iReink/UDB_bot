@@ -14,6 +14,7 @@ const screenLoader = document.getElementById("screenLoader");
 const sceneTooltip = document.getElementById("sceneTooltip");
 const sceneTooltipTitle = document.getElementById("sceneTooltipTitle");
 const sceneTooltipMeta = document.getElementById("sceneTooltipMeta");
+const sceneNightFilter = document.getElementById("sceneNightFilter");
 
 const sceneLayerNodes = Array.from(document.querySelectorAll("[data-scene-layer]")).reduce((acc, node) => {
     const layerName = node.dataset.sceneLayer;
@@ -86,6 +87,11 @@ const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
 const GEYSER_REWARD_TOAST_FADE_MS = 2000;
+const NIGHT_WINDOW_START_HOUR = 20;
+const NIGHT_WINDOW_END_HOUR = 8;
+
+let serverClockAnchorMs = null;
+let serverClockAnchorClientMs = null;
 
 function applySceneItemStyle(element, style) {
     if (!style || typeof style !== "object") {
@@ -98,6 +104,92 @@ function applySceneItemStyle(element, style) {
         }
         element.style[styleKey] = String(value);
     });
+}
+
+function normalizeHour(value, fallback) {
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) {
+        return fallback;
+    }
+    const hour = ((raw % 24) + 24) % 24;
+    return hour;
+}
+
+function getMinutesOfDay(dateValue) {
+    return (
+        (dateValue.getHours() * 60)
+        + dateValue.getMinutes()
+        + (dateValue.getSeconds() / 60)
+        + (dateValue.getMilliseconds() / 60000)
+    );
+}
+
+function getWindowProgress(dateValue, startHour, endHour) {
+    const startMinutes = normalizeHour(startHour, 0) * 60;
+    const endMinutes = normalizeHour(endHour, 0) * 60;
+    const currentMinutes = getMinutesOfDay(dateValue);
+
+    if (startMinutes === endMinutes) {
+        return 0;
+    }
+
+    if (startMinutes < endMinutes) {
+        if (currentMinutes < startMinutes || currentMinutes > endMinutes) {
+            return null;
+        }
+        return (currentMinutes - startMinutes) / (endMinutes - startMinutes);
+    }
+
+    const fullMinutes = 24 * 60;
+    let elapsed = null;
+    if (currentMinutes >= startMinutes) {
+        elapsed = currentMinutes - startMinutes;
+    } else if (currentMinutes <= endMinutes) {
+        elapsed = (fullMinutes - startMinutes) + currentMinutes;
+    }
+    if (elapsed === null) {
+        return null;
+    }
+    const span = (fullMinutes - startMinutes) + endMinutes;
+    if (span <= 0) {
+        return null;
+    }
+    return elapsed / span;
+}
+
+function setServerClock(serverNowIso) {
+    const parsedMs = Date.parse(String(serverNowIso || ""));
+    if (!Number.isFinite(parsedMs)) {
+        return;
+    }
+    serverClockAnchorMs = parsedMs;
+    serverClockAnchorClientMs = Date.now();
+}
+
+function getServerNowDate() {
+    if (serverClockAnchorMs === null || serverClockAnchorClientMs === null) {
+        return new Date();
+    }
+    const delta = Date.now() - serverClockAnchorClientMs;
+    return new Date(serverClockAnchorMs + delta);
+}
+
+function getNightFilterStrength(dateValue) {
+    const progress = getWindowProgress(dateValue, NIGHT_WINDOW_START_HOUR, NIGHT_WINDOW_END_HOUR);
+    if (progress === null) {
+        return 0;
+    }
+    return 0.34 + (0.24 * Math.sin(Math.PI * progress));
+}
+
+function applyNightFilterForNow(dateValue = null) {
+    if (!sceneNightFilter) {
+        return;
+    }
+    const effectiveDate = dateValue instanceof Date ? dateValue : getServerNowDate();
+    const strength = Math.max(0, Math.min(0.9, getNightFilterStrength(effectiveDate)));
+    sceneNightFilter.style.opacity = strength.toFixed(3);
+    document.body.classList.toggle("is-night", strength > 0.01);
 }
 
 function clearSceneAnimations() {
@@ -121,6 +213,7 @@ function clearSceneAnimations() {
     sceneSpawnedElements.length = 0;
     sceneBaseSize = { ...DEFAULT_SCENE_BASE_SIZE };
     geyserSpawnConfig = null;
+    applyNightFilterForNow();
     clearSceneBuildings();
 }
 
@@ -139,6 +232,9 @@ function registerSceneAnimation(element, animationConfig) {
     const xPadding = Number(animationConfig.xPadding);
     const xStart = Number(animationConfig.xStart);
     const xEnd = Number(animationConfig.xEnd);
+    const clockSource = String(animationConfig.clockSource || "").toLowerCase();
+    const windowStartHour = Number(animationConfig.windowStartHour);
+    const windowEndHour = Number(animationConfig.windowEndHour);
 
     const resolvedDurationMs = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 60000;
     const resolvedYMin = Number.isFinite(yMin) ? yMin : 40;
@@ -146,6 +242,7 @@ function registerSceneAnimation(element, animationConfig) {
     const defaultPadding = Number.isFinite(xPadding) && xPadding >= 0 ? xPadding : 180;
     const resolvedXStart = Number.isFinite(xStart) ? xStart : -defaultPadding;
     const resolvedXEnd = Number.isFinite(xEnd) ? xEnd : defaultPadding;
+    const useServerClock = clockSource === "server" && Number.isFinite(windowStartHour) && Number.isFinite(windowEndHour);
 
     sceneAnimations.push({
         type: "arc-horizontal",
@@ -156,21 +253,39 @@ function registerSceneAnimation(element, animationConfig) {
         yMax: Math.max(resolvedYMin, resolvedYMax),
         xStart: resolvedXStart,
         xEnd: resolvedXEnd,
+        useServerClock,
+        windowStartHour: useServerClock ? normalizeHour(windowStartHour, 0) : null,
+        windowEndHour: useServerClock ? normalizeHour(windowEndHour, 0) : null,
     });
 }
 
 function runSceneAnimations() {
     if (!sceneAnimations.length) {
+        applyNightFilterForNow();
         return;
     }
 
     const animate = (now) => {
+        const serverNow = getServerNowDate();
+        applyNightFilterForNow(serverNow);
         sceneAnimations.forEach((anim) => {
             if (anim.type !== "arc-horizontal") {
                 return;
             }
-            const elapsedMs = now - anim.startedAt;
-            const progress = ((elapsedMs % anim.durationMs) + anim.durationMs) % anim.durationMs / anim.durationMs;
+            let progress = null;
+            if (anim.useServerClock) {
+                progress = getWindowProgress(serverNow, anim.windowStartHour, anim.windowEndHour);
+            } else {
+                const elapsedMs = now - anim.startedAt;
+                progress = ((elapsedMs % anim.durationMs) + anim.durationMs) % anim.durationMs / anim.durationMs;
+            }
+            if (progress === null) {
+                anim.element.style.opacity = "0";
+                anim.element.style.visibility = "hidden";
+                return;
+            }
+            anim.element.style.opacity = "1";
+            anim.element.style.visibility = "visible";
             const xFrom = anim.xStart;
             const xTo = window.innerWidth + anim.xEnd;
             const x = xFrom + (xTo - xFrom) * progress;
@@ -1189,6 +1304,9 @@ function fillChatSwitch(chats, selectedChatId) {
 }
 
 function renderState(state) {
+    setServerClock(state && typeof state === "object" ? state.server_now_iso : null);
+    applyNightFilterForNow();
+
     if (!state.authorized) {
         activeSelectedChatId = null;
         lastIdleBuildings = [];
