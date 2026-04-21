@@ -454,6 +454,7 @@ body {
     padding: 88px 18px 20px;
     position: relative;
     z-index: 2;
+    pointer-events: none;
 }
 
 .auth-card {
@@ -463,6 +464,7 @@ body {
     background: rgba(255, 255, 255, 0.92);
     padding: 26px;
     box-shadow: 0 10px 40px rgba(6, 10, 24, 0.16);
+    pointer-events: auto;
 }
 
 .auth-card h1 {
