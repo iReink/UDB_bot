@@ -86,6 +86,12 @@ body {
     pointer-events: none;
 }
 
+.scene-geyser {
+    pointer-events: auto;
+    cursor: pointer;
+    z-index: 9;
+}
+
 .scene-building {
     position: absolute;
     transform-origin: left top;
@@ -174,6 +180,27 @@ body {
     line-height: 1.2;
     font-weight: 400;
     color: var(--muted);
+}
+
+.geyser-reward-toast {
+    position: fixed;
+    z-index: 95;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(18, 95, 35, 0.55);
+    background: #58d07a;
+    color: #073015;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.2;
+    box-shadow: 0 8px 22px rgba(6, 35, 18, 0.28);
+    opacity: 1;
+    pointer-events: none;
+    transition: opacity 2s ease;
+}
+
+.geyser-reward-toast.is-fading {
+    opacity: 0;
 }
 
 @keyframes spin-loader {

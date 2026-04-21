@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import os
+import random
 import sqlite3
 import threading
 import time
@@ -43,6 +44,9 @@ CHAT_TITLE_FETCH_TIMEOUT_SECONDS = 0.8
 IDLE_MICROSITS_IN_SIT = 1000
 IDLE_MAX_LEVEL = 20
 IDLE_UNLOCK_PREVIOUS_LEVEL = 10
+GEYSER_DAILY_LIMIT = 10
+GEYSER_REWARD_MIN_MILLISITS = 500
+GEYSER_REWARD_MAX_MILLISITS = 1000
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
@@ -102,6 +106,122 @@ def _ensure_idle_service_tables() -> None:
             """
         )
         conn.commit()
+
+
+def _ensure_geyser_tables() -> None:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_geyser_daily_catches (
+                user_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                catch_date TEXT NOT NULL,
+                amount INTEGER NOT NULL DEFAULT 0 CHECK(amount >= 0),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, chat_id, catch_date)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_web_geyser_daily_catches_date
+            ON web_geyser_daily_catches(catch_date, chat_id, user_id)
+            """
+        )
+        conn.commit()
+
+
+def _today_date_key() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _get_geyser_catches_for_today(user_id: int, chat_id: int) -> int:
+    _ensure_geyser_tables()
+    date_key = _today_date_key()
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT amount
+            FROM web_geyser_daily_catches
+            WHERE user_id = ? AND chat_id = ? AND catch_date = ?
+            """,
+            (user_id, chat_id, date_key),
+        )
+        row = cur.fetchone()
+    if not row:
+        return 0
+    return int(row["amount"] or 0)
+
+
+def _catch_geyser_for_today(user_id: int, chat_id: int) -> dict[str, Any]:
+    _ensure_geyser_tables()
+    date_key = _today_date_key()
+    reward_millisits = random.randint(GEYSER_REWARD_MIN_MILLISITS, GEYSER_REWARD_MAX_MILLISITS)
+    reward_sits = reward_millisits / IDLE_MICROSITS_IN_SIT
+
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            SELECT COALESCE(amount, 0) AS amount
+            FROM web_geyser_daily_catches
+            WHERE user_id = ? AND chat_id = ? AND catch_date = ?
+            """,
+            (user_id, chat_id, date_key),
+        )
+        geyser_row = cur.fetchone()
+        caught_today = int(geyser_row["amount"] or 0) if geyser_row else 0
+        if caught_today >= GEYSER_DAILY_LIMIT:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Дневной лимит гейзеров уже достигнут")
+
+        cur.execute(
+            """
+            SELECT COALESCE(sits, 0) AS sits
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        user_row = cur.fetchone()
+        if not user_row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Пользователь не найден в выбранном чате")
+
+        new_caught_today = caught_today + 1
+        cur.execute(
+            """
+            INSERT INTO web_geyser_daily_catches (user_id, chat_id, catch_date, amount)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, chat_id, catch_date) DO UPDATE SET
+                amount = excluded.amount,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, chat_id, date_key, new_caught_today),
+        )
+
+        balance = float(user_row["sits"] or 0)
+        new_balance = normalize_sits(balance + reward_sits)
+        cur.execute(
+            """
+            UPDATE users
+            SET sits = ?
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (new_balance, user_id, chat_id),
+        )
+        conn.commit()
+
+    return {
+        "reward_millisits": reward_millisits,
+        "reward_sits": normalize_sits(reward_sits),
+        "caught_today": new_caught_today,
+        "daily_limit": GEYSER_DAILY_LIMIT,
+        "balance": new_balance,
+    }
 
 
 def _ensure_idle_catalog_ready(force: bool = False) -> None:
@@ -992,6 +1112,9 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
             if item["chat_id"] == selected_chat_id:
                 selected = item
                 break
+    geyser_caught_today = 0
+    if selected:
+        geyser_caught_today = _get_geyser_catches_for_today(user_id, int(selected["chat_id"]))
 
     state = {
         "authorized": True,
@@ -1006,6 +1129,8 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
         "selected_chat_id": selected["chat_id"] if selected else None,
         "selected_chat_label": selected["label"] if selected else None,
         "balance": selected["balance"] if selected else None,
+        "geyser_caught_today": geyser_caught_today if selected else 0,
+        "geyser_daily_limit": GEYSER_DAILY_LIMIT,
     }
 
     next_payload = dict(payload)
@@ -1116,6 +1241,7 @@ async def startup_idle_income_worker() -> None:
     global idle_income_task
     _ensure_idle_catalog_ready(force=True)
     _ensure_idle_service_tables()
+    _ensure_geyser_tables()
     try:
         _catch_up_idle_income()
     except Exception:
@@ -1191,6 +1317,34 @@ def purchase_idle_building(request: Request, data: PurchaseIdleBuildingRequest) 
             "balance": purchased["balance"],
             "purchased": purchased,
             "buildings": buildings,
+        }
+    )
+
+
+@app.get("/api/geyser/state")
+def geyser_state(request: Request) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    caught_today = _get_geyser_catches_for_today(user_id, chat_id)
+    return JSONResponse(
+        {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "caught_today": caught_today,
+            "daily_limit": GEYSER_DAILY_LIMIT,
+        }
+    )
+
+
+@app.post("/api/geyser/catch")
+def geyser_catch(request: Request) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    result = _catch_geyser_for_today(user_id, chat_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            **result,
         }
     )
 

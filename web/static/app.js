@@ -73,10 +73,19 @@ const sceneBuildingNodes = [];
 let screenLoaderDepth = 0;
 let currentBalanceSits = 0;
 let currentHourlyIncomeMicrosits = 0;
+let currentGeyserCaughtToday = 0;
+let currentGeyserDailyLimit = 10;
 let sceneTooltipTimerId = null;
 let sceneTooltipPointerX = 0;
 let sceneTooltipPointerY = 0;
 const SCENE_TOOLTIP_DELAY_MS = 1000;
+let geyserSpawnConfig = null;
+let geyserLoopTimeoutId = null;
+let activeGeyserNode = null;
+const GEYSER_CHECK_INTERVAL_MS = 20000;
+const GEYSER_SPAWN_CHANCE = 0.4;
+const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
+const GEYSER_REWARD_TOAST_FADE_MS = 2000;
 
 function applySceneItemStyle(element, style) {
     if (!style || typeof style !== "object") {
@@ -92,6 +101,7 @@ function applySceneItemStyle(element, style) {
 }
 
 function clearSceneAnimations() {
+    clearGeyserLoop();
     if (sceneAnimationFrameId !== null) {
         cancelAnimationFrame(sceneAnimationFrameId);
         sceneAnimationFrameId = null;
@@ -110,6 +120,7 @@ function clearSceneAnimations() {
     });
     sceneSpawnedElements.length = 0;
     sceneBaseSize = { ...DEFAULT_SCENE_BASE_SIZE };
+    geyserSpawnConfig = null;
     clearSceneBuildings();
 }
 
@@ -440,6 +451,197 @@ function pickRandomScenePoint(points) {
     return points[Math.floor(Math.random() * points.length)];
 }
 
+async function fetchGeyserState() {
+    const response = await fetch("/api/geyser/state", { credentials: "include" });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Ошибка состояния гейзеров");
+    }
+    return response.json();
+}
+
+async function catchGeyser() {
+    const response = await fetch("/api/geyser/catch", {
+        method: "POST",
+        credentials: "include",
+    });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Не удалось поймать гейзер");
+    }
+    return response.json();
+}
+
+function showGeyserRewardToast(rewardMillisits, clientX, clientY) {
+    const toast = document.createElement("div");
+    toast.className = "geyser-reward-toast";
+    toast.textContent = `+${formatMicrosits(rewardMillisits)} миллисита!`;
+    document.body.appendChild(toast);
+
+    const rect = toast.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.max(
+        margin,
+        Math.min(clientX - (rect.width / 2), window.innerWidth - rect.width - margin),
+    );
+    const top = Math.max(
+        margin,
+        Math.min(clientY - rect.height - 18, window.innerHeight - rect.height - margin),
+    );
+    toast.style.left = `${Math.round(left)}px`;
+    toast.style.top = `${Math.round(top)}px`;
+
+    window.setTimeout(() => {
+        toast.classList.add("is-fading");
+    }, GEYSER_REWARD_TOAST_SHOW_MS);
+    window.setTimeout(() => {
+        if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+        }
+    }, GEYSER_REWARD_TOAST_SHOW_MS + GEYSER_REWARD_TOAST_FADE_MS);
+}
+
+function removeActiveGeyserNode() {
+    if (!activeGeyserNode) {
+        return;
+    }
+    removeSceneSpawnedElement(activeGeyserNode);
+    activeGeyserNode = null;
+}
+
+async function refreshGeyserStateSilently() {
+    if (activeSelectedChatId == null) {
+        return;
+    }
+    try {
+        const payload = await fetchGeyserState();
+        if (activeSelectedChatId == null || Number(payload.chat_id) !== Number(activeSelectedChatId)) {
+            return;
+        }
+        setGeyserProgress(payload.caught_today, payload.daily_limit);
+    } catch (_error) {
+        // no-op
+    }
+}
+
+function spawnCatchableGeyser(spawnConfig) {
+    if (activeSelectedChatId == null || activeGeyserNode) {
+        return;
+    }
+    const layerName = String(spawnConfig.layer || "foreground");
+    const layerNode = sceneLayerNodes[layerName];
+    if (!layerNode) {
+        return;
+    }
+    const src = String(spawnConfig.src || "");
+    if (!src) {
+        return;
+    }
+    const viewportPoint = mapScenePointToViewport(pickRandomScenePoint(spawnConfig.points));
+    if (!viewportPoint) {
+        return;
+    }
+
+    const image = document.createElement("img");
+    image.className = "scene-item scene-geyser";
+    image.src = src;
+    image.alt = String(spawnConfig.alt || "Geyser");
+    image.decoding = "async";
+    image.loading = "eager";
+    image.style.left = `${viewportPoint.x}px`;
+    image.style.top = `${viewportPoint.y}px`;
+    if (spawnConfig.id) {
+        image.dataset.sceneItemId = String(spawnConfig.id);
+    }
+    applySceneItemStyle(image, spawnConfig.style);
+    layerNode.appendChild(image);
+    sceneSpawnedElements.push(image);
+    activeGeyserNode = image;
+
+    const displayMs = Number(spawnConfig.displayMs);
+    const resolvedDisplayMs = (Number.isFinite(displayMs) && displayMs > 0 ? displayMs : 2200) * 2;
+    let cleanupTimeoutId = null;
+    const cleanup = () => {
+        if (cleanupTimeoutId !== null) {
+            clearTimeout(cleanupTimeoutId);
+            cleanupTimeoutId = null;
+        }
+        if (activeGeyserNode === image) {
+            activeGeyserNode = null;
+        }
+        removeSceneSpawnedElement(image);
+    };
+
+    const scheduleCleanup = () => {
+        cleanupTimeoutId = window.setTimeout(() => {
+            cleanup();
+        }, resolvedDisplayMs);
+    };
+
+    if (image.complete) {
+        scheduleCleanup();
+    } else {
+        image.addEventListener("load", scheduleCleanup, { once: true });
+    }
+    image.addEventListener("error", () => {
+        cleanup();
+    }, { once: true });
+
+    image.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (image.dataset.catching === "1") {
+            return;
+        }
+        image.dataset.catching = "1";
+        try {
+            const payload = await catchGeyser();
+            if (activeSelectedChatId != null && Number(payload.chat_id) === Number(activeSelectedChatId)) {
+                setHeaderBalance(payload.balance);
+                setGeyserProgress(payload.caught_today, payload.daily_limit);
+                showGeyserRewardToast(payload.reward_millisits, event.clientX, event.clientY);
+            }
+        } catch (_error) {
+            await refreshGeyserStateSilently();
+        } finally {
+            cleanup();
+        }
+    });
+}
+
+function clearGeyserLoop() {
+    if (geyserLoopTimeoutId !== null) {
+        clearTimeout(geyserLoopTimeoutId);
+        geyserLoopTimeoutId = null;
+    }
+    removeActiveGeyserNode();
+}
+
+function startGeyserLoop() {
+    clearGeyserLoop();
+    if (!geyserSpawnConfig) {
+        return;
+    }
+
+    const tick = async () => {
+        await refreshGeyserStateSilently();
+        if (
+            activeSelectedChatId != null
+            && currentGeyserCaughtToday < currentGeyserDailyLimit
+            && Math.random() < GEYSER_SPAWN_CHANCE
+        ) {
+            spawnCatchableGeyser(geyserSpawnConfig);
+        }
+        geyserLoopTimeoutId = window.setTimeout(() => {
+            void tick();
+        }, GEYSER_CHECK_INTERVAL_MS);
+    };
+
+    geyserLoopTimeoutId = window.setTimeout(() => {
+        void tick();
+    }, GEYSER_CHECK_INTERVAL_MS);
+}
+
 function spawnTimedSceneItem(spawnConfig) {
     if (!spawnConfig || typeof spawnConfig !== "object") {
         return;
@@ -505,6 +707,10 @@ function registerSceneTimedSpawns(sceneConfig) {
         if (!spawnConfig || typeof spawnConfig !== "object") {
             return;
         }
+        if (String(spawnConfig.id || "") === "geyser-random") {
+            geyserSpawnConfig = spawnConfig;
+            return;
+        }
         const intervalMs = Number(spawnConfig.intervalMs);
         const resolvedIntervalMs = Number.isFinite(intervalMs) && intervalMs > 0 ? intervalMs : 30000;
         const initialDelayMs = Number(spawnConfig.initialDelayMs);
@@ -521,6 +727,8 @@ function registerSceneTimedSpawns(sceneConfig) {
         }, resolvedInitialDelayMs);
         sceneSpawnStartupTimeouts.push(startupTimeoutId);
     });
+
+    startGeyserLoop();
 }
 
 function renderSceneLayer(layerName, items) {
@@ -654,7 +862,7 @@ function renderHeaderBalance() {
     }
     const balance = normalizeSits(currentBalanceSits);
     const incomeSitsPerHour = currentHourlyIncomeMicrosits / 1000;
-    chatBalanceLabel.textContent = `${formatSits(balance)} (+${formatSitsFixed3(incomeSitsPerHour)}) ${sitWord(balance)}`;
+    chatBalanceLabel.textContent = `${currentGeyserCaughtToday}/${currentGeyserDailyLimit} гейзеров поймано | ${formatSits(balance)} (+${formatSitsFixed3(incomeSitsPerHour)}) ${sitWord(balance)}`;
 }
 
 function setHeaderBalance(amount) {
@@ -665,6 +873,14 @@ function setHeaderBalance(amount) {
 function setHourlyIncomeMicrosits(amount) {
     const value = Math.max(0, Math.trunc(Number(amount) || 0));
     currentHourlyIncomeMicrosits = value;
+    renderHeaderBalance();
+}
+
+function setGeyserProgress(caughtToday, dailyLimit) {
+    currentGeyserCaughtToday = Math.max(0, Math.trunc(Number(caughtToday) || 0));
+    const rawLimit = Math.trunc(Number(dailyLimit));
+    const normalizedLimit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 10;
+    currentGeyserDailyLimit = normalizedLimit;
     renderHeaderBalance();
 }
 
@@ -987,6 +1203,7 @@ function renderState(state) {
         clearBuildingsPanel();
         clearSceneBuildings();
         setHidden(authCard, false);
+        setGeyserProgress(0, 10);
         setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         return false;
@@ -1006,6 +1223,7 @@ function renderState(state) {
         clearBuildingsPanel();
         clearSceneBuildings();
         closeChatModal();
+        setGeyserProgress(0, 10);
         setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         setLoadingMessage("Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.");
@@ -1019,6 +1237,7 @@ function renderState(state) {
         buildingsPanelAutoOpened = false;
         clearBuildingsPanel();
         clearSceneBuildings();
+        setGeyserProgress(0, 10);
         setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         setLoadingMessage("");
@@ -1033,6 +1252,7 @@ function renderState(state) {
 
     closeChatModal();
     activeSelectedChatId = selectedChatId;
+    setGeyserProgress(state.geyser_caught_today, state.geyser_daily_limit);
     setHeaderBalance(state.balance);
     if (!buildingsPanelAutoOpened) {
         setBuildingsPanelOpen(true);
