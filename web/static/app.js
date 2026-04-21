@@ -89,6 +89,8 @@ const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
 const GEYSER_REWARD_TOAST_FADE_MS = 2000;
 const NIGHT_WINDOW_START_HOUR = 20;
 const NIGHT_WINDOW_END_HOUR = 8;
+const NIGHT_FILTER_EDGE_OPACITY = 0.34;
+const NIGHT_FILTER_PEAK_OPACITY = 0.84;
 
 let serverClockAnchorMs = null;
 let serverClockAnchorClientMs = null;
@@ -179,7 +181,27 @@ function getNightFilterStrength(dateValue) {
     if (progress === null) {
         return 0;
     }
-    return 0.34 + (0.24 * Math.sin(Math.PI * progress));
+
+    const hour = (
+        dateValue.getHours()
+        + (dateValue.getMinutes() / 60)
+        + (dateValue.getSeconds() / 3600)
+        + (dateValue.getMilliseconds() / 3600000)
+    );
+
+    if (hour >= 20 && hour < 24) {
+        const ramp = (hour - 20) / 4;
+        return NIGHT_FILTER_EDGE_OPACITY + ((NIGHT_FILTER_PEAK_OPACITY - NIGHT_FILTER_EDGE_OPACITY) * ramp);
+    }
+    if (hour >= 0 && hour < 4) {
+        return NIGHT_FILTER_PEAK_OPACITY;
+    }
+    if (hour >= 4 && hour < 8) {
+        const downRamp = (hour - 4) / 4;
+        return NIGHT_FILTER_PEAK_OPACITY - ((NIGHT_FILTER_PEAK_OPACITY - NIGHT_FILTER_EDGE_OPACITY) * downRamp);
+    }
+
+    return NIGHT_FILTER_EDGE_OPACITY;
 }
 
 function applyNightFilterForNow(dateValue = null) {
