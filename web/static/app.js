@@ -1153,7 +1153,7 @@ function renderBuildingCard(building) {
     if ((Number(building.level) || 0) > 0) {
         const lifetimeTitle = document.createElement("div");
         lifetimeTitle.className = "building-lifetime-title";
-        lifetimeTitle.textContent = "Всего принесло";
+        lifetimeTitle.textContent = "Заработано";
         lifetimeBlock.appendChild(lifetimeTitle);
         const lifetimeValue = document.createElement("div");
         lifetimeValue.className = "building-lifetime-value";
