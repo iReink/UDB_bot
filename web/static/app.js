@@ -281,7 +281,7 @@ function showSceneTooltip(building, event) {
     const level = Math.max(0, Number(building.level) || 0);
     const incomeMicrosits = Math.max(0, Math.trunc(Number(building.income_microsits_per_hour) || 0));
     sceneTooltipTitle.textContent = String(building.name || "");
-    sceneTooltipMeta.textContent = `${level} ур. | ${formatMicrosits(incomeMicrosits)} микросит в час`;
+    sceneTooltipMeta.textContent = `${level} ур. | ${formatMicrosits(incomeMicrosits)} миллисит в час`;
     sceneTooltip.classList.remove("hidden");
     positionSceneTooltip(event.clientX, event.clientY);
 }
@@ -720,14 +720,14 @@ function buildActionButtonConfig(building) {
         return {
             disabled: false,
             main: `Купить за ${costMicrosits}`,
-            sub: `+${incomeDelta} микросит в час`,
+            sub: `+${incomeDelta} миллисит в час`,
             action: "buy",
         };
     }
     return {
         disabled: false,
         main: `Улучшить за ${costMicrosits}`,
-        sub: `+${incomeDelta} микросит в час`,
+        sub: `+${incomeDelta} миллисит в час`,
         action: "upgrade",
     };
 }
@@ -767,7 +767,7 @@ function renderBuildingCard(building) {
     if ((Number(building.level) || 0) > 0) {
         const income = document.createElement("div");
         income.className = "building-income";
-        income.textContent = `${formatMicrosits(building.income_microsits_per_hour)} микросит в час`;
+        income.textContent = `${formatMicrosits(building.income_microsits_per_hour)} миллисит в час`;
         main.appendChild(income);
     }
     card.appendChild(main);
@@ -781,7 +781,7 @@ function renderBuildingCard(building) {
         lifetimeBlock.appendChild(lifetimeTitle);
         const lifetimeValue = document.createElement("div");
         lifetimeValue.className = "building-lifetime-value";
-        lifetimeValue.textContent = `${formatMicrosits(building.lifetime_earned_microsits)} микросит`;
+        lifetimeValue.textContent = `${formatMicrosits(building.lifetime_earned_microsits)} миллисит`;
         lifetimeBlock.appendChild(lifetimeValue);
     }
     card.appendChild(lifetimeBlock);
