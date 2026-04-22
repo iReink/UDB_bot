@@ -468,6 +468,14 @@ async def auth_code_command(message: types.Message):
     )
 
 
+@dp.message(Command("web"))
+async def web_info_command(message: types.Message):
+    await message.answer(
+        "Для доступа к web-версии бота перейди с десктопа по адресу "
+        "http://94.183.184.65:8080/. Для авторизации на сайте напиши мне личку /auth"
+    )
+
+
 @dp.message(Command("weeklytop"))
 async def weekly_top(message: types.Message):
     chat_id = message.chat.id

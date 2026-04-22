@@ -68,6 +68,12 @@ HELP_TEXT = """
 <a href="https://t.me/c/2730880821/8258/113817">Сказать спасибо рублём</a>
 """
 
+HELP_TEXT += """
+
+🌐 <b>Web-версия:</b>
+/web — получить ссылку на web-версию и инструкцию по авторизации через /auth
+"""
+
 def register_help_handler(dp):
     @dp.message(Command(commands=["help", "?", "помощь"]))
     async def send_help(message: types.Message):
