@@ -73,6 +73,10 @@ class SelectChatRequest(BaseModel):
     chat_id: int
 
 
+class StartVisitRequest(BaseModel):
+    target_user_id: int
+
+
 class CodeAuthRequest(BaseModel):
     code: str = ""
 
@@ -165,11 +169,24 @@ def _get_geyser_catches_for_today(user_id: int, chat_id: int) -> int:
     return int(row["amount"] or 0)
 
 
-def _catch_geyser_for_today(user_id: int, chat_id: int) -> dict[str, Any]:
+def _catch_geyser_for_today(
+    user_id: int,
+    chat_id: int,
+    beneficiary_user_id: int | None = None,
+) -> dict[str, Any]:
     _ensure_geyser_tables()
     date_key = _today_date_key()
     reward_millisits = random.randint(GEYSER_REWARD_MIN_MILLISITS, GEYSER_REWARD_MAX_MILLISITS)
     reward_sits = reward_millisits / IDLE_MICROSITS_IN_SIT
+
+    effective_beneficiary_user_id = int(beneficiary_user_id or user_id)
+    if effective_beneficiary_user_id <= 0:
+        effective_beneficiary_user_id = user_id
+    if effective_beneficiary_user_id == user_id:
+        visitor_reward_millisits = 0
+    else:
+        visitor_reward_millisits = max(1, int(round(reward_millisits * 0.1)))
+    visitor_reward_sits = visitor_reward_millisits / IDLE_MICROSITS_IN_SIT
 
     with _get_connection() as conn:
         cur = conn.cursor()
@@ -201,6 +218,19 @@ def _catch_geyser_for_today(user_id: int, chat_id: int) -> dict[str, Any]:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Пользователь не найден в выбранном чате")
 
+        cur.execute(
+            """
+            SELECT COALESCE(name, '') AS name, COALESCE(sits, 0) AS sits
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (effective_beneficiary_user_id, chat_id),
+        )
+        beneficiary_row = cur.fetchone()
+        if not beneficiary_row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Получатель награды не найден в выбранном чате")
+
         new_caught_today = caught_today + 1
         cur.execute(
             """
@@ -213,24 +243,89 @@ def _catch_geyser_for_today(user_id: int, chat_id: int) -> dict[str, Any]:
             (user_id, chat_id, date_key, new_caught_today),
         )
 
-        balance = float(user_row["sits"] or 0)
-        new_balance = normalize_sits(balance + reward_sits)
-        cur.execute(
-            """
-            UPDATE users
-            SET sits = ?
-            WHERE user_id = ? AND chat_id = ?
-            """,
-            (new_balance, user_id, chat_id),
-        )
+        catcher_balance = float(user_row["sits"] or 0)
+        beneficiary_balance = float(beneficiary_row["sits"] or 0)
+        beneficiary_name = str(beneficiary_row["name"] or "")
+
+        if effective_beneficiary_user_id == user_id:
+            new_beneficiary_balance = normalize_sits(beneficiary_balance + reward_sits)
+            new_catcher_balance = new_beneficiary_balance
+            cur.execute(
+                """
+                UPDATE users
+                SET sits = ?
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (new_beneficiary_balance, user_id, chat_id),
+            )
+        else:
+            new_beneficiary_balance = normalize_sits(beneficiary_balance + reward_sits)
+            new_catcher_balance = normalize_sits(catcher_balance + visitor_reward_sits)
+            cur.execute(
+                """
+                UPDATE users
+                SET sits = ?
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (new_beneficiary_balance, effective_beneficiary_user_id, chat_id),
+            )
+            cur.execute(
+                """
+                UPDATE users
+                SET sits = ?
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (new_catcher_balance, user_id, chat_id),
+            )
+
+        if _table_exists(cur, "sit_stats"):
+            now = datetime.now()
+            date_value = now.date().isoformat()
+            time_value = now.strftime("%H:%M:%S")
+            cur.execute(
+                """
+                INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    date_value,
+                    time_value,
+                    chat_id,
+                    effective_beneficiary_user_id,
+                    beneficiary_name,
+                    reward_sits,
+                ),
+            )
+            if effective_beneficiary_user_id != user_id and visitor_reward_sits > 0:
+                catcher_name = str(user_row["name"] or "")
+                cur.execute(
+                    """
+                    INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        date_value,
+                        time_value,
+                        chat_id,
+                        user_id,
+                        catcher_name,
+                        visitor_reward_sits,
+                    ),
+                )
         conn.commit()
 
     return {
         "reward_millisits": reward_millisits,
         "reward_sits": normalize_sits(reward_sits),
+        "visitor_reward_millisits": visitor_reward_millisits,
+        "visitor_reward_sits": normalize_sits(visitor_reward_sits),
+        "beneficiary_user_id": effective_beneficiary_user_id,
+        "beneficiary_name": beneficiary_name,
+        "beneficiary_balance": new_beneficiary_balance,
+        "is_visit_reward": effective_beneficiary_user_id != user_id,
         "caught_today": new_caught_today,
         "daily_limit": GEYSER_DAILY_LIMIT,
-        "balance": new_balance,
+        "balance": new_catcher_balance,
     }
 
 
@@ -447,6 +542,77 @@ def _require_selected_user_chat(request: Request) -> tuple[int, int]:
         raise HTTPException(status_code=403, detail="Чат недоступен для выбранной сессии")
 
     return user_id, chat_id
+
+
+def _user_has_idle_buildings(user_id: int, chat_id: int) -> bool:
+    try:
+        with _get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT 1
+                FROM idle_player_buildings
+                WHERE user_id = ? AND chat_id = ? AND current_level > 0
+                LIMIT 1
+                """,
+                (user_id, chat_id),
+            )
+            return cur.fetchone() is not None
+    except sqlite3.OperationalError:
+        return False
+
+
+def _resolve_visit_target(
+    owner_user_id: int,
+    chat_id: int,
+    visit_user_id_raw: Any,
+    require_buildings: bool = False,
+) -> dict[str, Any] | None:
+    try:
+        visit_user_id = int(visit_user_id_raw)
+    except (TypeError, ValueError):
+        return None
+
+    if visit_user_id <= 0 or visit_user_id == owner_user_id:
+        return None
+
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT COALESCE(name, '') AS name, COALESCE(nick, '') AS nick
+                FROM users
+                WHERE user_id = ? AND chat_id = ?
+                LIMIT 1
+                """,
+                (visit_user_id, chat_id),
+            )
+        except sqlite3.OperationalError:
+            cur.execute(
+                """
+                SELECT COALESCE(name, '') AS name, '' AS nick
+                FROM users
+                WHERE user_id = ? AND chat_id = ?
+                LIMIT 1
+                """,
+                (visit_user_id, chat_id),
+            )
+        row = cur.fetchone()
+
+    if not row:
+        return None
+
+    if require_buildings and not _user_has_idle_buildings(visit_user_id, chat_id):
+        return None
+
+    name_raw = str(row["name"] or "").strip()
+    nick_raw = str(row["nick"] or "").strip()
+    display_name = name_raw or nick_raw or f"Игрок {visit_user_id}"
+    return {
+        "user_id": visit_user_id,
+        "name": display_name,
+    }
 
 
 def _get_user_balance(user_id: int, chat_id: int) -> float:
@@ -1360,6 +1526,15 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     if selected:
         geyser_caught_today = _get_geyser_catches_for_today(user_id, int(selected["chat_id"]))
 
+    visit_target: dict[str, Any] | None = None
+    if selected:
+        visit_target = _resolve_visit_target(
+            owner_user_id=user_id,
+            chat_id=int(selected["chat_id"]),
+            visit_user_id_raw=payload.get("visit_user_id"),
+            require_buildings=True,
+        )
+
     state = {
         "authorized": True,
         "bot_username": BOT_USERNAME,
@@ -1376,10 +1551,17 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
         "balance": selected["balance"] if selected else None,
         "geyser_caught_today": geyser_caught_today if selected else 0,
         "geyser_daily_limit": GEYSER_DAILY_LIMIT,
+        "view_mode": "visit" if visit_target else "self",
+        "visit": {
+            "active": bool(visit_target),
+            "user_id": int(visit_target["user_id"]) if visit_target else None,
+            "name": str(visit_target["name"]) if visit_target else None,
+        },
     }
 
     next_payload = dict(payload)
     next_payload["selected_chat_id"] = selected_chat_id
+    next_payload["visit_user_id"] = int(visit_target["user_id"]) if visit_target else None
     return state, next_payload
 
 
@@ -1474,6 +1656,39 @@ def select_chat(request: Request, data: SelectChatRequest) -> JSONResponse:
 
     payload = dict(payload)
     payload["selected_chat_id"] = data.chat_id
+    payload["visit_user_id"] = None
+    state, next_payload = _prepare_state(payload)
+    response = JSONResponse(state)
+    _set_session_cookie(response, next_payload)
+    return response
+
+
+@app.post("/api/visit/start")
+def start_visit(request: Request, data: StartVisitRequest) -> JSONResponse:
+    payload = _require_session(request)
+    user_id, chat_id = _require_selected_user_chat(request)
+    visit_target = _resolve_visit_target(
+        owner_user_id=user_id,
+        chat_id=chat_id,
+        visit_user_id_raw=data.target_user_id,
+        require_buildings=True,
+    )
+    if not visit_target:
+        raise HTTPException(status_code=404, detail="Игрок недоступен для визита")
+
+    payload = dict(payload)
+    payload["visit_user_id"] = int(visit_target["user_id"])
+    state, next_payload = _prepare_state(payload)
+    response = JSONResponse(state)
+    _set_session_cookie(response, next_payload)
+    return response
+
+
+@app.post("/api/visit/leave")
+def leave_visit(request: Request) -> JSONResponse:
+    payload = _require_session(request)
+    payload = dict(payload)
+    payload["visit_user_id"] = None
     state, next_payload = _prepare_state(payload)
     response = JSONResponse(state)
     _set_session_cookie(response, next_payload)
@@ -1522,9 +1737,17 @@ def get_idle_buildings(request: Request) -> JSONResponse:
     except Exception:
         logger.exception("Idle income catch-up failed before reading buildings")
 
+    payload = _require_session(request)
     user_id, chat_id = _require_selected_user_chat(request)
+    visit_target = _resolve_visit_target(
+        owner_user_id=user_id,
+        chat_id=chat_id,
+        visit_user_id_raw=payload.get("visit_user_id"),
+        require_buildings=True,
+    )
+    buildings_owner_user_id = int(visit_target["user_id"]) if visit_target else user_id
     try:
-        buildings = _get_idle_buildings_state(user_id, chat_id)
+        buildings = _get_idle_buildings_state(buildings_owner_user_id, chat_id)
     except sqlite3.OperationalError as exc:
         raise HTTPException(
             status_code=500,
@@ -1534,6 +1757,13 @@ def get_idle_buildings(request: Request) -> JSONResponse:
         {
             "chat_id": chat_id,
             "user_id": user_id,
+            "buildings_owner_user_id": buildings_owner_user_id,
+            "view_mode": "visit" if visit_target else "self",
+            "visit": {
+                "active": bool(visit_target),
+                "user_id": int(visit_target["user_id"]) if visit_target else None,
+                "name": str(visit_target["name"]) if visit_target else None,
+            },
             "buildings": buildings,
         }
     )
@@ -1601,7 +1831,16 @@ def purchase_idle_building(request: Request, data: PurchaseIdleBuildingRequest) 
     except Exception:
         logger.exception("Idle income catch-up failed before purchase")
 
+    payload = _require_session(request)
     user_id, chat_id = _require_selected_user_chat(request)
+    visit_target = _resolve_visit_target(
+        owner_user_id=user_id,
+        chat_id=chat_id,
+        visit_user_id_raw=payload.get("visit_user_id"),
+        require_buildings=False,
+    )
+    if visit_target:
+        raise HTTPException(status_code=409, detail="В режиме гостя улучшение недоступно. Нажмите ДОМОЙ.")
     try:
         purchased = _purchase_idle_building(user_id, chat_id, building_code)
         buildings = _get_idle_buildings_state(user_id, chat_id)
@@ -1624,7 +1863,14 @@ def purchase_idle_building(request: Request, data: PurchaseIdleBuildingRequest) 
 
 @app.get("/api/geyser/state")
 def geyser_state(request: Request) -> JSONResponse:
+    payload = _require_session(request)
     user_id, chat_id = _require_selected_user_chat(request)
+    visit_target = _resolve_visit_target(
+        owner_user_id=user_id,
+        chat_id=chat_id,
+        visit_user_id_raw=payload.get("visit_user_id"),
+        require_buildings=True,
+    )
     caught_today = _get_geyser_catches_for_today(user_id, chat_id)
     return JSONResponse(
         {
@@ -1632,19 +1878,43 @@ def geyser_state(request: Request) -> JSONResponse:
             "user_id": user_id,
             "caught_today": caught_today,
             "daily_limit": GEYSER_DAILY_LIMIT,
+            "view_mode": "visit" if visit_target else "self",
+            "visit": {
+                "active": bool(visit_target),
+                "user_id": int(visit_target["user_id"]) if visit_target else None,
+                "name": str(visit_target["name"]) if visit_target else None,
+            },
         }
     )
 
 
 @app.post("/api/geyser/catch")
 def geyser_catch(request: Request) -> JSONResponse:
+    payload = _require_session(request)
     user_id, chat_id = _require_selected_user_chat(request)
-    result = _catch_geyser_for_today(user_id, chat_id)
+    visit_target = _resolve_visit_target(
+        owner_user_id=user_id,
+        chat_id=chat_id,
+        visit_user_id_raw=payload.get("visit_user_id"),
+        require_buildings=True,
+    )
+    beneficiary_user_id = int(visit_target["user_id"]) if visit_target else None
+    result = _catch_geyser_for_today(
+        user_id=user_id,
+        chat_id=chat_id,
+        beneficiary_user_id=beneficiary_user_id,
+    )
     return JSONResponse(
         {
             "ok": True,
             "chat_id": chat_id,
             "user_id": user_id,
+            "view_mode": "visit" if visit_target else "self",
+            "visit": {
+                "active": bool(visit_target),
+                "user_id": int(visit_target["user_id"]) if visit_target else None,
+                "name": str(visit_target["name"]) if visit_target else None,
+            },
             **result,
         }
     )

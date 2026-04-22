@@ -246,11 +246,27 @@ body.is-night .backdrop {
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
 }
 
 .brand {
     font-weight: 800;
     color: var(--accent-strong);
+}
+
+.header-center {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 24px;
+    line-height: 1;
+    font-weight: 700;
+    color: #1b1a22;
+    white-space: nowrap;
+    max-width: min(68vw, 960px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
 }
 
 .tool-toggle-btn {
@@ -288,6 +304,58 @@ body.is-night .backdrop {
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.visit-home-wrap {
+    position: fixed;
+    top: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 29;
+    pointer-events: none;
+}
+
+.visit-home-btn {
+    min-width: 160px;
+    height: 42px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #121215;
+    font-size: 16px;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: 0;
+    padding: 0 18px;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: filter 0.12s ease, transform 0.12s ease;
+}
+
+.visit-home-btn:hover {
+    filter: brightness(1.03);
+    transform: translateY(-1px);
+}
+
+.visit-home-btn:active {
+    filter: brightness(0.97);
+    transform: translateY(0);
+}
+
+body.is-visit-mode #buildingsToggleBtn {
+    display: none;
+}
+
+body.is-visit-mode .header-controls {
+    display: none;
+}
+
+body.is-visit-mode .header-center {
+    display: block;
+}
+
+body.is-visit-mode .visit-home-wrap {
+    display: flex;
 }
 
 .chat-switch-label {
@@ -502,6 +570,13 @@ body.is-night .backdrop {
 .player-btn:active {
     filter: brightness(0.97);
     transform: translateY(0);
+}
+
+.player-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    filter: none;
 }
 
 .building-card {
@@ -1034,6 +1109,13 @@ body.is-night .backdrop {
         gap: 8px;
     }
 
+    .header-center {
+        position: static;
+        transform: none;
+        font-size: 18px;
+        max-width: 100%;
+    }
+
     .header-controls {
         width: 100%;
         flex-wrap: wrap;
@@ -1063,6 +1145,16 @@ body.is-night .backdrop {
 
     .app-main {
         padding-top: 120px;
+    }
+
+    .visit-home-wrap {
+        top: 112px;
+    }
+
+    .visit-home-btn {
+        min-width: 132px;
+        height: 38px;
+        font-size: 14px;
     }
 }
 

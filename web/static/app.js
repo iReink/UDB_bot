@@ -9,6 +9,9 @@ const chatModal = document.getElementById("chatModal");
 const chatList = document.getElementById("chatList");
 const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
 const playersToggleBtn = document.getElementById("playersToggleBtn");
+const visitHeaderTitle = document.getElementById("visitHeaderTitle");
+const visitHomeWrap = document.getElementById("visitHomeWrap");
+const visitHomeBtn = document.getElementById("visitHomeBtn");
 const buildingsPanel = document.getElementById("buildingsPanel");
 const buildingsList = document.getElementById("buildingsList");
 const playersPanel = document.getElementById("playersPanel");
@@ -84,6 +87,10 @@ let buildingsPanelAutoOpened = false;
 let idleBuildingsRequestInFlight = false;
 let playersRequestInFlight = false;
 let activeSelectedChatId = null;
+let activeBuildingsOwnerUserId = null;
+let visitModeActive = false;
+let visitTargetUserId = null;
+let visitTargetName = "";
 let lastIdleBuildings = [];
 const sceneBuildingNodes = [];
 let screenLoaderDepth = 0;
@@ -632,32 +639,61 @@ async function catchGeyser() {
     return response.json();
 }
 
-function showGeyserRewardToast(rewardMillisits, clientX, clientY) {
-    const toast = document.createElement("div");
-    toast.className = "geyser-reward-toast";
-    toast.textContent = `+${formatMicrosits(rewardMillisits)} миллисита!`;
-    document.body.appendChild(toast);
+function showGeyserRewardToast(payload, clientX, clientY) {
+    const isVisitReward = Boolean(payload && payload.is_visit_reward);
+    const beneficiaryName = String(payload && payload.beneficiary_name ? payload.beneficiary_name : "");
+    const rewardMillisits = Math.max(0, Math.trunc(Number(payload && payload.reward_millisits) || 0));
+    const visitorRewardMillisits = Math.max(0, Math.trunc(Number(payload && payload.visitor_reward_millisits) || 0));
 
-    const rect = toast.getBoundingClientRect();
+    const toastTexts = [];
+    if (isVisitReward && beneficiaryName && visitorRewardMillisits > 0) {
+        toastTexts.push(`${formatMicrosits(rewardMillisits)} миллисит для ${beneficiaryName}`);
+        toastTexts.push(`${formatMicrosits(visitorRewardMillisits)} миллисит для вас!`);
+    } else {
+        toastTexts.push(`+${formatMicrosits(rewardMillisits)} миллисита!`);
+    }
+
+    const toasts = toastTexts.map((text) => {
+        const toast = document.createElement("div");
+        toast.className = "geyser-reward-toast";
+        toast.textContent = text;
+        toast.style.visibility = "hidden";
+        document.body.appendChild(toast);
+        return toast;
+    });
+
     const margin = 8;
-    const left = Math.max(
+    const gap = 8;
+    const totalWidth = toasts.reduce((sum, toast) => sum + toast.getBoundingClientRect().width, 0) + (gap * Math.max(0, toasts.length - 1));
+    const maxHeight = toasts.reduce((maxValue, toast) => Math.max(maxValue, toast.getBoundingClientRect().height), 0);
+    const startLeft = Math.max(
         margin,
-        Math.min(clientX - (rect.width / 2), window.innerWidth - rect.width - margin),
+        Math.min(clientX - (totalWidth / 2), window.innerWidth - totalWidth - margin),
     );
     const top = Math.max(
         margin,
-        Math.min(clientY - rect.height - 18, window.innerHeight - rect.height - margin),
+        Math.min(clientY - maxHeight - 18, window.innerHeight - maxHeight - margin),
     );
-    toast.style.left = `${Math.round(left)}px`;
-    toast.style.top = `${Math.round(top)}px`;
+
+    let cursorLeft = startLeft;
+    toasts.forEach((toast) => {
+        const rect = toast.getBoundingClientRect();
+        toast.style.left = `${Math.round(cursorLeft)}px`;
+        toast.style.top = `${Math.round(top)}px`;
+        toast.style.visibility = "visible";
+        cursorLeft += rect.width + gap;
+    });
 
     window.setTimeout(() => {
-        toast.classList.add("is-fading");
+        toasts.forEach((toast) => toast.classList.add("is-fading"));
     }, GEYSER_REWARD_TOAST_SHOW_MS);
+
     window.setTimeout(() => {
-        if (toast.parentNode) {
-            toast.parentNode.removeChild(toast);
-        }
+        toasts.forEach((toast) => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+        });
     }, GEYSER_REWARD_TOAST_SHOW_MS + GEYSER_REWARD_TOAST_FADE_MS);
 }
 
@@ -759,7 +795,7 @@ function spawnCatchableGeyser(spawnConfig) {
             if (activeSelectedChatId != null && Number(payload.chat_id) === Number(activeSelectedChatId)) {
                 setHeaderBalance(payload.balance);
                 setGeyserProgress(payload.caught_today, payload.daily_limit);
-                showGeyserRewardToast(payload.reward_millisits, event.clientX, event.clientY);
+                showGeyserRewardToast(payload, event.clientX, event.clientY);
             }
         } catch (_error) {
             await refreshGeyserStateSilently();
@@ -1104,6 +1140,81 @@ function setLoadingMessage(message) {
     }
 }
 
+function setVisitMode(active, targetUserId = null, targetName = "") {
+    visitModeActive = Boolean(active);
+    visitTargetUserId = visitModeActive ? Number(targetUserId) : null;
+    visitTargetName = visitModeActive ? String(targetName || "") : "";
+
+    document.body.classList.toggle("is-visit-mode", visitModeActive);
+    if (visitHeaderTitle) {
+        if (visitModeActive) {
+            visitHeaderTitle.textContent = `База ${visitTargetName}`;
+        } else {
+            visitHeaderTitle.textContent = "";
+        }
+        visitHeaderTitle.classList.toggle("hidden", !visitModeActive);
+    }
+    setHidden(visitHomeWrap, !visitModeActive);
+
+    if (visitModeActive && buildingsPanelOpen) {
+        setActiveSidePanel(null);
+    }
+    if (visitModeActive && buildingsPanel) {
+        setHidden(buildingsPanel, true);
+    }
+}
+
+async function startVisit(targetUserId) {
+    beginScreenLoading();
+    try {
+        closeTransferModal();
+        const response = await fetch("/api/visit/start", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target_user_id: Number(targetUserId) }),
+        });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail || "Не удалось перейти в гости");
+        }
+        const state = await response.json();
+        const hasSelectedChat = renderState(state);
+        if (hasSelectedChat) {
+            await refreshIdleBuildings({ force: true });
+            if (playersPanelOpen) {
+                await ensureIdlePlayersLoaded({ force: true, withLoader: false });
+            }
+        }
+    } finally {
+        endScreenLoading();
+    }
+}
+
+async function leaveVisit() {
+    beginScreenLoading();
+    try {
+        const response = await fetch("/api/visit/leave", {
+            method: "POST",
+            credentials: "include",
+        });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail || "Не удалось вернуться домой");
+        }
+        const state = await response.json();
+        const hasSelectedChat = renderState(state);
+        if (hasSelectedChat) {
+            await refreshIdleBuildings({ force: true });
+            if (playersPanelOpen) {
+                await ensureIdlePlayersLoaded({ force: true, withLoader: false });
+            }
+        }
+    } finally {
+        endScreenLoading();
+    }
+}
+
 function setTransferMessageNote() {
     if (!transferMessage) {
         return;
@@ -1335,7 +1446,10 @@ async function submitTransferSits() {
 }
 
 function setActiveSidePanel(panelName) {
-    const normalized = panelName === "buildings" || panelName === "players" ? panelName : null;
+    let normalized = panelName === "buildings" || panelName === "players" ? panelName : null;
+    if (visitModeActive && normalized === "buildings") {
+        normalized = null;
+    }
     buildingsPanelOpen = normalized === "buildings";
     playersPanelOpen = normalized === "players";
 
@@ -1627,8 +1741,20 @@ function renderPlayerCard(player) {
     visitBtn.type = "button";
     visitBtn.className = "player-btn player-btn--primary";
     visitBtn.textContent = "В гости";
-    visitBtn.addEventListener("click", () => {
-        // placeholder for future visit action
+    const isCurrentVisitTarget = visitModeActive && Number(visitTargetUserId) === Number(player.user_id);
+    if (isCurrentVisitTarget) {
+        visitBtn.textContent = "В гостях";
+        visitBtn.disabled = true;
+    }
+    visitBtn.addEventListener("click", async () => {
+        if (visitBtn.disabled) {
+            return;
+        }
+        try {
+            await startVisit(player.user_id);
+        } catch (error) {
+            setLoadingMessage(error.message || "Не удалось перейти в гости");
+        }
     });
     actions.appendChild(visitBtn);
 
@@ -1746,6 +1872,14 @@ async function refreshIdleBuildings(options = {}) {
         if (activeSelectedChatId == null || Number(payload.chat_id) !== Number(activeSelectedChatId)) {
             return;
         }
+        activeBuildingsOwnerUserId = payload.buildings_owner_user_id !== undefined
+            ? Number(payload.buildings_owner_user_id)
+            : Number(payload.user_id);
+        if (payload && payload.visit && payload.visit.active) {
+            setVisitMode(true, Number(payload.visit.user_id), String(payload.visit.name || ""));
+        } else {
+            setVisitMode(false);
+        }
         lastIdleBuildings = payload.buildings || [];
         setHourlyIncomeMicrosits(calculateHourlyIncomeMicrosits(lastIdleBuildings));
         renderBuildingsPanel(lastIdleBuildings);
@@ -1795,7 +1929,9 @@ function renderState(state) {
 
     if (!state.authorized) {
         activeSelectedChatId = null;
+        activeBuildingsOwnerUserId = null;
         lastIdleBuildings = [];
+        setVisitMode(false);
         closeTransferModal();
         setHidden(appHeader, true);
         setHidden(buildingsPanel, true);
@@ -1821,7 +1957,9 @@ function renderState(state) {
 
     if (!chats.length) {
         activeSelectedChatId = null;
+        activeBuildingsOwnerUserId = null;
         lastIdleBuildings = [];
+        setVisitMode(false);
         closeTransferModal();
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
@@ -1838,7 +1976,9 @@ function renderState(state) {
 
     if (state.selected_chat_id == null) {
         activeSelectedChatId = null;
+        activeBuildingsOwnerUserId = null;
         lastIdleBuildings = [];
+        setVisitMode(false);
         closeTransferModal();
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
@@ -1863,11 +2003,24 @@ function renderState(state) {
 
     closeChatModal();
     activeSelectedChatId = selectedChatId;
+    const visitInfo = state && state.visit && state.visit.active ? state.visit : null;
+    setVisitMode(
+        Boolean(visitInfo),
+        visitInfo ? Number(visitInfo.user_id) : null,
+        visitInfo ? String(visitInfo.name || "") : "",
+    );
     setGeyserProgress(state.geyser_caught_today, state.geyser_daily_limit);
     setHeaderBalance(state.balance);
     if (!buildingsPanelAutoOpened) {
-        setActiveSidePanel("buildings");
+        if (!visitModeActive) {
+            setActiveSidePanel("buildings");
+        } else {
+            setActiveSidePanel(null);
+        }
         buildingsPanelAutoOpened = true;
+    }
+    if (visitModeActive) {
+        setHidden(buildingsPanel, true);
     }
     if (buildingsPanelOpen && buildingsPanel) {
         setHidden(buildingsPanel, false);
@@ -1890,7 +2043,9 @@ async function selectChat(chatId, options = {}) {
     }
     try {
         closeTransferModal();
+        setVisitMode(false);
         lastIdleBuildings = [];
+        activeBuildingsOwnerUserId = null;
         setHourlyIncomeMicrosits(0);
         resetPlayersData();
         clearSceneBuildings();
@@ -2096,6 +2251,19 @@ if (playersToggleBtn) {
         }
         setActiveSidePanel("players");
         void ensureIdlePlayersLoaded({ withLoader: true });
+    });
+}
+
+if (visitHomeBtn) {
+    visitHomeBtn.addEventListener("click", async () => {
+        if (!visitModeActive) {
+            return;
+        }
+        try {
+            await leaveVisit();
+        } catch (error) {
+            setLoadingMessage(error.message || "Не удалось вернуться домой");
+        }
     });
 }
 
