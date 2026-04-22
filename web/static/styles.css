@@ -200,6 +200,8 @@ body.is-night .backdrop {
 }
 
 .geyser-reward-toast {
+    --drift-x: 0px;
+    --drift-y: 0px;
     position: fixed;
     z-index: 95;
     padding: 8px 10px;
@@ -214,6 +216,8 @@ body.is-night .backdrop {
     opacity: 1;
     pointer-events: none;
     transition: opacity 2s ease;
+    will-change: transform, opacity;
+    animation: geyser-toast-drift 5000ms linear forwards;
 }
 
 .geyser-reward-toast.is-fading {
@@ -223,6 +227,11 @@ body.is-night .backdrop {
 @keyframes spin-loader {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+
+@keyframes geyser-toast-drift {
+    from { transform: translate(0, 0); }
+    to { transform: translate(var(--drift-x), var(--drift-y)); }
 }
 
 .app-header {
@@ -859,7 +868,7 @@ body.is-visit-mode .visit-home-wrap {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: min(380px, calc(100% - 24px));
+    width: min(570px, calc(100% - 24px));
     border-radius: 28px;
     border: 1px solid rgba(88, 59, 106, 0.14);
     background: var(--panel-shell);
@@ -867,10 +876,15 @@ body.is-visit-mode .visit-home-wrap {
     box-shadow: 0 24px 60px rgba(3, 11, 19, 0.35);
 }
 
+.transfer-modal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
 .transfer-modal-close {
-    position: absolute;
-    top: 10px;
-    right: 10px;
     width: 28px;
     height: 28px;
     border: none;
@@ -881,6 +895,8 @@ body.is-visit-mode .visit-home-wrap {
     justify-content: center;
     cursor: pointer;
     padding: 0;
+    flex: 0 0 auto;
+    margin-top: 1px;
 }
 
 .transfer-modal-close svg {
@@ -898,7 +914,7 @@ body.is-visit-mode .visit-home-wrap {
 }
 
 .transfer-modal-title {
-    margin: 0 28px 10px 0;
+    margin: 0;
     font-size: 20px;
     line-height: 1.15;
     font-weight: 700;
@@ -1160,14 +1176,12 @@ body.is-visit-mode .visit-home-wrap {
 
 @media (max-width: 1200px) {
     .transfer-modal-dialog {
-        width: min(380px, calc(100% - 24px));
+        width: min(570px, calc(100% - 24px));
         border-radius: 16px;
         padding: 32px 28px 24px;
     }
 
     .transfer-modal-close {
-        top: 8px;
-        right: 8px;
         width: 28px;
         height: 28px;
     }
@@ -1178,7 +1192,6 @@ body.is-visit-mode .visit-home-wrap {
     }
 
     .transfer-modal-title {
-        margin-right: 26px;
         font-size: 18px;
     }
 

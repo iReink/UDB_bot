@@ -657,6 +657,12 @@ function showGeyserRewardToast(payload, clientX, clientY) {
         const toast = document.createElement("div");
         toast.className = "geyser-reward-toast";
         toast.textContent = text;
+        const driftAngle = Math.random() * Math.PI * 2;
+        const driftDistance = 12 + (Math.random() * 26);
+        const driftX = Math.cos(driftAngle) * driftDistance;
+        const driftY = Math.sin(driftAngle) * driftDistance;
+        toast.style.setProperty("--drift-x", `${driftX.toFixed(2)}px`);
+        toast.style.setProperty("--drift-y", `${driftY.toFixed(2)}px`);
         toast.style.visibility = "hidden";
         document.body.appendChild(toast);
         return toast;
