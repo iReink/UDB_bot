@@ -788,7 +788,7 @@ body.is-night .backdrop {
     border-radius: 28px;
     border: 1px solid rgba(88, 59, 106, 0.14);
     background: var(--panel-shell);
-    padding: 18px 16px 14px;
+    padding: 36px 32px 28px;
     box-shadow: 0 24px 60px rgba(3, 11, 19, 0.35);
 }
 
@@ -1070,7 +1070,7 @@ body.is-night .backdrop {
     .transfer-modal-dialog {
         width: min(380px, calc(100% - 24px));
         border-radius: 16px;
-        padding: 16px 14px 12px;
+        padding: 32px 28px 24px;
     }
 
     .transfer-modal-close {
