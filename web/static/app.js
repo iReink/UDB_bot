@@ -21,6 +21,13 @@ const sceneTooltip = document.getElementById("sceneTooltip");
 const sceneTooltipTitle = document.getElementById("sceneTooltipTitle");
 const sceneTooltipMeta = document.getElementById("sceneTooltipMeta");
 const sceneNightFilter = document.getElementById("sceneNightFilter");
+const transferModal = document.getElementById("transferModal");
+const transferModalScrim = document.getElementById("transferModalScrim");
+const transferModalCloseBtn = document.getElementById("transferModalCloseBtn");
+const transferModalTitle = document.getElementById("transferModalTitle");
+const transferAmountInput = document.getElementById("transferAmountInput");
+const transferSubmitBtn = document.getElementById("transferSubmitBtn");
+const transferMessage = document.getElementById("transferMessage");
 
 const sceneLayerNodes = Array.from(document.querySelectorAll("[data-scene-layer]")).reduce((acc, node) => {
     const layerName = node.dataset.sceneLayer;
@@ -94,6 +101,11 @@ let activeGeyserNode = null;
 let idlePlayers = [];
 let idlePlayersLoadedChatId = null;
 let playersSearchValue = "";
+let transferModalOpen = false;
+let transferSubmitInFlight = false;
+let transferRecipientPlayer = null;
+let transferSenderBalance = 0;
+const TRANSFER_NOTE_TEXT = "Хочется сказать, что если вы передали сит по ошибке, то это ваша проблема и решать вам её самостоятельно";
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
@@ -1092,6 +1104,236 @@ function setLoadingMessage(message) {
     }
 }
 
+function setTransferMessageNote() {
+    if (!transferMessage) {
+        return;
+    }
+    transferMessage.classList.remove("transfer-message--error");
+    transferMessage.classList.add("transfer-message--note");
+    transferMessage.textContent = TRANSFER_NOTE_TEXT;
+}
+
+function setTransferMessageError(message, options = {}) {
+    if (!transferMessage) {
+        return;
+    }
+    transferMessage.classList.remove("transfer-message--note");
+    transferMessage.classList.add("transfer-message--error");
+    transferMessage.textContent = String(message || "Ошибка передачи сита");
+
+    if (!options.showFillBalance || !Number.isFinite(transferSenderBalance)) {
+        return;
+    }
+    const fillBtn = document.createElement("button");
+    fillBtn.type = "button";
+    fillBtn.className = "transfer-message-link";
+    fillBtn.textContent = "Отдать всё";
+    fillBtn.addEventListener("click", () => {
+        if (!transferAmountInput) {
+            return;
+        }
+        transferAmountInput.value = String(normalizeSits(transferSenderBalance)).replace(".", ",");
+        updateTransferSubmitState();
+        setTransferMessageNote();
+        transferAmountInput.focus();
+    });
+    transferMessage.appendChild(document.createTextNode(" "));
+    transferMessage.appendChild(fillBtn);
+}
+
+function normalizeTransferInput(rawValue) {
+    const raw = String(rawValue || "");
+    let cleaned = "";
+    let separatorUsed = false;
+    for (const char of raw) {
+        if (char >= "0" && char <= "9") {
+            cleaned += char;
+            continue;
+        }
+        if ((char === "." || char === ",") && !separatorUsed) {
+            cleaned += ",";
+            separatorUsed = true;
+        }
+    }
+    return cleaned;
+}
+
+function parseTransferInputAmount(rawValue) {
+    const raw = String(rawValue || "").trim().replace(/\u202f/g, "").replace(/\s+/g, "");
+    if (!raw) {
+        return { ok: false, code: "EMPTY", message: "Введите количество сита" };
+    }
+    if (!/^[+-]?\d+(?:[.,]\d+)?$/.test(raw)) {
+        return { ok: false, code: "INVALID", message: "Сумма должна быть числом" };
+    }
+    const amount = Number(raw.replace(",", "."));
+    if (!Number.isFinite(amount)) {
+        return { ok: false, code: "INVALID", message: "Сумма должна быть конечным числом" };
+    }
+    const normalized = normalizeSits(amount);
+    if (normalized < 0) {
+        return { ok: false, code: "NEGATIVE", message: "Нельзя передать отрицательное значение" };
+    }
+    if (normalized === 0) {
+        return { ok: false, code: "ZERO", message: "Введите сумму больше нуля" };
+    }
+    return { ok: true, amount: normalized };
+}
+
+function updateTransferSubmitState() {
+    if (!transferSubmitBtn || !transferAmountInput) {
+        return;
+    }
+    const hasInput = String(transferAmountInput.value || "").trim().length > 0;
+    transferSubmitBtn.disabled = transferSubmitInFlight || !hasInput;
+}
+
+function closeTransferModal() {
+    transferModalOpen = false;
+    transferSubmitInFlight = false;
+    transferRecipientPlayer = null;
+    transferSenderBalance = 0;
+    if (transferAmountInput) {
+        transferAmountInput.value = "";
+        transferAmountInput.placeholder = "0";
+        transferAmountInput.disabled = false;
+    }
+    if (transferSubmitBtn) {
+        transferSubmitBtn.disabled = true;
+    }
+    setTransferMessageNote();
+    setHidden(transferModal, true);
+}
+
+async function fetchTransferBalance() {
+    const response = await fetch("/api/idle/sits/balance", { credentials: "include" });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Не удалось получить текущий баланс");
+    }
+    return response.json();
+}
+
+async function sendSitsToPlayer(receiverUserId, amountValue) {
+    const response = await fetch("/api/idle/sits/transfer", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            receiver_user_id: Number(receiverUserId),
+            amount: amountValue,
+        }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const detail = payload && payload.detail !== undefined ? payload.detail : null;
+        const message = detail && typeof detail === "object"
+            ? (detail.message || "Ошибка передачи сита")
+            : (detail || "Ошибка передачи сита");
+        const error = new Error(message);
+        if (detail && typeof detail === "object") {
+            error.code = detail.code || "";
+            error.balance = detail.balance;
+            error.requested = detail.requested;
+        }
+        throw error;
+    }
+    return payload;
+}
+
+async function openTransferModalForPlayer(player) {
+    if (!transferModal || !transferAmountInput || !transferSubmitBtn || !transferModalTitle) {
+        return;
+    }
+    transferRecipientPlayer = {
+        user_id: Number(player.user_id),
+        name: String(player.name || "Игрок"),
+    };
+    transferSubmitInFlight = false;
+    transferModalOpen = true;
+    transferSenderBalance = normalizeSits(currentBalanceSits);
+    transferModalTitle.textContent = `Отправить сит ${transferRecipientPlayer.name}`;
+    transferAmountInput.value = "";
+    transferAmountInput.placeholder = formatSits(transferSenderBalance);
+    transferAmountInput.disabled = true;
+    transferSubmitBtn.disabled = true;
+    setTransferMessageNote();
+    setHidden(transferModal, false);
+
+    try {
+        const payload = await fetchTransferBalance();
+        transferSenderBalance = normalizeSits(payload.balance);
+        transferAmountInput.placeholder = formatSits(transferSenderBalance);
+        setHeaderBalance(payload.balance);
+        transferAmountInput.disabled = false;
+        updateTransferSubmitState();
+        transferAmountInput.focus();
+    } catch (error) {
+        transferAmountInput.disabled = false;
+        setTransferMessageError(error.message || "Не удалось получить текущий баланс");
+    }
+}
+
+async function submitTransferSits() {
+    if (
+        transferSubmitInFlight
+        || !transferRecipientPlayer
+        || !transferAmountInput
+        || !transferSubmitBtn
+    ) {
+        return;
+    }
+
+    const parsed = parseTransferInputAmount(transferAmountInput.value);
+    if (!parsed.ok) {
+        setTransferMessageError(parsed.message);
+        return;
+    }
+
+    if (parsed.amount + 1e-9 > transferSenderBalance) {
+        setTransferMessageError(
+            `Нельзя передать ${formatSits(parsed.amount)} ${sitWord(parsed.amount)}, у вас только ${formatSits(transferSenderBalance)}.`,
+            { showFillBalance: true },
+        );
+        return;
+    }
+
+    transferSubmitInFlight = true;
+    transferAmountInput.disabled = true;
+    updateTransferSubmitState();
+
+    try {
+        const payload = await sendSitsToPlayer(transferRecipientPlayer.user_id, transferAmountInput.value);
+        if (payload && payload.balance !== undefined) {
+            transferSenderBalance = normalizeSits(payload.balance);
+            setHeaderBalance(payload.balance);
+        }
+        closeTransferModal();
+    } catch (error) {
+        if (error.code === "NEGATIVE_AMOUNT") {
+            setTransferMessageError("Нельзя передать отрицательное значение");
+        } else if (error.code === "INSUFFICIENT_FUNDS") {
+            if (error.balance !== undefined) {
+                transferSenderBalance = normalizeSits(error.balance);
+                setHeaderBalance(error.balance);
+            }
+            const requestedAmount = error.requested !== undefined ? normalizeSits(error.requested) : parsed.amount;
+            setTransferMessageError(
+                `Нельзя передать ${formatSits(requestedAmount)} ${sitWord(requestedAmount)}, у вас только ${formatSits(transferSenderBalance)}.`,
+                { showFillBalance: true },
+            );
+        } else {
+            setTransferMessageError(error.message || "Ошибка передачи сита");
+        }
+    } finally {
+        transferSubmitInFlight = false;
+        if (transferAmountInput) {
+            transferAmountInput.disabled = false;
+        }
+        updateTransferSubmitState();
+    }
+}
+
 function setActiveSidePanel(panelName) {
     const normalized = panelName === "buildings" || panelName === "players" ? panelName : null;
     buildingsPanelOpen = normalized === "buildings";
@@ -1376,8 +1618,8 @@ function renderPlayerCard(player) {
     giveBtn.type = "button";
     giveBtn.className = "player-btn player-btn--secondary";
     giveBtn.textContent = "Дать сит";
-    giveBtn.addEventListener("click", () => {
-        // placeholder for future sit transfer action
+    giveBtn.addEventListener("click", async () => {
+        await openTransferModalForPlayer(player);
     });
     actions.appendChild(giveBtn);
 
@@ -1554,6 +1796,7 @@ function renderState(state) {
     if (!state.authorized) {
         activeSelectedChatId = null;
         lastIdleBuildings = [];
+        closeTransferModal();
         setHidden(appHeader, true);
         setHidden(buildingsPanel, true);
         setHidden(playersPanel, true);
@@ -1579,6 +1822,7 @@ function renderState(state) {
     if (!chats.length) {
         activeSelectedChatId = null;
         lastIdleBuildings = [];
+        closeTransferModal();
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
         resetPlayersData();
@@ -1595,6 +1839,7 @@ function renderState(state) {
     if (state.selected_chat_id == null) {
         activeSelectedChatId = null;
         lastIdleBuildings = [];
+        closeTransferModal();
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
         resetPlayersData();
@@ -1644,6 +1889,7 @@ async function selectChat(chatId, options = {}) {
         beginScreenLoading();
     }
     try {
+        closeTransferModal();
         lastIdleBuildings = [];
         setHourlyIncomeMicrosits(0);
         resetPlayersData();
@@ -1763,6 +2009,66 @@ if (playersSearchInput) {
     });
 }
 
+if (transferAmountInput) {
+    transferAmountInput.addEventListener("input", () => {
+        const sanitized = normalizeTransferInput(transferAmountInput.value);
+        if (transferAmountInput.value !== sanitized) {
+            transferAmountInput.value = sanitized;
+        }
+        updateTransferSubmitState();
+        setTransferMessageNote();
+    });
+
+    transferAmountInput.addEventListener("paste", (event) => {
+        event.preventDefault();
+        const clipboardText = event.clipboardData ? event.clipboardData.getData("text") : "";
+        const sanitized = normalizeTransferInput(clipboardText);
+        const current = String(transferAmountInput.value || "");
+        transferAmountInput.value = normalizeTransferInput(current + sanitized);
+        updateTransferSubmitState();
+        setTransferMessageNote();
+    });
+
+    transferAmountInput.addEventListener("keydown", async (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            await submitTransferSits();
+        }
+    });
+}
+
+if (transferSubmitBtn) {
+    transferSubmitBtn.addEventListener("click", async () => {
+        await submitTransferSits();
+    });
+}
+
+if (transferModalCloseBtn) {
+    transferModalCloseBtn.addEventListener("click", () => {
+        closeTransferModal();
+    });
+}
+
+if (transferModalScrim) {
+    transferModalScrim.addEventListener("click", () => {
+        closeTransferModal();
+    });
+}
+
+if (transferModal) {
+    transferModal.addEventListener("click", (event) => {
+        if (event.target === transferModal) {
+            closeTransferModal();
+        }
+    });
+}
+
+window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && transferModalOpen) {
+        closeTransferModal();
+    }
+});
+
 if (buildingsToggleBtn) {
     buildingsToggleBtn.addEventListener("click", () => {
         if (activeSelectedChatId == null) {
@@ -1805,5 +2111,6 @@ window.addEventListener("resize", () => {
     renderSceneBuildings(lastIdleBuildings);
 });
 
+closeTransferModal();
 loadScene();
 refresh();

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import random
 import sqlite3
@@ -78,6 +79,11 @@ class CodeAuthRequest(BaseModel):
 
 class PurchaseIdleBuildingRequest(BaseModel):
     building_code: str
+
+
+class TransferSitsRequest(BaseModel):
+    receiver_user_id: int
+    amount: Any = ""
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -441,6 +447,177 @@ def _require_selected_user_chat(request: Request) -> tuple[int, int]:
         raise HTTPException(status_code=403, detail="Чат недоступен для выбранной сессии")
 
     return user_id, chat_id
+
+
+def _get_user_balance(user_id: int, chat_id: int) -> float:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(sits, 0) AS sits
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Пользователь не найден в выбранном чате")
+    return float(row["sits"] or 0)
+
+
+def _parse_transfer_amount(value: Any) -> float:
+    if value is None:
+        raise HTTPException(status_code=400, detail="Введите количество сита")
+
+    if isinstance(value, (int, float)):
+        raw = str(value)
+    else:
+        raw = str(value).strip()
+
+    raw = raw.replace(" ", "").replace("\u202f", "").replace(",", ".")
+    if not raw:
+        raise HTTPException(status_code=400, detail="Введите количество сита")
+
+    try:
+        amount = float(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Сумма должна быть числом") from exc
+
+    if not math.isfinite(amount):
+        raise HTTPException(status_code=400, detail="Сумма должна быть конечным числом")
+    return float(normalize_sits(amount))
+
+
+def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw: Any) -> dict[str, Any]:
+    amount = _parse_transfer_amount(amount_raw)
+    if amount < 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "NEGATIVE_AMOUNT",
+                "message": "Нельзя передать отрицательное значение",
+            },
+        )
+    if amount == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "ZERO_AMOUNT",
+                "message": "Введите сумму больше нуля",
+            },
+        )
+
+    if receiver_user_id == user_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "SELF_TRANSFER",
+                "message": "Нельзя передавать сит самому себе",
+            },
+        )
+
+    now = datetime.now()
+    date_value = now.date().isoformat()
+    time_value = now.strftime("%H:%M:%S")
+
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+
+        cur.execute(
+            """
+            SELECT COALESCE(name, '') AS name, COALESCE(sits, 0) AS sits
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        sender_row = cur.fetchone()
+        if not sender_row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Пользователь не найден в выбранном чате")
+
+        cur.execute(
+            """
+            SELECT COALESCE(name, '') AS name, COALESCE(sits, 0) AS sits
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (receiver_user_id, chat_id),
+        )
+        receiver_row = cur.fetchone()
+        if not receiver_row:
+            conn.rollback()
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "RECEIVER_NOT_FOUND",
+                    "message": "Получатель не найден в этом чате",
+                },
+            )
+
+        sender_balance = float(sender_row["sits"] or 0)
+        if sender_balance + 1e-9 < amount:
+            conn.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "INSUFFICIENT_FUNDS",
+                    "message": "Недостаточно сита",
+                    "balance": normalize_sits(sender_balance),
+                    "requested": normalize_sits(amount),
+                },
+            )
+
+        receiver_balance = float(receiver_row["sits"] or 0)
+        new_sender_balance = normalize_sits(sender_balance - amount)
+        new_receiver_balance = normalize_sits(receiver_balance + amount)
+
+        cur.execute(
+            """
+            UPDATE users
+            SET sits = ?
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (new_sender_balance, user_id, chat_id),
+        )
+        cur.execute(
+            """
+            UPDATE users
+            SET sits = ?
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (new_receiver_balance, receiver_user_id, chat_id),
+        )
+
+        if _table_exists(cur, "sit_stats"):
+            sender_name = str(sender_row["name"] or "")
+            receiver_name = str(receiver_row["name"] or "")
+            cur.execute(
+                """
+                INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (date_value, time_value, chat_id, user_id, sender_name, -amount),
+            )
+            cur.execute(
+                """
+                INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (date_value, time_value, chat_id, receiver_user_id, receiver_name, amount),
+            )
+
+        conn.commit()
+
+    return {
+        "chat_id": chat_id,
+        "sender_user_id": user_id,
+        "receiver_user_id": receiver_user_id,
+        "transferred": normalize_sits(amount),
+        "balance": new_sender_balance,
+    }
 
 
 def _get_idle_buildings_state(user_id: int, chat_id: int) -> list[dict[str, Any]]:
@@ -1378,6 +1555,36 @@ def get_idle_players(request: Request) -> JSONResponse:
             "chat_id": chat_id,
             "user_id": user_id,
             "players": players,
+        }
+    )
+
+
+@app.get("/api/idle/sits/balance")
+def get_idle_sits_balance(request: Request) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    balance = _get_user_balance(user_id, chat_id)
+    return JSONResponse(
+        {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "balance": normalize_sits(balance),
+        }
+    )
+
+
+@app.post("/api/idle/sits/transfer")
+def transfer_idle_sits(request: Request, data: TransferSitsRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    transfer_result = _transfer_sits(
+        user_id=user_id,
+        chat_id=chat_id,
+        receiver_user_id=int(data.receiver_user_id),
+        amount_raw=data.amount,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            **transfer_result,
         }
     )
 

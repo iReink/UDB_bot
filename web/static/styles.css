@@ -18,6 +18,7 @@
     --btn-subtext: rgba(255, 255, 255, 0.92);
     --btn-disabled-bg: rgba(233, 120, 219, 0.58);
     --btn-disabled-text: rgba(118, 44, 117, 0.76);
+    --danger-text: #ce2e76;
 }
 
 * {
@@ -766,6 +767,156 @@ body.is-night .backdrop {
     background: #fff3fc;
 }
 
+.transfer-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 82;
+}
+
+.transfer-modal-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(3, 11, 19, 0.58);
+}
+
+.transfer-modal-dialog {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(1120px, calc(100% - 30px));
+    border-radius: 28px;
+    border: 1px solid rgba(88, 59, 106, 0.14);
+    background: var(--panel-shell);
+    padding: 34px 34px 28px;
+    box-shadow: 0 24px 60px rgba(3, 11, 19, 0.35);
+}
+
+.transfer-modal-close {
+    position: absolute;
+    top: 26px;
+    right: 26px;
+    width: 38px;
+    height: 38px;
+    border: none;
+    background: transparent;
+    color: rgba(236, 122, 221, 0.88);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+}
+
+.transfer-modal-close svg {
+    width: 30px;
+    height: 30px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.transfer-modal-close:hover {
+    color: var(--accent-strong);
+}
+
+.transfer-modal-title {
+    margin: 0 52px 18px 0;
+    font-size: 58px;
+    line-height: 1.05;
+    font-weight: 700;
+    color: #121215;
+}
+
+.transfer-amount-input {
+    width: 100%;
+    height: 84px;
+    border-radius: 16px;
+    border: 1px solid rgba(104, 64, 125, 0.12);
+    background: rgba(255, 255, 255, 0.86);
+    color: var(--accent-strong);
+    padding: 0 34px;
+    font-size: 50px;
+    line-height: 1;
+    font-weight: 400;
+    letter-spacing: 0;
+}
+
+.transfer-amount-input::placeholder {
+    color: rgba(236, 122, 221, 0.9);
+}
+
+.transfer-amount-input:focus {
+    outline: 2px solid rgba(222, 51, 181, 0.3);
+    outline-offset: 1px;
+    border-color: rgba(222, 51, 181, 0.45);
+}
+
+.transfer-submit-btn {
+    width: 100%;
+    height: 66px;
+    margin-top: 16px;
+    border: none;
+    border-radius: 16px;
+    background: var(--accent);
+    color: var(--ink);
+    font-size: 46px;
+    line-height: 1;
+    font-weight: 500;
+    cursor: pointer;
+    transition: filter 0.12s ease, transform 0.12s ease, background-color 0.15s ease;
+}
+
+.transfer-submit-btn:hover:not(:disabled) {
+    filter: brightness(1.03);
+    transform: translateY(-1px);
+}
+
+.transfer-submit-btn:active:not(:disabled) {
+    filter: brightness(0.97);
+    transform: translateY(0);
+}
+
+.transfer-submit-btn:disabled {
+    cursor: not-allowed;
+    background: rgba(236, 122, 221, 0.5);
+    color: #8f969a;
+    transform: none;
+    filter: none;
+}
+
+.transfer-message {
+    margin-top: 14px;
+    font-size: 14px;
+    line-height: 1.25;
+    font-weight: 400;
+}
+
+.transfer-message--note {
+    color: rgba(236, 122, 221, 0.86);
+}
+
+.transfer-message--error {
+    color: var(--danger-text);
+}
+
+.transfer-message-link {
+    margin-left: 6px;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: #2c4bc4;
+    background: transparent;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.transfer-message-link:hover {
+    color: #213a99;
+}
+
 .hidden {
     display: none !important;
 }
@@ -912,5 +1063,44 @@ body.is-night .backdrop {
 
     .app-main {
         padding-top: 120px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .transfer-modal-dialog {
+        border-radius: 18px;
+        padding: 24px 20px 20px;
+    }
+
+    .transfer-modal-close {
+        top: 12px;
+        right: 12px;
+        width: 32px;
+        height: 32px;
+    }
+
+    .transfer-modal-close svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    .transfer-modal-title {
+        margin-right: 40px;
+        font-size: 36px;
+    }
+
+    .transfer-amount-input {
+        height: 62px;
+        padding: 0 16px;
+        font-size: 34px;
+    }
+
+    .transfer-submit-btn {
+        height: 52px;
+        font-size: 30px;
+    }
+
+    .transfer-message {
+        font-size: 12px;
     }
 }

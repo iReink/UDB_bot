@@ -120,6 +120,38 @@
     </div>
 </div>
 
+<div class="transfer-modal hidden" id="transferModal" aria-hidden="true">
+    <div class="transfer-modal-scrim" id="transferModalScrim"></div>
+    <div
+        class="transfer-modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="transferModalTitle"
+        aria-describedby="transferMessage"
+    >
+        <button class="transfer-modal-close" id="transferModalCloseBtn" type="button" aria-label="Закрыть окно">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <line x1="5" y1="5" x2="19" y2="19"></line>
+                <line x1="19" y1="5" x2="5" y2="19"></line>
+            </svg>
+        </button>
+        <h2 class="transfer-modal-title" id="transferModalTitle">Отправить сит</h2>
+        <input
+            id="transferAmountInput"
+            class="transfer-amount-input"
+            type="text"
+            inputmode="decimal"
+            autocomplete="off"
+            placeholder="0"
+            aria-label="Количество сита"
+        >
+        <button id="transferSubmitBtn" class="transfer-submit-btn" type="button" disabled>Отправить</button>
+        <div class="transfer-message transfer-message--note" id="transferMessage">
+            Хочется сказать, что если вы передали сит по ошибке, то это ваша проблема и решать вам её самостоятельно
+        </div>
+    </div>
+</div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>
