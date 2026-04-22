@@ -622,7 +622,7 @@ def _get_user_balance(user_id: int, chat_id: int) -> float:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT COALESCE(sits, 0) AS sits
+            SELECT COALESCE(name, '') AS name, COALESCE(sits, 0) AS sits
             FROM users
             WHERE user_id = ? AND chat_id = ?
             """,
