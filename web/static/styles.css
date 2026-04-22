@@ -358,7 +358,7 @@ body.is-night .backdrop {
 
 .players-search-input {
     width: 100%;
-    height: 78px;
+    height: 58px;
     border-radius: 14px;
     border: 1px solid rgba(104, 64, 125, 0.16);
     background: rgba(255, 255, 255, 0.86);
@@ -858,7 +858,7 @@ body.is-night .backdrop {
     }
 
     .players-search-input {
-        height: 62px;
+        height: 46px;
         font-size: 16px;
         padding: 0 62px 0 18px;
     }
