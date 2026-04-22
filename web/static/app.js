@@ -1175,7 +1175,7 @@ function parseTransferInputAmount(rawValue) {
         return { ok: false, code: "NEGATIVE", message: "Нельзя передать отрицательное значение" };
     }
     if (normalized === 0) {
-        return { ok: false, code: "ZERO", message: "Введите сумму больше нуля" };
+        return { ok: false, code: "ZERO", message: "Можно передать минимум 0,001 сит" };
     }
     return { ok: true, amount: normalized };
 }

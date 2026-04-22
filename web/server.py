@@ -504,7 +504,7 @@ def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw
             status_code=400,
             detail={
                 "code": "ZERO_AMOUNT",
-                "message": "Введите сумму больше нуля",
+                "message": "Можно передать минимум 0,001 сит",
             },
         )
 
