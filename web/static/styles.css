@@ -315,6 +315,21 @@ body.is-night .backdrop {
     gap: 10px;
 }
 
+.visit-geyser-label {
+    position: absolute;
+    right: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    max-width: min(40vw, 440px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    line-height: 1;
+    font-weight: 400;
+    color: var(--muted);
+}
+
 .visit-home-wrap {
     position: fixed;
     top: 72px;
@@ -360,6 +375,10 @@ body.is-visit-mode .header-controls {
 }
 
 body.is-visit-mode .header-center {
+    display: block;
+}
+
+body.is-visit-mode .visit-geyser-label {
     display: block;
 }
 
@@ -1135,6 +1154,13 @@ body.is-visit-mode .visit-home-wrap {
     .header-controls {
         width: 100%;
         flex-wrap: wrap;
+    }
+
+    .visit-geyser-label {
+        position: static;
+        transform: none;
+        max-width: 100%;
+        margin-top: 2px;
     }
 
     .chat-switch {

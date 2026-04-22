@@ -182,6 +182,7 @@ def _catch_geyser_for_today(
     effective_beneficiary_user_id = int(beneficiary_user_id or user_id)
     if effective_beneficiary_user_id <= 0:
         effective_beneficiary_user_id = user_id
+    geyser_owner_user_id = effective_beneficiary_user_id
     if effective_beneficiary_user_id == user_id:
         visitor_reward_millisits = 0
     else:
@@ -197,7 +198,7 @@ def _catch_geyser_for_today(
             FROM web_geyser_daily_catches
             WHERE user_id = ? AND chat_id = ? AND catch_date = ?
             """,
-            (user_id, chat_id, date_key),
+            (geyser_owner_user_id, chat_id, date_key),
         )
         geyser_row = cur.fetchone()
         caught_today = int(geyser_row["amount"] or 0) if geyser_row else 0
@@ -240,7 +241,7 @@ def _catch_geyser_for_today(
                 amount = excluded.amount,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (user_id, chat_id, date_key, new_caught_today),
+            (geyser_owner_user_id, chat_id, date_key, new_caught_today),
         )
 
         catcher_balance = float(user_row["sits"] or 0)
@@ -319,6 +320,7 @@ def _catch_geyser_for_today(
         "reward_sits": normalize_sits(reward_sits),
         "visitor_reward_millisits": visitor_reward_millisits,
         "visitor_reward_sits": normalize_sits(visitor_reward_sits),
+        "geyser_owner_user_id": geyser_owner_user_id,
         "beneficiary_user_id": effective_beneficiary_user_id,
         "beneficiary_name": beneficiary_name,
         "beneficiary_balance": new_beneficiary_balance,
@@ -1522,10 +1524,6 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
             if item["chat_id"] == selected_chat_id:
                 selected = item
                 break
-    geyser_caught_today = 0
-    if selected:
-        geyser_caught_today = _get_geyser_catches_for_today(user_id, int(selected["chat_id"]))
-
     visit_target: dict[str, Any] | None = None
     if selected:
         visit_target = _resolve_visit_target(
@@ -1534,6 +1532,11 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
             visit_user_id_raw=payload.get("visit_user_id"),
             require_buildings=True,
         )
+    geyser_caught_today = 0
+    geyser_owner_user_id = user_id
+    if selected:
+        geyser_owner_user_id = int(visit_target["user_id"]) if visit_target else user_id
+        geyser_caught_today = _get_geyser_catches_for_today(geyser_owner_user_id, int(selected["chat_id"]))
 
     state = {
         "authorized": True,
@@ -1551,6 +1554,8 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
         "balance": selected["balance"] if selected else None,
         "geyser_caught_today": geyser_caught_today if selected else 0,
         "geyser_daily_limit": GEYSER_DAILY_LIMIT,
+        "geyser_owner_user_id": geyser_owner_user_id if selected else None,
+        "geyser_owner_name": str(visit_target["name"]) if visit_target else None,
         "view_mode": "visit" if visit_target else "self",
         "visit": {
             "active": bool(visit_target),
@@ -1871,13 +1876,16 @@ def geyser_state(request: Request) -> JSONResponse:
         visit_user_id_raw=payload.get("visit_user_id"),
         require_buildings=True,
     )
-    caught_today = _get_geyser_catches_for_today(user_id, chat_id)
+    geyser_owner_user_id = int(visit_target["user_id"]) if visit_target else user_id
+    caught_today = _get_geyser_catches_for_today(geyser_owner_user_id, chat_id)
     return JSONResponse(
         {
             "chat_id": chat_id,
             "user_id": user_id,
             "caught_today": caught_today,
             "daily_limit": GEYSER_DAILY_LIMIT,
+            "geyser_owner_user_id": geyser_owner_user_id,
+            "geyser_owner_name": str(visit_target["name"]) if visit_target else None,
             "view_mode": "visit" if visit_target else "self",
             "visit": {
                 "active": bool(visit_target),

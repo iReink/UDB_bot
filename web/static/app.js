@@ -10,6 +10,7 @@ const chatList = document.getElementById("chatList");
 const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
 const playersToggleBtn = document.getElementById("playersToggleBtn");
 const visitHeaderTitle = document.getElementById("visitHeaderTitle");
+const visitGeyserLabel = document.getElementById("visitGeyserLabel");
 const visitHomeWrap = document.getElementById("visitHomeWrap");
 const visitHomeBtn = document.getElementById("visitHomeBtn");
 const buildingsPanel = document.getElementById("buildingsPanel");
@@ -1065,6 +1066,21 @@ function renderHeaderBalance() {
     const balance = normalizeSits(currentBalanceSits);
     const incomeSitsPerHour = currentHourlyIncomeMicrosits / 1000;
     chatBalanceLabel.textContent = `${currentGeyserCaughtToday}/${currentGeyserDailyLimit} гейзеров поймано | ${formatSits(balance)} (+${formatSitsFixed3(incomeSitsPerHour)}) ${sitWord(balance)}`;
+    renderVisitGeyserLabel();
+}
+
+function renderVisitGeyserLabel() {
+    if (!visitGeyserLabel) {
+        return;
+    }
+    if (!visitModeActive) {
+        visitGeyserLabel.textContent = "";
+        setHidden(visitGeyserLabel, true);
+        return;
+    }
+    const targetName = String(visitTargetName || "").trim() || "сочатовца";
+    visitGeyserLabel.textContent = `${currentGeyserCaughtToday}/${currentGeyserDailyLimit} гейзеров у ${targetName}`;
+    setHidden(visitGeyserLabel, false);
 }
 
 function setHeaderBalance(amount) {
@@ -1168,6 +1184,7 @@ function setVisitMode(active, targetUserId = null, targetName = "") {
     if (visitModeActive && buildingsPanel) {
         setHidden(buildingsPanel, true);
     }
+    renderVisitGeyserLabel();
 }
 
 async function startVisit(targetUserId) {
