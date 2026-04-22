@@ -8,9 +8,14 @@ const logoutBtn = document.getElementById("logoutBtn");
 const chatModal = document.getElementById("chatModal");
 const chatList = document.getElementById("chatList");
 const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
+const playersToggleBtn = document.getElementById("playersToggleBtn");
 const buildingsPanel = document.getElementById("buildingsPanel");
 const buildingsList = document.getElementById("buildingsList");
-const chatmatesList = document.getElementById("chatmatesList");
+const playersPanel = document.getElementById("playersPanel");
+const playersSearchInput = document.getElementById("playersSearchInput");
+const playersList = document.getElementById("playersList");
+const playersEmpty = document.getElementById("playersEmpty");
+const chatmatesList = null;
 const screenLoader = document.getElementById("screenLoader");
 const sceneTooltip = document.getElementById("sceneTooltip");
 const sceneTooltipTitle = document.getElementById("sceneTooltipTitle");
@@ -67,8 +72,10 @@ const sceneSpawnCleanupTimeouts = [];
 const sceneSpawnedElements = [];
 
 let buildingsPanelOpen = false;
+let playersPanelOpen = false;
 let buildingsPanelAutoOpened = false;
 let idleBuildingsRequestInFlight = false;
+let playersRequestInFlight = false;
 let activeSelectedChatId = null;
 let lastIdleBuildings = [];
 const sceneBuildingNodes = [];
@@ -77,7 +84,6 @@ let currentBalanceSits = 0;
 let currentHourlyIncomeMicrosits = 0;
 let currentGeyserCaughtToday = 0;
 let currentGeyserDailyLimit = 10;
-let currentUserDisplayName = "";
 let sceneTooltipTimerId = null;
 let sceneTooltipPointerX = 0;
 let sceneTooltipPointerY = 0;
@@ -85,6 +91,9 @@ const SCENE_TOOLTIP_DELAY_MS = 1000;
 let geyserSpawnConfig = null;
 let geyserLoopTimeoutId = null;
 let activeGeyserNode = null;
+let idlePlayers = [];
+let idlePlayersLoadedChatId = null;
+let playersSearchValue = "";
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
@@ -1045,10 +1054,6 @@ function calculateTotalBuildingLevels(buildings) {
 }
 
 function resolveCurrentUserDisplayName() {
-    const normalized = String(currentUserDisplayName || "").trim();
-    if (normalized) {
-        return normalized;
-    }
     return "Сочатовец";
 }
 
@@ -1087,23 +1092,34 @@ function setLoadingMessage(message) {
     }
 }
 
-function setBuildingsPanelOpen(isOpen) {
-    buildingsPanelOpen = Boolean(isOpen);
+function setActiveSidePanel(panelName) {
+    const normalized = panelName === "buildings" || panelName === "players" ? panelName : null;
+    buildingsPanelOpen = normalized === "buildings";
+    playersPanelOpen = normalized === "players";
+
     if (buildingsToggleBtn) {
         buildingsToggleBtn.classList.toggle("is-active", buildingsPanelOpen);
         buildingsToggleBtn.setAttribute("aria-pressed", buildingsPanelOpen ? "true" : "false");
     }
+    if (playersToggleBtn) {
+        playersToggleBtn.classList.toggle("is-active", playersPanelOpen);
+        playersToggleBtn.setAttribute("aria-pressed", playersPanelOpen ? "true" : "false");
+    }
     if (buildingsPanel) {
         buildingsPanel.classList.toggle("hidden", !buildingsPanelOpen);
     }
+    if (playersPanel) {
+        playersPanel.classList.toggle("hidden", !playersPanelOpen);
+    }
+}
+
+function setBuildingsPanelOpen(isOpen) {
+    setActiveSidePanel(isOpen ? "buildings" : null);
 }
 
 function clearBuildingsPanel() {
     if (buildingsList) {
         buildingsList.innerHTML = "";
-    }
-    if (chatmatesList) {
-        chatmatesList.innerHTML = "";
     }
 }
 
@@ -1320,6 +1336,131 @@ function renderChatmatesPreview(buildings) {
     chatmatesList.appendChild(card);
 }
 
+function normalizeSearchText(value) {
+    return String(value || "").trim().toLowerCase();
+}
+
+function resetPlayersData() {
+    idlePlayers = [];
+    idlePlayersLoadedChatId = null;
+    playersSearchValue = "";
+    if (playersSearchInput) {
+        playersSearchInput.value = "";
+    }
+    renderPlayersList();
+}
+
+function renderPlayerCard(player) {
+    const card = document.createElement("article");
+    card.className = "player-card";
+
+    const main = document.createElement("div");
+    main.className = "player-main";
+
+    const name = document.createElement("h3");
+    name.className = "player-name";
+    name.textContent = String(player.name || "Игрок");
+    main.appendChild(name);
+
+    const level = document.createElement("span");
+    level.className = "player-level";
+    level.textContent = `${formatWithNarrowSpace(player.total_levels || 0)} ур.`;
+    main.appendChild(level);
+
+    card.appendChild(main);
+
+    const actions = document.createElement("div");
+    actions.className = "player-actions";
+
+    const giveBtn = document.createElement("button");
+    giveBtn.type = "button";
+    giveBtn.className = "player-btn player-btn--secondary";
+    giveBtn.textContent = "Дать сит";
+    giveBtn.addEventListener("click", () => {
+        // placeholder for future sit transfer action
+    });
+    actions.appendChild(giveBtn);
+
+    const visitBtn = document.createElement("button");
+    visitBtn.type = "button";
+    visitBtn.className = "player-btn player-btn--primary";
+    visitBtn.textContent = "В гости";
+    visitBtn.addEventListener("click", () => {
+        // placeholder for future visit action
+    });
+    actions.appendChild(visitBtn);
+
+    card.appendChild(actions);
+    return card;
+}
+
+function renderPlayersList() {
+    if (!playersList || !playersEmpty) {
+        return;
+    }
+
+    playersList.innerHTML = "";
+    const query = normalizeSearchText(playersSearchValue);
+    const filtered = idlePlayers.filter((player) => {
+        if (!query) {
+            return true;
+        }
+        const byName = normalizeSearchText(player.name).includes(query);
+        const byNick = normalizeSearchText(player.nick).includes(query);
+        return byName || byNick;
+    });
+
+    filtered.forEach((player) => {
+        playersList.appendChild(renderPlayerCard(player));
+    });
+    playersEmpty.classList.toggle("hidden", filtered.length > 0);
+}
+
+async function fetchIdlePlayers() {
+    const response = await fetch("/api/idle/players", { credentials: "include" });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Ошибка загрузки игроков");
+    }
+    return response.json();
+}
+
+async function ensureIdlePlayersLoaded(options = {}) {
+    const force = Boolean(options.force);
+    const withLoader = options.withLoader !== false;
+    if (activeSelectedChatId == null) {
+        return;
+    }
+    if (playersRequestInFlight && !force) {
+        return;
+    }
+    if (!force && idlePlayersLoadedChatId !== null && Number(idlePlayersLoadedChatId) === Number(activeSelectedChatId)) {
+        renderPlayersList();
+        return;
+    }
+
+    playersRequestInFlight = true;
+    if (withLoader) {
+        beginScreenLoading();
+    }
+    try {
+        const payload = await fetchIdlePlayers();
+        if (activeSelectedChatId == null || Number(payload.chat_id) !== Number(activeSelectedChatId)) {
+            return;
+        }
+        idlePlayers = Array.isArray(payload.players) ? payload.players : [];
+        idlePlayersLoadedChatId = Number(payload.chat_id);
+        renderPlayersList();
+    } catch (error) {
+        setLoadingMessage(error.message || "Ошибка загрузки игроков");
+    } finally {
+        playersRequestInFlight = false;
+        if (withLoader) {
+            endScreenLoading();
+        }
+    }
+}
+
 async function fetchIdleBuildings() {
     const response = await fetch("/api/idle/buildings", { credentials: "include" });
     if (!response.ok) {
@@ -1348,7 +1489,6 @@ async function purchaseBuilding(buildingCode) {
         lastIdleBuildings = payload.buildings;
         setHourlyIncomeMicrosits(calculateHourlyIncomeMicrosits(lastIdleBuildings));
         renderBuildingsPanel(lastIdleBuildings);
-        renderChatmatesPreview(lastIdleBuildings);
         renderSceneBuildings(lastIdleBuildings);
     }
 }
@@ -1367,7 +1507,6 @@ async function refreshIdleBuildings(options = {}) {
         lastIdleBuildings = payload.buildings || [];
         setHourlyIncomeMicrosits(calculateHourlyIncomeMicrosits(lastIdleBuildings));
         renderBuildingsPanel(lastIdleBuildings);
-        renderChatmatesPreview(lastIdleBuildings);
         renderSceneBuildings(lastIdleBuildings);
     } catch (error) {
         console.error(error);
@@ -1411,22 +1550,17 @@ function fillChatSwitch(chats, selectedChatId) {
 function renderState(state) {
     setServerClock(state && typeof state === "object" ? state.server_now_iso : null);
     applyNightFilterForNow();
-    currentUserDisplayName = state && state.user && typeof state.user === "object"
-        ? String(state.user.first_name || state.user.username || "").trim()
-        : "";
 
     if (!state.authorized) {
-        currentUserDisplayName = "";
         activeSelectedChatId = null;
         lastIdleBuildings = [];
         setHidden(appHeader, true);
         setHidden(buildingsPanel, true);
-        if (buildingsToggleBtn) {
-            buildingsToggleBtn.classList.remove("is-active");
-        }
-        buildingsPanelOpen = false;
+        setHidden(playersPanel, true);
+        setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
         closeChatModal();
+        resetPlayersData();
         clearBuildingsPanel();
         clearSceneBuildings();
         setHidden(authCard, false);
@@ -1445,8 +1579,9 @@ function renderState(state) {
     if (!chats.length) {
         activeSelectedChatId = null;
         lastIdleBuildings = [];
-        setBuildingsPanelOpen(false);
+        setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
+        resetPlayersData();
         clearBuildingsPanel();
         clearSceneBuildings();
         closeChatModal();
@@ -1460,8 +1595,9 @@ function renderState(state) {
     if (state.selected_chat_id == null) {
         activeSelectedChatId = null;
         lastIdleBuildings = [];
-        setBuildingsPanelOpen(false);
+        setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
+        resetPlayersData();
         clearBuildingsPanel();
         clearSceneBuildings();
         setGeyserProgress(0, 10);
@@ -1476,16 +1612,19 @@ function renderState(state) {
     if (activeSelectedChatId !== null && Number(activeSelectedChatId) !== selectedChatId) {
         setHourlyIncomeMicrosits(0);
     }
+    if (activeSelectedChatId === null || Number(activeSelectedChatId) !== selectedChatId) {
+        resetPlayersData();
+    }
 
     closeChatModal();
     activeSelectedChatId = selectedChatId;
     setGeyserProgress(state.geyser_caught_today, state.geyser_daily_limit);
     setHeaderBalance(state.balance);
     if (!buildingsPanelAutoOpened) {
-        setBuildingsPanelOpen(true);
+        setActiveSidePanel("buildings");
         buildingsPanelAutoOpened = true;
     }
-    if (buildingsPanelOpen) {
+    if (buildingsPanelOpen && buildingsPanel) {
         setHidden(buildingsPanel, false);
     }
     return true;
@@ -1507,6 +1646,7 @@ async function selectChat(chatId, options = {}) {
     try {
         lastIdleBuildings = [];
         setHourlyIncomeMicrosits(0);
+        resetPlayersData();
         clearSceneBuildings();
         clearBuildingsPanel();
         const response = await fetch("/api/select-chat", {
@@ -1523,6 +1663,9 @@ async function selectChat(chatId, options = {}) {
         const hasSelectedChat = renderState(state);
         if (hasSelectedChat) {
             await refreshIdleBuildings({ force: true });
+            if (playersPanelOpen) {
+                await ensureIdlePlayersLoaded({ force: true, withLoader: false });
+            }
         }
     } finally {
         if (withLoader) {
@@ -1538,6 +1681,9 @@ async function refresh() {
         const hasSelectedChat = renderState(state);
         if (hasSelectedChat) {
             await refreshIdleBuildings({ force: true });
+            if (playersPanelOpen) {
+                await ensureIdlePlayersLoaded({ force: true, withLoader: false });
+            }
         }
     } catch (_error) {
         setLoadingMessage("Ошибка загрузки страницы.");
@@ -1575,6 +1721,9 @@ async function submitCodeAuth() {
         const hasSelectedChat = renderState(state);
         if (hasSelectedChat) {
             await refreshIdleBuildings({ force: true });
+            if (playersPanelOpen) {
+                await ensureIdlePlayersLoaded({ force: true, withLoader: false });
+            }
         }
         authCodeInput.value = "";
     } catch (error) {
@@ -1607,15 +1756,40 @@ chatSwitch.addEventListener("change", async (event) => {
     }
 });
 
+if (playersSearchInput) {
+    playersSearchInput.addEventListener("input", () => {
+        playersSearchValue = playersSearchInput.value || "";
+        renderPlayersList();
+    });
+}
+
 if (buildingsToggleBtn) {
     buildingsToggleBtn.addEventListener("click", () => {
         if (activeSelectedChatId == null) {
             return;
         }
-        setBuildingsPanelOpen(!buildingsPanelOpen);
+        if (buildingsPanelOpen) {
+            setActiveSidePanel(null);
+            return;
+        }
+        setActiveSidePanel("buildings");
         if (buildingsPanelOpen) {
             void refreshIdleBuildings();
         }
+    });
+}
+
+if (playersToggleBtn) {
+    playersToggleBtn.addEventListener("click", () => {
+        if (activeSelectedChatId == null) {
+            return;
+        }
+        if (playersPanelOpen) {
+            setActiveSidePanel(null);
+            return;
+        }
+        setActiveSidePanel("players");
+        void ensureIdlePlayersLoaded({ withLoader: true });
     });
 }
 

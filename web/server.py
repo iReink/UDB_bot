@@ -572,6 +572,69 @@ def _get_idle_buildings_state(user_id: int, chat_id: int) -> list[dict[str, Any]
     return [item for item in items if item["building_code"] in visible_codes]
 
 
+def _get_idle_chat_players_state(user_id: int, chat_id: int) -> list[dict[str, Any]]:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT
+                    u.user_id AS user_id,
+                    COALESCE(u.name, '') AS name,
+                    COALESCE(u.nick, '') AS nick,
+                    SUM(CASE WHEN pb.current_level > 0 THEN pb.current_level ELSE 0 END) AS total_levels
+                FROM idle_player_buildings pb
+                JOIN users u
+                  ON u.user_id = pb.user_id
+                 AND u.chat_id = pb.chat_id
+                WHERE pb.chat_id = ?
+                  AND pb.current_level > 0
+                  AND u.user_id <> ?
+                GROUP BY u.user_id, u.name, u.nick
+                HAVING total_levels > 0
+                ORDER BY total_levels DESC, name COLLATE NOCASE ASC, u.user_id ASC
+                """,
+                (chat_id, user_id),
+            )
+        except sqlite3.OperationalError:
+            cur.execute(
+                """
+                SELECT
+                    u.user_id AS user_id,
+                    COALESCE(u.name, '') AS name,
+                    '' AS nick,
+                    SUM(CASE WHEN pb.current_level > 0 THEN pb.current_level ELSE 0 END) AS total_levels
+                FROM idle_player_buildings pb
+                JOIN users u
+                  ON u.user_id = pb.user_id
+                 AND u.chat_id = pb.chat_id
+                WHERE pb.chat_id = ?
+                  AND pb.current_level > 0
+                  AND u.user_id <> ?
+                GROUP BY u.user_id, u.name
+                HAVING total_levels > 0
+                ORDER BY total_levels DESC, name COLLATE NOCASE ASC, u.user_id ASC
+                """,
+                (chat_id, user_id),
+            )
+        rows = cur.fetchall()
+
+    players: list[dict[str, Any]] = []
+    for row in rows:
+        nick_raw = str(row["nick"] or "").strip()
+        name_raw = str(row["name"] or "").strip()
+        display_name = name_raw or nick_raw or f"Игрок {int(row['user_id'])}"
+        players.append(
+            {
+                "user_id": int(row["user_id"]),
+                "name": display_name,
+                "nick": nick_raw,
+                "total_levels": int(row["total_levels"] or 0),
+            }
+        )
+    return players
+
+
 def _purchase_idle_building_legacy(user_id: int, chat_id: int, building_code: str) -> dict[str, Any]:
     with _get_connection() as conn:
         cur = conn.cursor()
@@ -1295,6 +1358,26 @@ def get_idle_buildings(request: Request) -> JSONResponse:
             "chat_id": chat_id,
             "user_id": user_id,
             "buildings": buildings,
+        }
+    )
+
+
+@app.get("/api/idle/players")
+def get_idle_players(request: Request) -> JSONResponse:
+    _ensure_idle_catalog_ready()
+    user_id, chat_id = _require_selected_user_chat(request)
+    try:
+        players = _get_idle_chat_players_state(user_id, chat_id)
+    except sqlite3.OperationalError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Idle-таблицы не найдены. Выполните createdb.py на сервере.",
+        ) from exc
+    return JSONResponse(
+        {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "players": players,
         }
     )
 

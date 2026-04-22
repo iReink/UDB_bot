@@ -39,6 +39,18 @@
                 <path d="M4 20V8h7v12H4Zm9 0V4h7v16h-7ZM6 18h3v-8H6v8Zm9 0h3V6h-3v12Z"></path>
             </svg>
         </button>
+        <button
+            id="playersToggleBtn"
+            class="tool-toggle-btn"
+            type="button"
+            aria-label="Список игроков"
+            aria-pressed="false"
+            title="Список игроков"
+        >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M16 11c1.66 0 3-1.57 3-3.5S17.66 4 16 4s-3 1.57-3 3.5 1.34 3.5 3 3.5Zm-8 0c1.66 0 3-1.57 3-3.5S9.66 4 8 4 5 5.57 5 7.5 6.34 11 8 11Zm0 2c-2.33 0-7 1.17-7 3.5V20h14v-3.5C15 14.17 10.33 13 8 13Zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.95 1.97 3.45V20h7v-3.5c0-2.33-4.67-3.5-7-3.5Z"></path>
+            </svg>
+        </button>
     </div>
     <div class="header-controls">
         <label class="chat-switch-label" id="chatBalanceLabel" for="chatSwitch">0 сита</label>
@@ -50,7 +62,30 @@
 <section class="buildings-panel hidden" id="buildingsPanel">
     <div class="buildings-panel-inner">
         <div class="buildings-list" id="buildingsList"></div>
-        <div class="chatmates-list" id="chatmatesList"></div>
+    </div>
+</section>
+
+<section class="players-panel hidden" id="playersPanel">
+    <div class="players-panel-inner">
+        <div class="players-search-wrap">
+            <input
+                id="playersSearchInput"
+                class="players-search-input"
+                type="text"
+                autocomplete="off"
+                placeholder="Поиск по имени"
+                aria-label="Поиск игроков по имени или нику"
+            >
+            <span class="players-search-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                    <path d="M10 2a8 8 0 1 1 5.29 14l5.36 5.35-1.42 1.42-5.35-5.36A8 8 0 0 1 10 2Zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"></path>
+                </svg>
+            </span>
+        </div>
+        <div class="players-list" id="playersList"></div>
+        <div class="players-empty hidden" id="playersEmpty">
+            Игроки не найдены. Попробуйте изменить условия поиска или выберите другой чат
+        </div>
     </div>
 </section>
 
