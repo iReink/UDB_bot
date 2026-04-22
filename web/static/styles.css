@@ -900,7 +900,7 @@ body.is-visit-mode .visit-home-wrap {
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: 32px;
 }
 
 .transfer-modal-close {
