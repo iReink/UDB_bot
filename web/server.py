@@ -534,6 +534,11 @@ def _to_microsits(sits_value: float | int | None) -> int:
     return int(round(value * IDLE_MICROSITS_IN_SIT))
 
 
+def _sits_to_microsits(sits_value: float | int | None) -> int:
+    # Backward-compatible alias for existing call sites.
+    return _to_microsits(sits_value)
+
+
 def _icon_file_name(image_file: str) -> str:
     image_path = Path(image_file)
     if image_path.suffix:
