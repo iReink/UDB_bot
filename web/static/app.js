@@ -2320,25 +2320,33 @@ if (settingsBtn) {
     });
 }
 
-if (hideBaseSwitch) {
-    hideBaseSwitch.addEventListener("click", async (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        await toggleWebSetting("hide_base");
-    });
-}
-
-if (rejectGuestGeyserSwitch) {
-    rejectGuestGeyserSwitch.addEventListener("click", async (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        await toggleWebSetting("reject_geyser_catch_by_guest");
-    });
-}
-
 if (settingsMenu) {
-    settingsMenu.addEventListener("click", (event) => {
+    settingsMenu.addEventListener("click", async (event) => {
         event.stopPropagation();
+        const row = event.target instanceof Element
+            ? event.target.closest(".settings-item[data-setting-key]")
+            : null;
+        if (!row) {
+            return;
+        }
+        const settingKey = row.dataset.settingKey;
+        await toggleWebSetting(settingKey);
+    });
+    settingsMenu.addEventListener("keydown", async (event) => {
+        const isActivateKey = event.key === "Enter" || event.key === " ";
+        if (!isActivateKey) {
+            return;
+        }
+        const row = event.target instanceof Element
+            ? event.target.closest(".settings-item[data-setting-key]")
+            : null;
+        if (!row) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const settingKey = row.dataset.settingKey;
+        await toggleWebSetting(settingKey);
     });
 }
 

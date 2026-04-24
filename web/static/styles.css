@@ -349,6 +349,18 @@ body.is-night .backdrop {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     column-gap: 10px;
+    cursor: pointer;
+    transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.settings-item:hover {
+    border-color: rgba(104, 64, 125, 0.34);
+    background: rgba(255, 255, 255, 0.84);
+}
+
+.settings-item:focus-visible {
+    outline: 2px solid rgba(222, 51, 181, 0.32);
+    outline-offset: 1px;
 }
 
 .settings-item-label {
