@@ -3,6 +3,7 @@ import asyncio
 import io
 import re
 import html
+from pathlib import Path
 from datetime import datetime, time, timedelta, date
 from collections import defaultdict
 from aiogram import Bot, Dispatcher, types
@@ -115,6 +116,7 @@ sticker_manager.bot = bot
 
 
 STATS_FILE = "stats.json"
+THREAD_FILE = Path(__file__).resolve().parent / "thread.txt"
 MAKOVKA_FILE_ID = "CAACAgIAAyEFAASjKavKAAOcaJ95ivqdgkA5gstkAbRt25CCRLAAAkN5AAJTNbFKdWJ4ufamt9I2BA"
 
 # Стикерпаки, за которыми следим
@@ -474,6 +476,23 @@ async def web_info_command(message: types.Message):
         "Для доступа к web-версии бота перейди с десктопа по адресу "
         "http://94.183.184.65:8080/. Для авторизации на сайте напиши мне личку /auth"
     )
+
+
+@dp.message(Command("thread"))
+async def save_thread_command(message: types.Message):
+    thread_id = message.message_thread_id
+    if thread_id is None:
+        await message.answer("Команда /thread работает только в ветке темы.")
+        return
+
+    try:
+        THREAD_FILE.write_text(str(thread_id), encoding="utf-8")
+    except Exception as e:
+        logging.exception(f"Ошибка сохранения thread_id: {e}")
+        await message.answer("Не удалось сохранить thread_id в thread.txt.")
+        return
+
+    await message.answer(f"Сохранил thread_id={thread_id} в thread.txt")
 
 
 @dp.message(Command("weeklytop"))
