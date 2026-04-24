@@ -1,29 +1,34 @@
-# group.py
 import asyncio
+import json
+import logging
 import random
-from datetime import datetime, date
 from contextlib import closing
-from typing import Dict, Set, List
+from datetime import date, datetime
+from typing import Any
 
-from aiogram import types, Bot
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Bot, types
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from sosalsa import get_sits
-from db import add_sits, get_connection, get_user_sex, get_user_display_name as db_get_user_display_name, has_active_subscription
+from db import (
+    add_sits,
+    get_connection,
+    get_user_display_name as db_get_user_display_name,
+    get_user_sex,
+    has_active_subscription,
+)
 from dick import update_dick_length
-
+from group_event_engine import EVENT_COST, GroupEventEngine
+from masturbate_store import MasturbateStore
 from quest import update_quest_progress
 
-# ==========================
-# НАСТРОЙКИ
-# ==========================
-STICKER_FILE_ID = "CAACAgIAAyEFAASjKavKAAIDrGi31TwpfP-R-JI64M0v6eRnTCFxAAJMUAACITxRSq0hIi2dEdhQNgQ"
-EVENT_COST = 1  # Стоимость запуска
-JOIN_COST = 1   # Стоимость присоединения
 
-PREPARE_DELAY_SEC = 10 * 60   # 10 минут ожидания
-JOIN_WINDOW_SEC = 5 * 60      # 5 минут окно присоединения
+logger = logging.getLogger(__name__)
+
+STICKER_FILE_ID = "CAACAgIAAyEFAASjKavKAAIDrGi31TwpfP-R-JI64M0v6eRnTCFxAAJMUAACITxRSq0hIi2dEdhQNgQ"
+
+PREPARE_DELAY_SEC = 10 * 60
+JOIN_WINDOW_SEC = 5 * 60
 
 GROUP_JOIN_MESSAGES = [
     "{name} пристраивается сбоку",
@@ -33,58 +38,33 @@ GROUP_JOIN_MESSAGES = [
     "{name} немного стесняется и активничает из-за угла",
     "Для {name} не нашлось лишнего стула, поэтому пришлось сесть на полу",
     "{name} тихонько подкрадывается и устраивается сзади",
-    "{name} врывается в комнату с криком: «Я опоздал?»",
+    '{name} врывается в комнату с криком: "Я опоздал?"',
     "К всеобщей радости, {name} наконец-то с нами",
-    "{name} аккуратно протискивается между диваном и столом со словами «Можно я тут?»",
+    '{name} аккуратно протискивается между диваном и столом со словами "Можно я тут?"',
     "{name} появляется с тарелкой печенья и моментально становится душой компании",
 ]
 
-# ==========================
-# СОСТОЯНИЕ ИВЕНТА
-# ==========================
-class GroupEventState:
-    __slots__ = (
-        "participants",
-        "joined_order",
-        "names",
-        "join_msg_id",
-        "join_open",
-        "lock",
-        "freebies",
-        "reminders",
-        "thread_id",
-    )
+_store = MasturbateStore()
+_engine = GroupEventEngine(_store)
 
-    def __init__(self) -> None:
-        self.participants: Set[int] = set()       # user_id участников
-        self.joined_order: List[int] = []         # порядок участников
-        self.names: Dict[int, str] = {}           # user_id -> имя
-        self.join_msg_id: int | None = None
-        self.join_open: bool = False
-        self.lock = asyncio.Lock()
-        self.freebies: List[int] = []             # те, кто не смог заплатить
-        self.reminders: Set[int] = set()          # список для напоминания
-        self.thread_id: int | None = None         # тема, в которой запущен ивент
+_runtime_initialized = False
+_outbox_task: asyncio.Task[None] | None = None
+_event_flow_tasks: dict[int, asyncio.Task[None]] = {}
+
+# ensure schema exists even if runtime init is not called yet
+_store.initialize(reset_runtime_state=False)
 
 
-
-# chat_id -> state
-ACTIVE_GROUP_EVENTS: Dict[int, GroupEventState] = {}
-
-# ==========================
-# УТИЛИТЫ
-# ==========================
 def get_user_display_name(user_id: int, chat_id: int) -> str:
     return db_get_user_display_name(user_id, chat_id)
 
 
 def log_masturbation_results(
     chat_id: int,
-    participants: List[int],
+    participants: list[int],
     winner_id: int,
     winner_reward_sits: int,
 ) -> None:
-    """Сохраняет результаты ивента в masturbate_log только по участникам."""
     if not participants:
         return
 
@@ -117,7 +97,6 @@ def _parse_subscription_till(value: str | None) -> date | None:
 
 
 def get_subscription_mentions(chat_id: int, exclude_user_id: int) -> list[str]:
-    """Возвращает @ники пользователей с активной подпиской для пинга при старте ивента."""
     today = date.today()
     try:
         with closing(get_connection()) as conn:
@@ -173,16 +152,78 @@ def get_winner_mention(chat_id: int, user_id: int, fallback_name: str) -> str:
     return nick or fallback_name
 
 
-# ==========================
-# КНОПКИ
-# ==========================
+def _send_kwargs_from_thread_id(thread_id: int | None) -> dict[str, Any]:
+    return {"message_thread_id": thread_id} if thread_id is not None else {}
+
+
+def _enqueue_outbox_text(chat_id: int, text: str, thread_id: int | None = None) -> None:
+    payload = {"text": text, "thread_id": thread_id}
+    _store.enqueue_outbox(chat_id=chat_id, kind="send_text", payload=payload)
+
+
+def _enqueue_outbox_sticker(chat_id: int, sticker: str, thread_id: int | None = None) -> None:
+    payload = {"sticker": sticker, "thread_id": thread_id}
+    _store.enqueue_outbox(chat_id=chat_id, kind="send_sticker", payload=payload)
+
+
+async def _outbox_worker(bot: Bot) -> None:
+    while True:
+        rows = _store.fetch_outbox_batch(limit=30)
+        if not rows:
+            await asyncio.sleep(0.6)
+            continue
+
+        for row in rows:
+            outbox_id = int(row["id"])
+            try:
+                payload = json.loads(row["payload_json"])
+                kind = str(row["kind"])
+                chat_id = int(row["chat_id"])
+                thread_id = payload.get("thread_id")
+                send_kwargs = _send_kwargs_from_thread_id(thread_id)
+
+                if kind == "send_text":
+                    text = str(payload.get("text") or "")
+                    if text:
+                        await bot.send_message(chat_id, text, **send_kwargs)
+                elif kind == "send_sticker":
+                    sticker = str(payload.get("sticker") or "")
+                    if sticker:
+                        await bot.send_sticker(chat_id, sticker, **send_kwargs)
+                elif kind == "edit_reply_markup":
+                    message_id = int(payload["message_id"])
+                    await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+                else:
+                    _store.mark_outbox_failed(outbox_id, f"unsupported outbox kind: {kind}", terminal=True)
+                    continue
+
+                _store.mark_outbox_processed(outbox_id)
+            except Exception as exc:
+                attempts = int(row["attempt_count"] or 0) + 1
+                terminal = attempts >= 10
+                _store.mark_outbox_failed(outbox_id, str(exc), terminal=terminal)
+
+        await asyncio.sleep(0)
+
+
+async def initialize_group_runtime(bot: Bot, reset_state: bool = True) -> None:
+    global _runtime_initialized, _outbox_task
+    if _runtime_initialized:
+        return
+    _store.initialize(reset_runtime_state=reset_state)
+    _outbox_task = asyncio.create_task(_outbox_worker(bot))
+    _runtime_initialized = True
+    logger.info("[group] runtime initialized (reset_state=%s)", reset_state)
+
+
 def join_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(
         InlineKeyboardButton(text="Присоединиться (1 сит)", callback_data="group_join"),
-        InlineKeyboardButton(text="Смотреть (бесплатно)", callback_data="group_watch")
+        InlineKeyboardButton(text="Смотреть (бесплатно)", callback_data="group_watch"),
     )
     return kb.as_markup()
+
 
 def remind_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
@@ -190,135 +231,112 @@ def remind_keyboard() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-
-# ==========================
-# ОБРАБОТЧИКИ
-# ==========================
 def register_group_handlers(dp):
     @dp.callback_query(lambda c: c.data == "group_join")
     async def on_group_join(query: types.CallbackQuery):
         chat_id = query.message.chat.id
         user_id = query.from_user.id
+        fallback_name = query.from_user.full_name or (f"@{query.from_user.username}" if query.from_user.username else str(user_id))
+        display_name = _engine.resolve_display_name(chat_id, user_id, fallback_name)
 
-        state = ACTIVE_GROUP_EVENTS.get(chat_id)
-        if not state or not state.join_open:
-            await query.answer("Окно регистрации закрыто.", show_alert=True)
-            return
-
-        async with state.lock:
-            if user_id in state.participants or user_id in state.freebies:
+        result = _engine.join_as_participant(
+            chat_id=chat_id,
+            user_id=user_id,
+            display_name=display_name,
+            source="tg",
+        )
+        if not result.ok:
+            if result.code == "join_window_closed":
+                await query.answer("Окно регистрации закрыто.", show_alert=True)
+                return
+            if result.code == "already_joined":
                 await query.answer("Ты уже присоединился!", show_alert=True)
                 return
+            await query.answer("Ивент ещё не запущен.", show_alert=True)
+            return
 
-            balance = get_sits(chat_id, user_id)
-            display_name = get_user_display_name(user_id, chat_id)
-            if display_name == str(user_id):
-                display_name = query.from_user.full_name or (
-                    f"@{query.from_user.username}" if query.from_user.username else str(user_id)
-                )
-            state.names[user_id] = display_name
+        if result.code == "joined_as_freebie":
+            await query.answer("У вас недостаточно сита для групповой мастурбации, но мы всё запишем на камеру", show_alert=True)
+            return
 
-            if balance < JOIN_COST:
-                # Недостаточно сита — в список freebies
-                state.freebies.append(user_id)
-                await query.answer("У вас недостаточно сита для групповой мастурбации, но мы всё запишем на cumеру", show_alert=True)
-            else:
-                # Списываем сит и добавляем участника
-                add_sits(chat_id, user_id, -JOIN_COST)
-                state.participants.add(user_id)
-                state.joined_order.append(user_id)
-                await query.answer("Ты в деле!")
-                phrase = random.choice(GROUP_JOIN_MESSAGES).format(name=display_name)
-                await query.message.answer(phrase)
-                from quest import update_quest_progress
-                # обновляем прогресс квеста group_part
-                await update_quest_progress(user_id, chat_id, "group_part", 1, bot=query.bot)
+        await query.answer("Ты в деле!")
+        phrase = random.choice(GROUP_JOIN_MESSAGES).format(name=display_name)
+        _enqueue_outbox_text(chat_id=chat_id, text=phrase, thread_id=result.thread_id)
+        await update_quest_progress(user_id, chat_id, "group_part", 1, bot=query.bot)
 
     @dp.callback_query(lambda c: c.data == "group_watch")
     async def on_group_watch(query: types.CallbackQuery):
         chat_id = query.message.chat.id
         user_id = query.from_user.id
+        fallback_name = query.from_user.full_name or (f"@{query.from_user.username}" if query.from_user.username else str(user_id))
+        display_name = _engine.resolve_display_name(chat_id, user_id, fallback_name)
 
-        state = ACTIVE_GROUP_EVENTS.get(chat_id)
-        if not state or not state.join_open:
-            await query.answer("Окно регистрации закрыто.", show_alert=True)
-            return
-
-        async with state.lock:
-            if user_id in state.participants or user_id in state.freebies:
+        result = _engine.join_as_spectator(
+            chat_id=chat_id,
+            user_id=user_id,
+            display_name=display_name,
+            source="tg",
+        )
+        if not result.ok:
+            if result.code == "join_window_closed":
+                await query.answer("Окно регистрации закрыто.", show_alert=True)
+                return
+            if result.code == "already_joined":
                 await query.answer("Ты уже зарегистрировался!", show_alert=True)
                 return
+            await query.answer("Ивент ещё не запущен.", show_alert=True)
+            return
 
-            # Добавляем как зрителя
-            display_name = get_user_display_name(user_id, chat_id)
-            if display_name == str(user_id):
-                display_name = query.from_user.full_name or (
-                    f"@{query.from_user.username}" if query.from_user.username else str(user_id)
-                )
-            state.names[user_id] = display_name
-            state.freebies.append(user_id)
-
-        await query.message.answer(f"👀 {display_name} просто посмотрит онлайн-трансляцию")
+        _enqueue_outbox_text(
+            chat_id=chat_id,
+            text=f"👀 {display_name} просто посмотрит онлайн-трансляцию",
+            thread_id=result.thread_id,
+        )
         await query.answer("Ты в списке зрителей!")
 
     @dp.callback_query(lambda c: c.data == "group_remind")
     async def on_group_remind(query: types.CallbackQuery):
         chat_id = query.message.chat.id
         user_id = query.from_user.id
+        display_name = query.from_user.full_name or (f"@{query.from_user.username}" if query.from_user.username else str(user_id))
 
-        state = ACTIVE_GROUP_EVENTS.get(chat_id)
-        if not state:
-            await query.answer("Ивент ещё не запущен.", show_alert=True)
+        result = _engine.add_reminder(chat_id=chat_id, user_id=user_id, display_name=display_name)
+        if result.ok:
+            await query.answer("✅ Напомню тебе перед стартом!")
             return
-
-        async with state.lock:
-            if user_id in state.reminders:
-                await query.answer("Ты уже в списке для напоминания!", show_alert=True)
-                return
-            state.reminders.add(user_id)
-
-            display_name = query.from_user.full_name or (
-                f"@{query.from_user.username}" if query.from_user.username else str(user_id)
-            )
-            state.names[user_id] = display_name
-
-        await query.answer("✅ Напомню тебе перед стартом!")
+        if result.code == "reminder_exists":
+            await query.answer("Ты уже в списке для напоминания!", show_alert=True)
+            return
+        await query.answer("Ивент ещё не запущен.", show_alert=True)
 
 
-# ==========================
-# ЗАПУСК ИВЕНТА
-# ==========================
 async def start_group_event(message: types.Message, user_id: int):
     chat_id = message.chat.id
+    fallback_name = message.from_user.full_name or (f"@{message.from_user.username}" if message.from_user.username else str(user_id))
+    display_name = _engine.resolve_display_name(chat_id, user_id, fallback_name)
 
-    # Проверка на баланс организатора
-    balance = get_sits(chat_id, user_id)
-    if balance < EVENT_COST:
-        await message.answer(f"Недостаточно сит для запуска! Нужно {EVENT_COST}, у тебя {balance}")
+    result = _engine.start_event(
+        chat_id=chat_id,
+        user_id=user_id,
+        display_name=display_name,
+        thread_id=message.message_thread_id,
+        source="tg",
+    )
+    if not result.ok:
+        if result.code == "insufficient_sits":
+            from sosalsa import get_sits
+
+            balance = get_sits(chat_id, user_id)
+            await message.answer(f"Недостаточно сит для запуска! Нужно {EVENT_COST}, у тебя {balance}")
+            return
+        if result.code == "event_already_active":
+            await message.answer("Ивент уже идёт, дождись окончания.")
+            return
+        await message.answer("Не удалось запустить ивент. Попробуй ещё раз.")
         return
 
-    # Проверка на активный ивент
-    if chat_id in ACTIVE_GROUP_EVENTS:
-        await message.answer("Ивент уже идёт, дождись окончания.")
-        return
-
-    # Списываем сит за запуск
-    add_sits(chat_id, user_id, -EVENT_COST)
-    state = GroupEventState()
-    state.thread_id = message.message_thread_id
-    ACTIVE_GROUP_EVENTS[chat_id] = state
-
-    # Организатор автоматически участвует
-    state.participants.add(user_id)
-    state.joined_order.append(user_id)
-    name = get_user_display_name(user_id, chat_id)
-    state.names[user_id] = name
-
-    # ✅ Засчитываем участие в квесте group_part
-    from quest import update_quest_progress
     await update_quest_progress(user_id, chat_id, "group_part", 1, bot=message.bot)
 
-    # Отмечаем пользователей с активной Сит-премиум подпиской, но не добавляем их автоматически.
     subscription_ping_text = build_subscription_ping_text(
         chat_id,
         exclude_user_id=user_id,
@@ -327,78 +345,86 @@ async def start_group_event(message: types.Message, user_id: int):
     if subscription_ping_text:
         await message.answer(subscription_ping_text)
 
-    await message.answer_sticker(STICKER_FILE_ID)
-    await message.answer(f"С твоего счёта списано {EVENT_COST} сит за запуск ивента")
-
-    # Сообщение с кнопкой "Напомнить"
-    await message.answer(
-        "Хочешь напоминание о старте? Нажми кнопку!",
-        reply_markup=remind_keyboard()
+    _enqueue_outbox_sticker(chat_id=chat_id, sticker=STICKER_FILE_ID, thread_id=result.thread_id)
+    _enqueue_outbox_text(
+        chat_id=chat_id,
+        text=f"С твоего счёта списано {EVENT_COST} сит за запуск ивента",
+        thread_id=result.thread_id,
     )
 
-    asyncio.create_task(_run_event_flow(message.bot, chat_id))
+    await message.answer(
+        "Хочешь напоминание о старте? Нажми кнопку!",
+        reply_markup=remind_keyboard(),
+    )
 
-# ==========================
-# ЛОГИКА ПРОВЕДЕНИЯ
-# ==========================
-async def _run_event_flow(bot: Bot, chat_id: int):
-    state = ACTIVE_GROUP_EVENTS.get(chat_id)
-    if not state:
+    _schedule_event_flow(message.bot, chat_id)
+
+
+def _schedule_event_flow(bot: Bot, chat_id: int) -> None:
+    existing = _event_flow_tasks.get(chat_id)
+    if existing and not existing.done():
         return
-    send_kwargs = {"message_thread_id": state.thread_id} if state.thread_id is not None else {}
+    task = asyncio.create_task(_run_event_flow(bot, chat_id))
+    _event_flow_tasks[chat_id] = task
+
+
+async def _run_event_flow(bot: Bot, chat_id: int):
+    event = _store.get_event(chat_id)
+    if not event:
+        return
+    thread_id = event["thread_id"]
+    send_kwargs = _send_kwargs_from_thread_id(thread_id)
 
     try:
-        # 10 минут ожидания
-        await asyncio.sleep(PREPARE_DELAY_SEC - 7 * 60)  # Ждём до отметки 7 минут
+        await asyncio.sleep(PREPARE_DELAY_SEC - 7 * 60)
         await bot.send_message(chat_id, "До групповой мастурбации осталось 7 минут!", **send_kwargs)
 
-        await asyncio.sleep(3 * 60)  # Ждём до отметки 4 минут
+        await asyncio.sleep(3 * 60)
         await bot.send_message(chat_id, "До групповой мастурбации осталось 4 минуты!", **send_kwargs)
 
-        await asyncio.sleep(3 * 60)  # Ждём до отметки 1 минуты
+        await asyncio.sleep(3 * 60)
         await bot.send_message(chat_id, "До групповой мастурбации осталась 1 минута!", **send_kwargs)
 
-        await asyncio.sleep(1 * 60)  # Ждём оставшуюся 1 минуту
+        await asyncio.sleep(1 * 60)
 
-        # Напоминание всем за 10 секунд до старта
-        if state.reminders:
-            mentions = []
-            for uid in state.reminders:
-                username = None
-                with closing(get_connection()) as conn:
-                    cur = conn.cursor()
+        reminders = _store.list_reminders(chat_id)
+        if reminders:
+            mentions: list[str] = []
+            with closing(get_connection()) as conn:
+                cur = conn.cursor()
+                for row in reminders:
+                    uid = int(row["user_id"])
                     cur.execute("SELECT nick FROM users WHERE chat_id = ? AND user_id = ?", (chat_id, uid))
-                    row = cur.fetchone()
-                    username = row[0] if row and row[0] else None
-                if username:
-                    mentions.append(username)
-                else:
-                    mentions.append(state.names.get(uid, str(uid)))
-
+                    nick_row = cur.fetchone()
+                    nick = (nick_row["nick"] or "").strip() if nick_row else ""
+                    mentions.append(nick or row["display_name"])
             text = " ".join(mentions) + " — скоро начинаем!!"
             await bot.send_message(chat_id, text, **send_kwargs)
 
-        # Сообщение с кнопкой
         msg = await bot.send_message(
             chat_id,
             "Поехали! Для участия нажми на кнопку",
             reply_markup=join_keyboard(),
             **send_kwargs,
         )
-        state.join_msg_id = msg.message_id
-        state.join_open = True
+        _store.set_join_window(
+            chat_id=chat_id,
+            is_open=True,
+            status="joining",
+            join_message_id=msg.message_id,
+        )
 
+        event = _store.get_event(chat_id)
+        starter_user_id = int(event["started_by_user_id"]) if event else 0
         subscription_ping_text = build_subscription_ping_text(
             chat_id,
-            exclude_user_id=state.joined_order[0] if state.joined_order else 0,
+            exclude_user_id=starter_user_id,
             suffix="Окно участия открыто. Если хочешь в дело, жми кнопку.",
         )
         if subscription_ping_text:
             await bot.send_message(chat_id, subscription_ping_text, **send_kwargs)
 
-        # Активная фаза с напоминаниями
         await asyncio.sleep(JOIN_WINDOW_SEC - 60 - 30 - 10 - 1)
-
         await bot.send_message(chat_id, "⏳ Осталась одна минута! Готовимся!", **send_kwargs)
         await asyncio.sleep(30)
         await bot.send_message(chat_id, "🎯 Целимся!!", **send_kwargs)
@@ -406,64 +432,62 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         await bot.send_message(chat_id, "🔟 10-секундная готовность!", **send_kwargs)
         await asyncio.sleep(9)
         await bot.send_message(chat_id, "💥 ПЛИ!", **send_kwargs)
-
-        await asyncio.sleep(1)  # Дожидаемся финала
-
+        await asyncio.sleep(1)
     finally:
-        if state:
-            state.join_open = False
+        _store.set_join_window(chat_id=chat_id, is_open=False, status="finishing")
 
-    # Убираем кнопку
-    if state and state.join_msg_id:
+    event = _store.get_event(chat_id)
+    join_message_id = int(event["join_message_id"]) if event and event["join_message_id"] else None
+    if join_message_id:
+        _store.enqueue_outbox(
+            chat_id=chat_id,
+            kind="edit_reply_markup",
+            payload={"message_id": join_message_id},
+        )
+
+    participant_rows = _store.list_participants(chat_id=chat_id, role="participant")
+    freebie_rows = _store.list_participants(chat_id=chat_id, is_freebie=True)
+    participants = [int(row["user_id"]) for row in participant_rows]
+    participant_names = {int(row["user_id"]): str(row["display_name"]) for row in participant_rows}
+    freebies = [int(row["user_id"]) for row in freebie_rows]
+    freebie_names = {int(row["user_id"]): str(row["display_name"]) for row in freebie_rows}
+
+    if not participants:
+        await bot.send_message(chat_id, "Групповая мастурбация окончена! Никто не присоединился 😢", **send_kwargs)
+    else:
+        lines = [participant_names.get(uid) or get_user_display_name(uid, chat_id) for uid in participants]
+        text = "Групповая мастурбация окончена! Спасибо всем участникам. Вот они сверху вниз:\n" + "\n".join(lines)
+        await bot.send_message(chat_id, text, **send_kwargs)
+
+        lucky_id = random.choice(participants)
+        lucky_name = participant_names.get(lucky_id) or get_user_display_name(lucky_id, chat_id)
+        lucky_mention = get_winner_mention(chat_id, lucky_id, lucky_name)
+        update_dick_length(lucky_id, chat_id, 1)
+        lucky_sex = get_user_sex(lucky_id, chat_id)
+        verb = "мастурбировал" if lucky_sex != "f" else "мастурбировала"
+        await bot.send_message(
+            chat_id,
+            f"🍆 {lucky_mention} так усердно {verb}, что член подрос на 1 см! Так держать!",
+            **send_kwargs,
+        )
+
+        winner_id = random.choice(participants)
+        winner_name = participant_names.get(winner_id) or get_user_display_name(winner_id, chat_id)
+        winner_mention = get_winner_mention(chat_id, winner_id, winner_name)
+        reward = len(participants) + 1
+        add_sits(chat_id, winner_id, reward)
+        await bot.send_message(chat_id, f"🎉 Победитель: {winner_mention}! Получает {reward} сит!", **send_kwargs)
+        await update_quest_progress(winner_id, chat_id, "group_win", 1, bot=bot)
         try:
-            await bot.edit_message_reply_markup(chat_id, state.join_msg_id, reply_markup=None)
+            log_masturbation_results(chat_id, participants, winner_id, reward)
         except Exception:
-            pass
+            logger.exception("[group] failed to log masturbation results")
 
-    # Финал (как было дальше)
-    if state:
-        participants = state.joined_order
-        freebies = state.freebies
+        if freebies:
+            lucky_freebie = random.choice(freebies)
+            lucky_freebie_name = freebie_names.get(lucky_freebie) or get_user_display_name(lucky_freebie, chat_id)
+            add_sits(chat_id, lucky_freebie, 1)
+            await bot.send_message(chat_id, f"✨ Также немножко капнуло на {lucky_freebie_name} — +1 сит!", **send_kwargs)
 
-        if not participants:
-            await bot.send_message(chat_id, "Групповая мастурбация окончена! Никто не присоединился 😢", **send_kwargs)
-        else:
-            lines = [state.names.get(uid) or get_user_display_name(uid, chat_id) for uid in participants]
-            text = "Групповая мастурбация окончена! Спасибо всем участникам. Вот они сверху вниз:\n" + "\n".join(lines)
-            await bot.send_message(chat_id, text, **send_kwargs)
-
-            lucky_id = random.choice(participants)
-            lucky_name = state.names.get(lucky_id) or get_user_display_name(lucky_id, chat_id)
-            lucky_mention = get_winner_mention(chat_id, lucky_id, lucky_name)
-            update_dick_length(lucky_id, chat_id, 1)
-            lucky_sex = get_user_sex(lucky_id, chat_id)
-            verb = "мастурбировал" if lucky_sex != "f" else "мастурбировала"
-            await bot.send_message(
-                chat_id,
-                f"🍆 {lucky_mention} так усердно {verb}, что член подрос на 1 см! Так держать!",
-                **send_kwargs,
-            )
-
-            # Победитель
-            winner_id = random.choice(participants)
-            winner_name = state.names[winner_id]
-            winner_mention = get_winner_mention(chat_id, winner_id, winner_name)
-            reward = len(participants) + 1
-            add_sits(chat_id, winner_id, reward)
-            await bot.send_message(chat_id, f"🎉 Победитель: {winner_mention}! Получает {reward} сит!", **send_kwargs)
-            # ОТправка уведомления в обработчик квестов
-            await update_quest_progress(winner_id, chat_id, "group_win", 1, bot=bot)
-            try:
-                log_masturbation_results(chat_id, participants, winner_id, reward)
-            except Exception:
-                # Логи не должны ломать основной игровой флоу.
-                pass
-
-            # Бонус для одного из freebies
-            if freebies:
-                lucky = random.choice(freebies)
-                lucky_name = state.names[lucky]
-                add_sits(chat_id, lucky, 1)
-                await bot.send_message(chat_id, f"✨ Также немножко капнуло на {lucky_name} — +1 сит!", **send_kwargs)
-
-        ACTIVE_GROUP_EVENTS.pop(chat_id, None)
+    _store.finish_event(chat_id)
+    _event_flow_tasks.pop(chat_id, None)

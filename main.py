@@ -2033,6 +2033,7 @@ weekly_awards.bot = bot
 weekly_awards.add_sits = add_sits
 
 async def main():
+    await group.initialize_group_runtime(bot, reset_state=True)
     # Запускаем фоновые задачи
     asyncio.create_task(daily_reward_task())  # награждение в 23:55
     asyncio.create_task(weekly_awards.weekly_awards_task())  # еженедельные награды
