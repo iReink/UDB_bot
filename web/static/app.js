@@ -151,6 +151,7 @@ let lastGroupEventPhase = "idle";
 let lastGroupEventToken = null;
 let groupEventKnownReminders = new Set();
 const groupAvatarAnimationTimers = new Map();
+let lastGroupAvatarLayoutKey = "";
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
@@ -1611,6 +1612,19 @@ function formatGroupResultText(result) {
     return lines.join("\n\n");
 }
 
+function buildGroupAvatarLayoutKey(eventState) {
+    const state = eventState && typeof eventState === "object" ? eventState : {};
+    const token = String(state.event_token || "no-token");
+    const participants = Array.isArray(state.participants) ? state.participants : [];
+    const spectators = Array.isArray(state.spectators) ? state.spectators : [];
+    const winnerUserId = state.result && state.result.winner ? Number(state.result.winner.user_id) : 0;
+    const membersSignature = [
+        ...participants.map((member) => `${member.user_id}:p:${member.sex}:${member.is_starter ? 1 : 0}`),
+        ...spectators.map((member) => `${member.user_id}:s:${member.sex}:0`),
+    ].join("|");
+    return `${token}::${winnerUserId}::${membersSignature}`;
+}
+
 function renderGroupModalActions(buttons) {
     if (!groupModalActions) {
         return;
@@ -1699,7 +1713,11 @@ function renderGroupModal() {
             spectators: Array.isArray(state.result.spectators) ? state.result.spectators.map((item) => normalizeGroupMember(item, "spectator")) : [],
         }
         : state;
-    renderGroupModalAvatars(renderState);
+    const nextAvatarLayoutKey = buildGroupAvatarLayoutKey(renderState);
+    if (nextAvatarLayoutKey !== lastGroupAvatarLayoutKey) {
+        renderGroupModalAvatars(renderState);
+        lastGroupAvatarLayoutKey = nextAvatarLayoutKey;
+    }
 
     if (groupModalResult) {
         const hasResult = !state.active && state.result;
@@ -1729,9 +1747,10 @@ function renderGroupModal() {
         });
     } else if (state.active && state.phase === "preparing") {
         if (state.viewer_role === "none") {
+            const reminderAlreadyEnabled = Boolean(state.event_token && groupEventKnownReminders.has(state.event_token));
             buttons.push({
                 text: "Напомнить о начале",
-                disabled: !state.can_remind,
+                disabled: reminderAlreadyEnabled || !state.can_remind,
                 onClick: async () => {
                     try {
                         clearGroupModalMessage();
@@ -1748,6 +1767,10 @@ function renderGroupModal() {
                     }
                 },
             });
+            if (reminderAlreadyEnabled) {
+                const currentButton = buttons[buttons.length - 1];
+                currentButton.text = "Напоминание включено (уведомим в ТГ)";
+            }
         } else {
             buttons.push({
                 text: "Вы уже участвуете в этом сеансе",
@@ -1829,6 +1852,10 @@ function setGroupModalOpen(isOpen) {
     setHidden(groupModal, !groupModalOpen);
     if (!groupModalOpen) {
         clearGroupAvatarAnimations();
+        lastGroupAvatarLayoutKey = "";
+        if (groupModalAvatarLayer) {
+            groupModalAvatarLayer.innerHTML = "";
+        }
         clearGroupModalMessage();
     } else {
         renderGroupModal();

@@ -897,6 +897,7 @@ def _build_group_result_state(chat_id: int) -> dict[str, Any] | None:
                 "name": str(item.get("name") or profile["name"]),
                 "sex": profile["sex"],
                 "role": "participant",
+                "is_starter": bool(item.get("is_starter")),
             }
         )
 

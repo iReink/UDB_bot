@@ -497,7 +497,7 @@ body.is-night .backdrop {
     top: 78px;
     left: 50%;
     transform: translateX(-50%);
-    width: min(680px, calc(100vw - 24px));
+    width: min(620px, calc(100vw - 24px));
     min-height: 60px;
     border-radius: 14px;
     background: var(--accent);
@@ -1309,6 +1309,9 @@ body.is-visit-mode .visit-home-wrap {
     position: absolute;
     transform: translate(-50%, -50%);
     pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 .group-modal-avatar-image {
@@ -1323,7 +1326,7 @@ body.is-visit-mode .visit-home-wrap {
 }
 
 .group-modal-avatar-name {
-    margin-top: 4px;
+    margin-top: 1px;
     display: inline-block;
     padding: 3px 10px;
     border-radius: 999px;

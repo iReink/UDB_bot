@@ -525,6 +525,7 @@ async def _run_event_flow(bot: Bot, chat_id: int):
                 "user_id": int(row["user_id"]),
                 "name": str(row["display_name"]),
                 "role": "participant",
+                "is_starter": bool(int(row["user_id"]) == int(starter_user_id)),
             }
             for row in participant_rows
         ],
