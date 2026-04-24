@@ -2,14 +2,6 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-IDLE_BUILDING_ORDER = {
-    "sitopilka": 1,
-    "kolodec_sita": 2,
-    "sitoferma": 3,
-    "masitskaya": 4,
-    "sitvolny_zavod": 5,
-}
-
 DB_CANDIDATES = (
     "stats.db",
     "udb.sqlite3",
@@ -28,31 +20,41 @@ def _table_exists(cur: sqlite3.Cursor, table_name: str) -> bool:
     return cur.fetchone() is not None
 
 
-def ensure_idle_game_tables(cur: sqlite3.Cursor) -> bool:
-    if not _table_exists(cur, "idle_building_levels"):
-        return False
-
-    cur.execute("PRAGMA table_info(idle_building_levels)")
-    columns = {row[1] for row in cur.fetchall()}
-    if "order" not in columns:
-        cur.execute(
-            'ALTER TABLE idle_building_levels ADD COLUMN "order" INTEGER NOT NULL DEFAULT 0'
-        )
-
-    # Индекс мог быть поврежден: удаляем и создаем заново.
-    cur.execute('DROP INDEX IF EXISTS idx_idle_building_levels_order')
-
-    for building_code, building_order in IDLE_BUILDING_ORDER.items():
-        cur.execute(
-            'UPDATE idle_building_levels SET "order" = ? WHERE building_code = ?',
-            (building_order, building_code),
-        )
-
+def ensure_web_settings_table(cur: sqlite3.Cursor) -> bool:
     cur.execute(
-        'CREATE INDEX IF NOT EXISTS idx_idle_building_levels_order '
-        'ON idle_building_levels("order", level)'
+        """
+        CREATE TABLE IF NOT EXISTS web_settings (
+            user_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            hide_base INTEGER NOT NULL DEFAULT 0 CHECK(hide_base IN (0, 1)),
+            reject_geyser_catch_by_guest INTEGER NOT NULL DEFAULT 0 CHECK(reject_geyser_catch_by_guest IN (0, 1)),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, chat_id)
+        )
+        """
     )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_web_settings_chat_user
+        ON web_settings(chat_id, user_id)
+        """
+    )
+
+    if _table_exists(cur, "users"):
+        cur.execute(
+            """
+            INSERT INTO web_settings (user_id, chat_id, hide_base, reject_geyser_catch_by_guest)
+            SELECT u.user_id, u.chat_id, 0, 0
+            FROM users u
+            ON CONFLICT(user_id, chat_id) DO NOTHING
+            """
+        )
     return True
+
+
+# Keep this name for compatibility with web.server import.
+def ensure_idle_game_tables(cur: sqlite3.Cursor) -> bool:
+    return ensure_web_settings_table(cur)
 
 
 def _existing_db_paths() -> list[Path]:
@@ -74,22 +76,22 @@ def migrate() -> list[Path]:
     for db_path in _existing_db_paths():
         with closing(sqlite3.connect(db_path)) as conn:
             cur = conn.cursor()
-            updated = ensure_idle_game_tables(cur)
-            if updated:
+            changed = ensure_web_settings_table(cur)
+            if changed:
                 conn.commit()
                 updated_paths.append(db_path)
 
     if not updated_paths:
-        checked = ", ".join(str(p) for p in _existing_db_paths()) or "нет подходящих .db/.sqlite3 файлов"
+        checked = ", ".join(str(p) for p in _existing_db_paths()) or "no .db/.sqlite3 files found"
         raise RuntimeError(
-            "Таблица idle_building_levels не найдена ни в одной БД. "
-            f"Проверены: {checked}"
+            "Database files not found for migration. "
+            f"Checked: {checked}"
         )
     return updated_paths
 
 
 if __name__ == "__main__":
     paths = migrate()
-    print("Готово: поле \"order\" обновлено в БД:")
+    print("Done: web_settings migrated in databases:")
     for path in paths:
         print(f" - {path}")

@@ -4,7 +4,12 @@ const codeAuthHint = document.getElementById("codeAuthHint");
 const authCodeInput = document.getElementById("authCodeInput");
 const chatBalanceLabel = document.getElementById("chatBalanceLabel");
 const chatSwitch = document.getElementById("chatSwitch");
-const logoutBtn = document.getElementById("logoutBtn");
+const settingsWrap = document.getElementById("settingsWrap");
+const settingsBtn = document.getElementById("settingsBtn");
+const settingsMenu = document.getElementById("settingsMenu");
+const hideBaseSwitch = document.getElementById("hideBaseSwitch");
+const rejectGuestGeyserSwitch = document.getElementById("rejectGuestGeyserSwitch");
+const settingsLogoutBtn = document.getElementById("settingsLogoutBtn");
 const chatModal = document.getElementById("chatModal");
 const chatList = document.getElementById("chatList");
 const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
@@ -99,6 +104,7 @@ let currentBalanceSits = 0;
 let currentHourlyIncomeMicrosits = 0;
 let currentGeyserCaughtToday = 0;
 let currentGeyserDailyLimit = 10;
+let visitGeyserBlockedByOwner = false;
 let sceneTooltipTimerId = null;
 let sceneTooltipPointerX = 0;
 let sceneTooltipPointerY = 0;
@@ -113,6 +119,12 @@ let transferModalOpen = false;
 let transferSubmitInFlight = false;
 let transferRecipientPlayer = null;
 let transferSenderBalance = 0;
+let settingsMenuOpen = false;
+let settingsUpdateInFlight = false;
+let webSettings = {
+    hide_base: false,
+    reject_geyser_catch_by_guest: false,
+};
 const TRANSFER_NOTE_TEXT = "Хочется сказать, что если вы передали сит по ошибке, то это ваша проблема и решать вам её самостоятельно";
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
@@ -721,7 +733,9 @@ async function refreshGeyserStateSilently() {
         if (activeSelectedChatId == null || Number(payload.chat_id) !== Number(activeSelectedChatId)) {
             return;
         }
-        setGeyserProgress(payload.caught_today, payload.daily_limit);
+        setGeyserProgress(payload.caught_today, payload.daily_limit, {
+            visitBlockedByOwner: Boolean(payload.visit_geyser_blocked),
+        });
     } catch (_error) {
         // no-op
     }
@@ -801,7 +815,9 @@ function spawnCatchableGeyser(spawnConfig) {
             const payload = await catchGeyser();
             if (activeSelectedChatId != null && Number(payload.chat_id) === Number(activeSelectedChatId)) {
                 setHeaderBalance(payload.balance);
-                setGeyserProgress(payload.caught_today, payload.daily_limit);
+                setGeyserProgress(payload.caught_today, payload.daily_limit, {
+                    visitBlockedByOwner: Boolean(payload.visit_geyser_blocked),
+                });
                 showGeyserRewardToast(payload, event.clientX, event.clientY);
             }
         } catch (_error) {
@@ -831,6 +847,7 @@ function startGeyserLoop() {
         if (
             activeSelectedChatId != null
             && currentGeyserCaughtToday < currentGeyserDailyLimit
+            && !visitGeyserBlockedByOwner
             && Math.random() < GEYSER_SPAWN_CHANCE
         ) {
             spawnCatchableGeyser(geyserSpawnConfig);
@@ -1078,6 +1095,11 @@ function renderVisitGeyserLabel() {
         setHidden(visitGeyserLabel, true);
         return;
     }
+    if (visitGeyserBlockedByOwner) {
+        visitGeyserLabel.textContent = "Хозяин базы скрыл гейзеры от гостей";
+        setHidden(visitGeyserLabel, false);
+        return;
+    }
     const targetName = String(visitTargetName || "").trim() || "сочатовца";
     visitGeyserLabel.textContent = `${currentGeyserCaughtToday}/${currentGeyserDailyLimit} гейзеров у ${targetName}`;
     setHidden(visitGeyserLabel, false);
@@ -1094,11 +1116,14 @@ function setHourlyIncomeMicrosits(amount) {
     renderHeaderBalance();
 }
 
-function setGeyserProgress(caughtToday, dailyLimit) {
+function setGeyserProgress(caughtToday, dailyLimit, options = {}) {
     currentGeyserCaughtToday = Math.max(0, Math.trunc(Number(caughtToday) || 0));
     const rawLimit = Math.trunc(Number(dailyLimit));
     const normalizedLimit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 10;
     currentGeyserDailyLimit = normalizedLimit;
+    if (Object.prototype.hasOwnProperty.call(options, "visitBlockedByOwner")) {
+        visitGeyserBlockedByOwner = Boolean(options.visitBlockedByOwner);
+    }
     renderHeaderBalance();
 }
 
@@ -1135,6 +1160,90 @@ function setHidden(element, hidden) {
         element.classList.add("hidden");
     } else {
         element.classList.remove("hidden");
+    }
+}
+
+function normalizeWebSettings(settings) {
+    const source = settings && typeof settings === "object" ? settings : {};
+    return {
+        hide_base: Boolean(source.hide_base),
+        reject_geyser_catch_by_guest: Boolean(source.reject_geyser_catch_by_guest),
+    };
+}
+
+function applySwitchState(button, enabled) {
+    if (!button) {
+        return;
+    }
+    button.classList.toggle("is-on", Boolean(enabled));
+    button.setAttribute("aria-checked", enabled ? "true" : "false");
+}
+
+function setSettingsSwitchesDisabled(disabled) {
+    if (hideBaseSwitch) {
+        hideBaseSwitch.disabled = Boolean(disabled);
+    }
+    if (rejectGuestGeyserSwitch) {
+        rejectGuestGeyserSwitch.disabled = Boolean(disabled);
+    }
+}
+
+function renderSettingsControls() {
+    applySwitchState(hideBaseSwitch, webSettings.hide_base);
+    applySwitchState(rejectGuestGeyserSwitch, webSettings.reject_geyser_catch_by_guest);
+    setSettingsSwitchesDisabled(settingsUpdateInFlight || activeSelectedChatId == null);
+}
+
+function setWebSettings(settings) {
+    webSettings = normalizeWebSettings(settings);
+    renderSettingsControls();
+}
+
+function setSettingsMenuOpen(isOpen) {
+    settingsMenuOpen = Boolean(isOpen);
+    if (settingsBtn) {
+        settingsBtn.classList.toggle("is-active", settingsMenuOpen);
+        settingsBtn.setAttribute("aria-expanded", settingsMenuOpen ? "true" : "false");
+    }
+    setHidden(settingsMenu, !settingsMenuOpen);
+}
+
+async function updateWebSettings(patch) {
+    const response = await fetch("/api/web-settings", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+    });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Ошибка сохранения настроек");
+    }
+    return response.json();
+}
+
+async function toggleWebSetting(settingKey) {
+    if (activeSelectedChatId == null || settingsUpdateInFlight) {
+        return;
+    }
+    if (settingKey !== "hide_base" && settingKey !== "reject_geyser_catch_by_guest") {
+        return;
+    }
+
+    const previous = { ...webSettings };
+    const nextValue = !Boolean(previous[settingKey]);
+    setWebSettings({ ...previous, [settingKey]: nextValue });
+    settingsUpdateInFlight = true;
+    renderSettingsControls();
+    try {
+        const payload = await updateWebSettings({ [settingKey]: nextValue });
+        setWebSettings(payload && payload.web_settings ? payload.web_settings : { ...previous, [settingKey]: nextValue });
+    } catch (error) {
+        setWebSettings(previous);
+        setLoadingMessage(error.message || "Ошибка сохранения настроек");
+    } finally {
+        settingsUpdateInFlight = false;
+        renderSettingsControls();
     }
 }
 
@@ -1183,6 +1292,9 @@ function setVisitMode(active, targetUserId = null, targetName = "") {
     }
     if (visitModeActive && buildingsPanel) {
         setHidden(buildingsPanel, true);
+    }
+    if (visitModeActive) {
+        setSettingsMenuOpen(false);
     }
     renderVisitGeyserLabel();
 }
@@ -1469,6 +1581,9 @@ async function submitTransferSits() {
 }
 
 function setActiveSidePanel(panelName) {
+    if (settingsMenuOpen) {
+        setSettingsMenuOpen(false);
+    }
     let normalized = panelName === "buildings" || panelName === "players" ? panelName : null;
     if (visitModeActive && normalized === "buildings") {
         normalized = null;
@@ -1966,7 +2081,12 @@ function renderState(state) {
         clearBuildingsPanel();
         clearSceneBuildings();
         setHidden(authCard, false);
-        setGeyserProgress(0, 10);
+        setGeyserProgress(0, 10, { visitBlockedByOwner: false });
+        setWebSettings({
+            hide_base: false,
+            reject_geyser_catch_by_guest: false,
+        });
+        setSettingsMenuOpen(false);
         setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         return false;
@@ -1990,7 +2110,12 @@ function renderState(state) {
         clearBuildingsPanel();
         clearSceneBuildings();
         closeChatModal();
-        setGeyserProgress(0, 10);
+        setGeyserProgress(0, 10, { visitBlockedByOwner: false });
+        setWebSettings({
+            hide_base: false,
+            reject_geyser_catch_by_guest: false,
+        });
+        setSettingsMenuOpen(false);
         setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         setLoadingMessage("Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.");
@@ -2008,7 +2133,12 @@ function renderState(state) {
         resetPlayersData();
         clearBuildingsPanel();
         clearSceneBuildings();
-        setGeyserProgress(0, 10);
+        setGeyserProgress(0, 10, { visitBlockedByOwner: false });
+        setWebSettings({
+            hide_base: false,
+            reject_geyser_catch_by_guest: false,
+        });
+        setSettingsMenuOpen(false);
         setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         setLoadingMessage("");
@@ -2032,7 +2162,13 @@ function renderState(state) {
         visitInfo ? Number(visitInfo.user_id) : null,
         visitInfo ? String(visitInfo.name || "") : "",
     );
-    setGeyserProgress(state.geyser_caught_today, state.geyser_daily_limit);
+    setWebSettings(state.web_settings || {
+        hide_base: false,
+        reject_geyser_catch_by_guest: false,
+    });
+    setGeyserProgress(state.geyser_caught_today, state.geyser_daily_limit, {
+        visitBlockedByOwner: Boolean(state.visit_geyser_blocked),
+    });
     setHeaderBalance(state.balance);
     if (!buildingsPanelAutoOpened) {
         if (!visitModeActive) {
@@ -2172,6 +2308,40 @@ authCodeInput.addEventListener("keydown", async (event) => {
     }
 });
 
+if (settingsBtn) {
+    settingsBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (activeSelectedChatId == null) {
+            setSettingsMenuOpen(false);
+            return;
+        }
+        setSettingsMenuOpen(!settingsMenuOpen);
+    });
+}
+
+if (hideBaseSwitch) {
+    hideBaseSwitch.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        await toggleWebSetting("hide_base");
+    });
+}
+
+if (rejectGuestGeyserSwitch) {
+    rejectGuestGeyserSwitch.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        await toggleWebSetting("reject_geyser_catch_by_guest");
+    });
+}
+
+if (settingsMenu) {
+    settingsMenu.addEventListener("click", (event) => {
+        event.stopPropagation();
+    });
+}
+
 chatSwitch.addEventListener("change", async (event) => {
     try {
         await selectChat(Number(event.target.value));
@@ -2245,6 +2415,19 @@ window.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && transferModalOpen) {
         closeTransferModal();
     }
+    if (event.key === "Escape" && settingsMenuOpen) {
+        setSettingsMenuOpen(false);
+    }
+});
+
+document.addEventListener("click", (event) => {
+    if (!settingsMenuOpen || !settingsWrap) {
+        return;
+    }
+    if (settingsWrap.contains(event.target)) {
+        return;
+    }
+    setSettingsMenuOpen(false);
 });
 
 if (buildingsToggleBtn) {
@@ -2290,10 +2473,13 @@ if (visitHomeBtn) {
     });
 }
 
-logoutBtn.addEventListener("click", async () => {
-    await fetch("/api/logout", { method: "POST", credentials: "include" });
-    await refresh();
-});
+if (settingsLogoutBtn) {
+    settingsLogoutBtn.addEventListener("click", async () => {
+        setSettingsMenuOpen(false);
+        await fetch("/api/logout", { method: "POST", credentials: "include" });
+        await refresh();
+    });
+}
 
 window.addEventListener("resize", () => {
     if (!lastIdleBuildings.length) {
@@ -2303,5 +2489,7 @@ window.addEventListener("resize", () => {
 });
 
 closeTransferModal();
+setWebSettings(webSettings);
+setSettingsMenuOpen(false);
 loadScene();
 refresh();

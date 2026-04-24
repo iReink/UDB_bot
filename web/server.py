@@ -90,6 +90,11 @@ class TransferSitsRequest(BaseModel):
     amount: Any = ""
 
 
+class UpdateWebSettingsRequest(BaseModel):
+    hide_base: bool | None = None
+    reject_geyser_catch_by_guest: bool | None = None
+
+
 def _get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -140,6 +145,107 @@ def _ensure_geyser_tables() -> None:
             """
         )
         conn.commit()
+
+
+def _ensure_web_settings_table() -> None:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_settings (
+                user_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                hide_base INTEGER NOT NULL DEFAULT 0 CHECK(hide_base IN (0, 1)),
+                reject_geyser_catch_by_guest INTEGER NOT NULL DEFAULT 0 CHECK(reject_geyser_catch_by_guest IN (0, 1)),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, chat_id)
+            )
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO web_settings (user_id, chat_id, hide_base, reject_geyser_catch_by_guest)
+            SELECT u.user_id, u.chat_id, 0, 0
+            FROM users u
+            ON CONFLICT(user_id, chat_id) DO NOTHING
+            """
+        )
+        conn.commit()
+
+
+def _get_web_settings(user_id: int, chat_id: int) -> dict[str, bool]:
+    _ensure_web_settings_table()
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                COALESCE(hide_base, 0) AS hide_base,
+                COALESCE(reject_geyser_catch_by_guest, 0) AS reject_geyser_catch_by_guest
+            FROM web_settings
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        row = cur.fetchone()
+    if not row:
+        return {
+            "hide_base": False,
+            "reject_geyser_catch_by_guest": False,
+        }
+    return {
+        "hide_base": bool(int(row["hide_base"] or 0)),
+        "reject_geyser_catch_by_guest": bool(int(row["reject_geyser_catch_by_guest"] or 0)),
+    }
+
+
+def _update_web_settings(
+    user_id: int,
+    chat_id: int,
+    hide_base: bool | None = None,
+    reject_geyser_catch_by_guest: bool | None = None,
+) -> dict[str, bool]:
+    _ensure_web_settings_table()
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            SELECT
+                COALESCE(hide_base, 0) AS hide_base,
+                COALESCE(reject_geyser_catch_by_guest, 0) AS reject_geyser_catch_by_guest
+            FROM web_settings
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        row = cur.fetchone()
+        current_hide = bool(int(row["hide_base"] or 0)) if row else False
+        current_reject = bool(int(row["reject_geyser_catch_by_guest"] or 0)) if row else False
+        next_hide = current_hide if hide_base is None else bool(hide_base)
+        next_reject = current_reject if reject_geyser_catch_by_guest is None else bool(reject_geyser_catch_by_guest)
+        cur.execute(
+            """
+            INSERT INTO web_settings (
+                user_id,
+                chat_id,
+                hide_base,
+                reject_geyser_catch_by_guest,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, chat_id) DO UPDATE SET
+                hide_base = excluded.hide_base,
+                reject_geyser_catch_by_guest = excluded.reject_geyser_catch_by_guest,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, chat_id, int(next_hide), int(next_reject)),
+        )
+        conn.commit()
+    return {
+        "hide_base": next_hide,
+        "reject_geyser_catch_by_guest": next_reject,
+    }
 
 
 def _today_date_key() -> str:
@@ -918,6 +1024,7 @@ def _get_idle_buildings_state(user_id: int, chat_id: int) -> list[dict[str, Any]
 
 
 def _get_idle_chat_players_state(user_id: int, chat_id: int) -> list[dict[str, Any]]:
+    _ensure_web_settings_table()
     with _get_connection() as conn:
         cur = conn.cursor()
         try:
@@ -932,9 +1039,13 @@ def _get_idle_chat_players_state(user_id: int, chat_id: int) -> list[dict[str, A
                 JOIN users u
                   ON u.user_id = pb.user_id
                  AND u.chat_id = pb.chat_id
+                LEFT JOIN web_settings ws
+                  ON ws.user_id = u.user_id
+                 AND ws.chat_id = u.chat_id
                 WHERE pb.chat_id = ?
                   AND pb.current_level > 0
                   AND u.user_id <> ?
+                  AND COALESCE(ws.hide_base, 0) = 0
                 GROUP BY u.user_id, u.name, u.nick
                 HAVING total_levels > 0
                 ORDER BY total_levels DESC, name COLLATE NOCASE ASC, u.user_id ASC
@@ -953,9 +1064,13 @@ def _get_idle_chat_players_state(user_id: int, chat_id: int) -> list[dict[str, A
                 JOIN users u
                   ON u.user_id = pb.user_id
                  AND u.chat_id = pb.chat_id
+                LEFT JOIN web_settings ws
+                  ON ws.user_id = u.user_id
+                 AND ws.chat_id = u.chat_id
                 WHERE pb.chat_id = ?
                   AND pb.current_level > 0
                   AND u.user_id <> ?
+                  AND COALESCE(ws.hide_base, 0) = 0
                 GROUP BY u.user_id, u.name
                 HAVING total_levels > 0
                 ORDER BY total_levels DESC, name COLLATE NOCASE ASC, u.user_id ASC
@@ -1532,11 +1647,22 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
             visit_user_id_raw=payload.get("visit_user_id"),
             require_buildings=True,
         )
+    default_settings = {
+        "hide_base": False,
+        "reject_geyser_catch_by_guest": False,
+    }
+    selected_settings = default_settings
+    visit_geyser_blocked = False
     geyser_caught_today = 0
     geyser_owner_user_id = user_id
     if selected:
+        selected_chat = int(selected["chat_id"])
+        selected_settings = _get_web_settings(user_id, selected_chat)
         geyser_owner_user_id = int(visit_target["user_id"]) if visit_target else user_id
-        geyser_caught_today = _get_geyser_catches_for_today(geyser_owner_user_id, int(selected["chat_id"]))
+        if visit_target:
+            visit_settings = _get_web_settings(geyser_owner_user_id, selected_chat)
+            visit_geyser_blocked = bool(visit_settings["reject_geyser_catch_by_guest"])
+        geyser_caught_today = _get_geyser_catches_for_today(geyser_owner_user_id, selected_chat)
 
     state = {
         "authorized": True,
@@ -1556,6 +1682,8 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
         "geyser_daily_limit": GEYSER_DAILY_LIMIT,
         "geyser_owner_user_id": geyser_owner_user_id if selected else None,
         "geyser_owner_name": str(visit_target["name"]) if visit_target else None,
+        "visit_geyser_blocked": visit_geyser_blocked if selected else False,
+        "web_settings": selected_settings if selected else default_settings,
         "view_mode": "visit" if visit_target else "self",
         "visit": {
             "active": bool(visit_target),
@@ -1713,6 +1841,7 @@ async def startup_idle_income_worker() -> None:
     _ensure_idle_catalog_ready(force=True)
     _ensure_idle_service_tables()
     _ensure_geyser_tables()
+    _ensure_web_settings_table()
     try:
         _catch_up_idle_income()
     except Exception:
@@ -1807,6 +1936,25 @@ def get_idle_sits_balance(request: Request) -> JSONResponse:
     )
 
 
+@app.post("/api/web-settings")
+def update_web_settings(request: Request, data: UpdateWebSettingsRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    settings = _update_web_settings(
+        user_id=user_id,
+        chat_id=chat_id,
+        hide_base=data.hide_base,
+        reject_geyser_catch_by_guest=data.reject_geyser_catch_by_guest,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "web_settings": settings,
+        }
+    )
+
+
 @app.post("/api/idle/sits/transfer")
 def transfer_idle_sits(request: Request, data: TransferSitsRequest) -> JSONResponse:
     user_id, chat_id = _require_selected_user_chat(request)
@@ -1877,6 +2025,9 @@ def geyser_state(request: Request) -> JSONResponse:
         require_buildings=True,
     )
     geyser_owner_user_id = int(visit_target["user_id"]) if visit_target else user_id
+    visit_geyser_blocked = False
+    if visit_target:
+        visit_geyser_blocked = bool(_get_web_settings(geyser_owner_user_id, chat_id)["reject_geyser_catch_by_guest"])
     caught_today = _get_geyser_catches_for_today(geyser_owner_user_id, chat_id)
     return JSONResponse(
         {
@@ -1886,6 +2037,7 @@ def geyser_state(request: Request) -> JSONResponse:
             "daily_limit": GEYSER_DAILY_LIMIT,
             "geyser_owner_user_id": geyser_owner_user_id,
             "geyser_owner_name": str(visit_target["name"]) if visit_target else None,
+            "visit_geyser_blocked": visit_geyser_blocked,
             "view_mode": "visit" if visit_target else "self",
             "visit": {
                 "active": bool(visit_target),
@@ -1906,6 +2058,13 @@ def geyser_catch(request: Request) -> JSONResponse:
         visit_user_id_raw=payload.get("visit_user_id"),
         require_buildings=True,
     )
+    visit_geyser_blocked = False
+    if visit_target:
+        visit_geyser_blocked = bool(
+            _get_web_settings(int(visit_target["user_id"]), chat_id)["reject_geyser_catch_by_guest"]
+        )
+        if visit_geyser_blocked:
+            raise HTTPException(status_code=403, detail="Хозяин базы скрыл гейзеры от гостей")
     beneficiary_user_id = int(visit_target["user_id"]) if visit_target else None
     result = _catch_geyser_for_today(
         user_id=user_id,
@@ -1923,6 +2082,7 @@ def geyser_catch(request: Request) -> JSONResponse:
                 "user_id": int(visit_target["user_id"]) if visit_target else None,
                 "name": str(visit_target["name"]) if visit_target else None,
             },
+            "visit_geyser_blocked": visit_geyser_blocked,
             **result,
         }
     )

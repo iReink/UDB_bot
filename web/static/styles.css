@@ -313,6 +313,104 @@ body.is-night .backdrop {
     display: flex;
     align-items: center;
     gap: 10px;
+    margin-left: auto;
+}
+
+.header-controls #logoutBtn {
+    display: none;
+}
+
+.settings-wrap {
+    position: relative;
+    z-index: 32;
+}
+
+.settings-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(360px, calc(100vw - 24px));
+    border-radius: 8px;
+    border: 1px solid rgba(88, 59, 106, 0.18);
+    background: var(--panel-shell);
+    box-shadow: 0 16px 36px rgba(10, 8, 20, 0.24);
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+}
+
+.settings-item {
+    min-height: 50px;
+    border-radius: 8px;
+    border: 1px solid rgba(104, 64, 125, 0.18);
+    background: rgba(255, 255, 255, 0.72);
+    padding: 8px 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 10px;
+}
+
+.settings-item-label {
+    font-size: 14px;
+    line-height: 1.2;
+    font-weight: 400;
+    color: #1b1a22;
+}
+
+.settings-switch {
+    width: 44px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid rgba(104, 64, 125, 0.28);
+    background: rgba(213, 213, 218, 0.9);
+    padding: 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.settings-switch-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+    transition: transform 0.15s ease;
+}
+
+.settings-switch.is-on {
+    background: var(--accent);
+    border-color: var(--accent-strong);
+}
+
+.settings-switch.is-on .settings-switch-thumb {
+    transform: translateX(20px);
+}
+
+.settings-switch:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.settings-logout-btn {
+    height: 36px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.settings-logout-btn:hover {
+    border-color: var(--accent-strong);
+    color: var(--accent-strong);
 }
 
 .visit-geyser-label {
@@ -371,6 +469,10 @@ body.is-visit-mode #buildingsToggleBtn {
 }
 
 body.is-visit-mode .header-controls {
+    display: none;
+}
+
+body.is-visit-mode .settings-wrap {
     display: none;
 }
 
@@ -1154,6 +1256,10 @@ body.is-visit-mode .visit-home-wrap {
     .header-controls {
         width: 100%;
         flex-wrap: wrap;
+    }
+
+    .settings-wrap {
+        align-self: flex-end;
     }
 
     .visit-geyser-label {
