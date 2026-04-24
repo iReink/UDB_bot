@@ -193,6 +193,8 @@ async def _outbox_worker(bot: Bot) -> None:
                 elif kind == "edit_reply_markup":
                     message_id = int(payload["message_id"])
                     await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+                elif kind == "start_event_flow":
+                    _schedule_event_flow(bot, chat_id)
                 else:
                     _store.mark_outbox_failed(outbox_id, f"unsupported outbox kind: {kind}", terminal=True)
                     continue
@@ -212,6 +214,9 @@ async def initialize_group_runtime(bot: Bot, reset_state: bool = True) -> None:
         return
     _store.initialize(reset_runtime_state=reset_state)
     _outbox_task = asyncio.create_task(_outbox_worker(bot))
+    if not reset_state:
+        for event_row in _store.list_active_events():
+            _schedule_event_flow(bot, int(event_row["chat_id"]))
     _runtime_initialized = True
     logger.info("[group] runtime initialized (reset_state=%s)", reset_state)
 
@@ -373,6 +378,7 @@ async def _run_event_flow(bot: Bot, chat_id: int):
     if not event:
         return
     thread_id = event["thread_id"]
+    event_token = f"{chat_id}:{int(event['created_at'] or int(datetime.now().timestamp()))}"
     send_kwargs = _send_kwargs_from_thread_id(thread_id)
 
     try:
@@ -446,11 +452,21 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         )
 
     participant_rows = _store.list_participants(chat_id=chat_id, role="participant")
+    spectator_rows = _store.list_participants(chat_id=chat_id, role="spectator")
     freebie_rows = _store.list_participants(chat_id=chat_id, is_freebie=True)
     participants = [int(row["user_id"]) for row in participant_rows]
     participant_names = {int(row["user_id"]): str(row["display_name"]) for row in participant_rows}
+    spectators = [int(row["user_id"]) for row in spectator_rows]
+    spectator_names = {int(row["user_id"]): str(row["display_name"]) for row in spectator_rows}
     freebies = [int(row["user_id"]) for row in freebie_rows]
     freebie_names = {int(row["user_id"]): str(row["display_name"]) for row in freebie_rows}
+    lucky_dick_user_id: int | None = None
+    lucky_dick_name: str | None = None
+    winner_id: int | None = None
+    winner_name: str | None = None
+    winner_reward_sits = 0.0
+    lucky_freebie_user_id: int | None = None
+    lucky_freebie_name: str | None = None
 
     if not participants:
         await bot.send_message(chat_id, "Групповая мастурбация окончена! Никто не присоединился 😢", **send_kwargs)
@@ -462,6 +478,8 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         lucky_id = random.choice(participants)
         lucky_name = participant_names.get(lucky_id) or get_user_display_name(lucky_id, chat_id)
         lucky_mention = get_winner_mention(chat_id, lucky_id, lucky_name)
+        lucky_dick_user_id = lucky_id
+        lucky_dick_name = lucky_name
         update_dick_length(lucky_id, chat_id, 1)
         lucky_sex = get_user_sex(lucky_id, chat_id)
         verb = "мастурбировал" if lucky_sex != "f" else "мастурбировала"
@@ -475,6 +493,7 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         winner_name = participant_names.get(winner_id) or get_user_display_name(winner_id, chat_id)
         winner_mention = get_winner_mention(chat_id, winner_id, winner_name)
         reward = len(participants) + 1
+        winner_reward_sits = float(reward)
         add_sits(chat_id, winner_id, reward)
         await bot.send_message(chat_id, f"🎉 Победитель: {winner_mention}! Получает {reward} сит!", **send_kwargs)
         await update_quest_progress(winner_id, chat_id, "group_win", 1, bot=bot)
@@ -486,8 +505,38 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         if freebies:
             lucky_freebie = random.choice(freebies)
             lucky_freebie_name = freebie_names.get(lucky_freebie) or get_user_display_name(lucky_freebie, chat_id)
+            lucky_freebie_user_id = lucky_freebie
+            lucky_freebie_name = lucky_freebie_name
             add_sits(chat_id, lucky_freebie, 1)
             await bot.send_message(chat_id, f"✨ Также немножко капнуло на {lucky_freebie_name} — +1 сит!", **send_kwargs)
+
+    _store.save_event_result(
+        chat_id=chat_id,
+        event_token=event_token,
+        winner_user_id=winner_id,
+        winner_name=winner_name,
+        winner_reward_sits=winner_reward_sits,
+        lucky_user_id=lucky_freebie_user_id,
+        lucky_name=lucky_freebie_name,
+        lucky_dick_user_id=lucky_dick_user_id,
+        lucky_dick_name=lucky_dick_name,
+        participants=[
+            {
+                "user_id": int(row["user_id"]),
+                "name": str(row["display_name"]),
+                "role": "participant",
+            }
+            for row in participant_rows
+        ],
+        spectators=[
+            {
+                "user_id": int(row["user_id"]),
+                "name": str(spectator_names.get(int(row["user_id"])) or row["display_name"]),
+                "role": "spectator",
+            }
+            for row in spectator_rows
+        ],
+    )
 
     _store.finish_event(chat_id)
     _event_flow_tasks.pop(chat_id, None)

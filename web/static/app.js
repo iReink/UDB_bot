@@ -9,6 +9,7 @@ const settingsBtn = document.getElementById("settingsBtn");
 const settingsMenu = document.getElementById("settingsMenu");
 const hideBaseSwitch = document.getElementById("hideBaseSwitch");
 const rejectGuestGeyserSwitch = document.getElementById("rejectGuestGeyserSwitch");
+const notifyGroupSwitch = document.getElementById("notifyGroupSwitch");
 const settingsLogoutBtn = document.getElementById("settingsLogoutBtn");
 const chatModal = document.getElementById("chatModal");
 const chatList = document.getElementById("chatList");
@@ -37,6 +38,20 @@ const transferModalTitle = document.getElementById("transferModalTitle");
 const transferAmountInput = document.getElementById("transferAmountInput");
 const transferSubmitBtn = document.getElementById("transferSubmitBtn");
 const transferMessage = document.getElementById("transferMessage");
+const groupEventBanner = document.getElementById("groupEventBanner");
+const groupEventBannerClose = document.getElementById("groupEventBannerClose");
+const groupModal = document.getElementById("groupModal");
+const groupModalScrim = document.getElementById("groupModalScrim");
+const groupModalCloseBtn = document.getElementById("groupModalCloseBtn");
+const groupModalTitle = document.getElementById("groupModalTitle");
+const groupModalHallImage = document.getElementById("groupModalHallImage");
+const groupModalAvatarLayer = document.getElementById("groupModalAvatarLayer");
+const groupModalCountdownCard = document.getElementById("groupModalCountdownCard");
+const groupModalCountdownTitle = document.getElementById("groupModalCountdownTitle");
+const groupModalCountdownValue = document.getElementById("groupModalCountdownValue");
+const groupModalResult = document.getElementById("groupModalResult");
+const groupModalActions = document.getElementById("groupModalActions");
+const groupModalMessage = document.getElementById("groupModalMessage");
 
 const sceneLayerNodes = Array.from(document.querySelectorAll("[data-scene-layer]")).reduce((acc, node) => {
     const layerName = node.dataset.sceneLayer;
@@ -56,6 +71,7 @@ const BUILDING_SCENE_POINTS = {
     masitskaya: { x: 452, y: 340 },
     sitvolny_zavod: { x: 900, y: 397 },
 };
+const MASTUR_HALL_SCENE_POINT = { x: 1226, y: 692 };
 
 const SCENE_ITEM_STYLE_KEYS = [
     "left",
@@ -124,12 +140,53 @@ let settingsUpdateInFlight = false;
 let webSettings = {
     hide_base: false,
     reject_geyser_catch_by_guest: false,
+    notify_group_masturbation: true,
 };
 const TRANSFER_NOTE_TEXT = "Хочется сказать, что если вы передали сит по ошибке, то это ваша проблема и решать вам её самостоятельно";
+let groupEventState = null;
+let groupEventPollTimeoutId = null;
+let groupModalOpen = false;
+let dismissedGroupEventToken = null;
+let lastGroupEventPhase = "idle";
+let lastGroupEventToken = null;
+let groupEventKnownReminders = new Set();
+const groupAvatarAnimationTimers = new Map();
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
 const GEYSER_REWARD_TOAST_FADE_MS = 2000;
+const GROUP_EVENT_POLL_MS = 2500;
+const GROUP_HALL_ASSET = "/static/assets/masturbate/modals/sit_hall.png";
+const GROUP_HALL_RESULT_ASSET = "/static/assets/masturbate/modals/sit_hall_sit.png";
+const GROUP_BUILDING_ASSET = "/static/assets/masturbate/buildings/masturhall.png";
+const GROUP_BUILDING_GLOW_ASSET = "/static/assets/masturbate/buildings/masturhall_glow.png";
+const GROUP_AVATARS_BASE = "/static/assets/masturbate/avatars/participants";
+const GROUP_SCENE_COORD_BASE = { width: 704, height: 512 };
+const GROUP_SLOT_STARTER = [{ x: 351, y: 99 }];
+const GROUP_SLOT_PARTICIPANTS = [
+    { x: 284, y: 167 },
+    { x: 268, y: 231 },
+    { x: 268, y: 395 },
+    { x: 384, y: 359 },
+    { x: 419, y: 167 },
+    { x: 435, y: 231 },
+    { x: 443, y: 295 },
+    { x: 419, y: 359 },
+];
+const GROUP_SLOT_SPECTATORS = [
+    { x: 156, y: 99 },
+    { x: 156, y: 183 },
+    { x: 140, y: 277 },
+    { x: 132, y: 371 },
+    { x: 547, y: 99 },
+    { x: 547, y: 183 },
+    { x: 563, y: 277 },
+    { x: 571, y: 371 },
+];
+const GROUP_AVATAR_ANIM_CLASSES = ["is-animated", "is-animated-shake", "is-animated-spin"];
+const GROUP_AVATAR_ANIM_MIN_MS = 30000;
+const GROUP_AVATAR_ANIM_MAX_MS = 60000;
+const GROUP_AVATAR_ANIM_DURATION_MS = 5000;
 const NIGHT_WINDOW_START_HOUR = 20;
 const NIGHT_WINDOW_END_HOUR = 8;
 const NIGHT_FILTER_EDGE_OPACITY = 0.34;
@@ -543,6 +600,52 @@ function resolveSceneBuildingSpriteFile(baseFileName, levelValue) {
     return `${stem}_${tier}${ext}`;
 }
 
+function renderMasturHallBuilding(layerNode, scale) {
+    if (!layerNode || activeSelectedChatId == null) {
+        return;
+    }
+    const mappedPoint = mapScenePointToViewport(MASTUR_HALL_SCENE_POINT);
+    if (!mappedPoint) {
+        return;
+    }
+    const node = document.createElement("div");
+    node.className = "scene-building is-masturhall";
+    node.style.left = `${mappedPoint.x}px`;
+    node.style.top = `${mappedPoint.y}px`;
+    node.style.transform = `scale(${scale})`;
+    node.dataset.buildingCode = "masturhall";
+
+    const glow = document.createElement("img");
+    glow.className = "scene-building-glow";
+    glow.src = GROUP_BUILDING_GLOW_ASSET;
+    glow.alt = "";
+    glow.decoding = "async";
+    glow.loading = "lazy";
+    glow.setAttribute("aria-hidden", "true");
+
+    const image = document.createElement("img");
+    image.className = "scene-building-image";
+    image.src = GROUP_BUILDING_ASSET;
+    image.alt = "Мастурбашня";
+    image.decoding = "async";
+    image.loading = "lazy";
+
+    node.addEventListener("mouseenter", () => {
+        node.classList.add("is-hovered");
+    });
+    node.addEventListener("mouseleave", () => {
+        node.classList.remove("is-hovered");
+    });
+    node.addEventListener("click", () => {
+        void openGroupModal();
+    });
+
+    node.appendChild(glow);
+    node.appendChild(image);
+    layerNode.appendChild(node);
+    sceneBuildingNodes.push(node);
+}
+
 function renderSceneBuildings(buildings) {
     clearSceneBuildings();
     const layerNode = sceneLayerNodes.foreground;
@@ -622,6 +725,8 @@ function renderSceneBuildings(buildings) {
         layerNode.appendChild(node);
         sceneBuildingNodes.push(node);
     });
+
+    renderMasturHallBuilding(layerNode, scale);
 }
 
 function pickRandomScenePoint(points) {
@@ -1168,6 +1273,7 @@ function normalizeWebSettings(settings) {
     return {
         hide_base: Boolean(source.hide_base),
         reject_geyser_catch_by_guest: Boolean(source.reject_geyser_catch_by_guest),
+        notify_group_masturbation: source.notify_group_masturbation !== false,
     };
 }
 
@@ -1186,17 +1292,661 @@ function setSettingsSwitchesDisabled(disabled) {
     if (rejectGuestGeyserSwitch) {
         rejectGuestGeyserSwitch.disabled = Boolean(disabled);
     }
+    if (notifyGroupSwitch) {
+        notifyGroupSwitch.disabled = Boolean(disabled);
+    }
+}
+
+function createDefaultGroupEventState() {
+    return {
+        active: false,
+        phase: "idle",
+        event_token: null,
+        prepare_seconds_left: 0,
+        join_seconds_left: 0,
+        viewer_role: "none",
+        viewer_is_starter: false,
+        can_start: false,
+        can_remind: false,
+        can_join_participant: false,
+        can_join_spectator: false,
+        start_cost_millisits: 1000,
+        join_cost_millisits: 1000,
+        participants: [],
+        spectators: [],
+        result: null,
+    };
+}
+
+function normalizeGroupMember(member, fallbackRole = "participant") {
+    const source = member && typeof member === "object" ? member : {};
+    return {
+        user_id: Number(source.user_id) || 0,
+        name: String(source.name || "Игрок"),
+        sex: String(source.sex || "").toLowerCase(),
+        role: String(source.role || fallbackRole),
+        is_starter: Boolean(source.is_starter),
+    };
+}
+
+function normalizeGroupEventState(raw) {
+    const base = createDefaultGroupEventState();
+    const source = raw && typeof raw === "object" ? raw : {};
+    return {
+        ...base,
+        active: Boolean(source.active),
+        phase: String(source.phase || "idle"),
+        event_token: source.event_token ? String(source.event_token) : null,
+        prepare_seconds_left: Math.max(0, Math.trunc(Number(source.prepare_seconds_left) || 0)),
+        join_seconds_left: Math.max(0, Math.trunc(Number(source.join_seconds_left) || 0)),
+        viewer_role: String(source.viewer_role || "none"),
+        viewer_is_starter: Boolean(source.viewer_is_starter),
+        can_start: Boolean(source.can_start),
+        can_remind: Boolean(source.can_remind),
+        can_join_participant: Boolean(source.can_join_participant),
+        can_join_spectator: Boolean(source.can_join_spectator),
+        start_cost_millisits: Math.max(0, Math.trunc(Number(source.start_cost_millisits) || 1000)),
+        join_cost_millisits: Math.max(0, Math.trunc(Number(source.join_cost_millisits) || 1000)),
+        participants: Array.isArray(source.participants) ? source.participants.map((item) => normalizeGroupMember(item, "participant")) : [],
+        spectators: Array.isArray(source.spectators) ? source.spectators.map((item) => normalizeGroupMember(item, "spectator")) : [],
+        result: source.result && typeof source.result === "object" ? source.result : null,
+    };
+}
+
+function formatCountdownSeconds(totalSeconds) {
+    const value = Math.max(0, Math.trunc(Number(totalSeconds) || 0));
+    const minutes = Math.floor(value / 60);
+    const seconds = value % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function hashText(value) {
+    const str = String(value || "");
+    let hash = 0;
+    for (let index = 0; index < str.length; index += 1) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(index);
+        hash |= 0;
+    }
+    return Math.abs(hash);
+}
+
+function resolveAvatarPrefix(sexValue) {
+    const sex = String(sexValue || "").toLowerCase();
+    if (sex.startsWith("f") || sex.startsWith("w") || sex.startsWith("ж")) {
+        return "woman";
+    }
+    return "man";
+}
+
+function buildAvatarFileCandidates(member, eventToken, winnerUserId = null) {
+    const prefix = resolveAvatarPrefix(member.sex);
+    const seed = hashText(`${eventToken}:${member.user_id}:${member.role}`);
+    const index = (seed % 5) + 1;
+    const suffix = String(index).padStart(2, "0");
+    const isWinner = winnerUserId != null && Number(winnerUserId) === Number(member.user_id);
+    const baseName = `${prefix}_${suffix}`;
+    if (isWinner) {
+        return [
+            `${GROUP_AVATARS_BASE}/${baseName}_sit.png`,
+            `${GROUP_AVATARS_BASE}/${baseName}.png`,
+            `${GROUP_AVATARS_BASE}/${baseName.replace("woman", "wonam")}_sit.png`,
+            `${GROUP_AVATARS_BASE}/${baseName.replace("woman", "wonam")}.png`,
+        ];
+    }
+    return [
+        `${GROUP_AVATARS_BASE}/${baseName}.png`,
+        `${GROUP_AVATARS_BASE}/${baseName.replace("woman", "wonam")}.png`,
+    ];
+}
+
+function pickSlotByKey(slotList, usedIndices, keySeed) {
+    if (!slotList.length) {
+        return null;
+    }
+    const baseIndex = hashText(keySeed) % slotList.length;
+    for (let offset = 0; offset < slotList.length; offset += 1) {
+        const index = (baseIndex + offset) % slotList.length;
+        if (!usedIndices.has(index)) {
+            usedIndices.add(index);
+            return slotList[index];
+        }
+    }
+    return null;
+}
+
+function randomOverflowSlot(keySeed) {
+    const hash = hashText(keySeed);
+    const x = 90 + (hash % 520);
+    const y = 110 + (Math.floor(hash / 37) % 320);
+    return { x, y };
+}
+
+function clearGroupAvatarAnimations() {
+    groupAvatarAnimationTimers.forEach((timerIds) => {
+        if (!timerIds) {
+            return;
+        }
+        if (timerIds.nextTimeout != null) {
+            clearTimeout(timerIds.nextTimeout);
+        }
+        if (timerIds.stopTimeout != null) {
+            clearTimeout(timerIds.stopTimeout);
+        }
+    });
+    groupAvatarAnimationTimers.clear();
+}
+
+function scheduleGroupAvatarAnimation(avatarNode, avatarKey) {
+    const runLater = () => {
+        const animClass = GROUP_AVATAR_ANIM_CLASSES[hashText(`${avatarKey}:${Date.now()}`) % GROUP_AVATAR_ANIM_CLASSES.length];
+        avatarNode.classList.add(animClass);
+        const stopTimeout = window.setTimeout(() => {
+            avatarNode.classList.remove(animClass);
+        }, GROUP_AVATAR_ANIM_DURATION_MS);
+
+        const nextDelay = GROUP_AVATAR_ANIM_MIN_MS
+            + Math.floor(Math.random() * (GROUP_AVATAR_ANIM_MAX_MS - GROUP_AVATAR_ANIM_MIN_MS));
+        const nextTimeout = window.setTimeout(runLater, nextDelay);
+        groupAvatarAnimationTimers.set(avatarKey, {
+            nextTimeout,
+            stopTimeout,
+        });
+    };
+    const firstDelay = GROUP_AVATAR_ANIM_MIN_MS
+        + Math.floor(Math.random() * (GROUP_AVATAR_ANIM_MAX_MS - GROUP_AVATAR_ANIM_MIN_MS));
+    const nextTimeout = window.setTimeout(runLater, firstDelay);
+    groupAvatarAnimationTimers.set(avatarKey, {
+        nextTimeout,
+        stopTimeout: null,
+    });
+}
+
+function renderGroupModalAvatars(eventState) {
+    if (!groupModalAvatarLayer) {
+        return;
+    }
+    clearGroupAvatarAnimations();
+    groupModalAvatarLayer.innerHTML = "";
+
+    const participants = Array.isArray(eventState.participants) ? eventState.participants : [];
+    const spectators = Array.isArray(eventState.spectators) ? eventState.spectators : [];
+    const resultWinnerId = eventState.result && eventState.result.winner ? Number(eventState.result.winner.user_id) : null;
+    const eventToken = String(eventState.event_token || (eventState.result && eventState.result.event_token) || "result");
+
+    const starterMember = participants.find((member) => member.is_starter) || null;
+    const participantQueue = starterMember
+        ? [starterMember, ...participants.filter((member) => Number(member.user_id) !== Number(starterMember.user_id))]
+        : [...participants];
+
+    const usedParticipantSlots = new Set();
+    const usedSpectatorSlots = new Set();
+    const renderQueue = [];
+
+    participantQueue.forEach((member, index) => {
+        const key = `${eventToken}:participant:${member.user_id}`;
+        let slot = null;
+        if (index === 0 && starterMember && Number(member.user_id) === Number(starterMember.user_id)) {
+            slot = GROUP_SLOT_STARTER[0];
+        } else {
+            slot = pickSlotByKey(GROUP_SLOT_PARTICIPANTS, usedParticipantSlots, key);
+        }
+        if (!slot) {
+            slot = randomOverflowSlot(key);
+        }
+        renderQueue.push({ member, slot });
+    });
+
+    spectators.forEach((member) => {
+        const key = `${eventToken}:spectator:${member.user_id}`;
+        let slot = pickSlotByKey(GROUP_SLOT_SPECTATORS, usedSpectatorSlots, key);
+        if (!slot) {
+            slot = randomOverflowSlot(key);
+        }
+        renderQueue.push({ member, slot });
+    });
+
+    renderQueue.forEach(({ member, slot }) => {
+        const avatar = document.createElement("div");
+        avatar.className = "group-modal-avatar";
+        avatar.style.left = `${(slot.x / GROUP_SCENE_COORD_BASE.width) * 100}%`;
+        avatar.style.top = `${(slot.y / GROUP_SCENE_COORD_BASE.height) * 100}%`;
+
+        const image = document.createElement("img");
+        image.className = "group-modal-avatar-image";
+        image.alt = String(member.name || "Участник");
+        const candidates = buildAvatarFileCandidates(member, eventToken, resultWinnerId);
+        let candidateIndex = 0;
+        image.src = candidates[candidateIndex];
+        image.addEventListener("error", () => {
+            candidateIndex += 1;
+            if (candidateIndex < candidates.length) {
+                image.src = candidates[candidateIndex];
+            }
+        });
+        avatar.appendChild(image);
+
+        const name = document.createElement("div");
+        name.className = "group-modal-avatar-name";
+        name.textContent = String(member.name || "Игрок");
+        avatar.appendChild(name);
+
+        groupModalAvatarLayer.appendChild(avatar);
+        scheduleGroupAvatarAnimation(avatar, `${eventToken}:${member.user_id}:${member.role}`);
+    });
+}
+
+function setGroupModalMessage(message, isError = false) {
+    if (!groupModalMessage) {
+        return;
+    }
+    groupModalMessage.textContent = String(message || "");
+    groupModalMessage.classList.toggle("is-error", Boolean(isError));
+}
+
+function clearGroupModalMessage() {
+    setGroupModalMessage("", false);
+}
+
+function playGroupReminderSound() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) {
+        return;
+    }
+    try {
+        const context = new AudioCtx();
+        const oscillator = context.createOscillator();
+        const gainNode = context.createGain();
+        oscillator.type = "triangle";
+        oscillator.frequency.setValueAtTime(740, context.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(970, context.currentTime + 0.2);
+        gainNode.gain.setValueAtTime(0.0001, context.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.03);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.42);
+        oscillator.connect(gainNode);
+        gainNode.connect(context.destination);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.44);
+        window.setTimeout(() => {
+            void context.close().catch(() => {});
+        }, 600);
+    } catch (_error) {
+        // no-op
+    }
+}
+
+function renderGroupEventBanner() {
+    if (!groupEventBanner) {
+        return;
+    }
+    const state = groupEventState || createDefaultGroupEventState();
+    const canShow = (
+        activeSelectedChatId != null
+        && state.active
+        && state.event_token
+        && state.event_token !== dismissedGroupEventToken
+        && webSettings.notify_group_masturbation
+    );
+    setHidden(groupEventBanner, !canShow || groupModalOpen);
+}
+
+function formatGroupResultText(result) {
+    if (!result || typeof result !== "object") {
+        return "";
+    }
+    const lines = [];
+    const winner = result.winner && typeof result.winner === "object" ? result.winner : null;
+    const lucky = result.lucky && typeof result.lucky === "object" ? result.lucky : null;
+    const luckyDick = result.lucky_dick && typeof result.lucky_dick === "object" ? result.lucky_dick : null;
+    const rewardMillisits = Math.max(0, Math.trunc(Number(result.winner_reward_millisits) || 0));
+
+    if (winner) {
+        lines.push(`Победитель ${winner.name} получает ${formatMicrosits(rewardMillisits)} миллисит!`);
+    }
+    if (lucky) {
+        lines.push(`Также немного капнуло на ${lucky.name}`);
+    }
+    if (luckyDick) {
+        lines.push(`${luckyDick.name} так усердно мастурбировал, что член вырос на 1см`);
+    }
+    return lines.join("\n\n");
+}
+
+function renderGroupModalActions(buttons) {
+    if (!groupModalActions) {
+        return;
+    }
+    groupModalActions.innerHTML = "";
+    groupModalActions.classList.toggle("is-double", Array.isArray(buttons) && buttons.length === 2);
+    (Array.isArray(buttons) ? buttons : []).forEach((config) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `group-modal-btn ${config.kind === "secondary" ? "group-modal-btn--secondary" : ""}`.trim();
+        btn.textContent = String(config.text || "");
+        btn.disabled = Boolean(config.disabled);
+        if (typeof config.onClick === "function") {
+            btn.addEventListener("click", config.onClick);
+        }
+        groupModalActions.appendChild(btn);
+    });
+}
+
+async function fetchGroupEventState() {
+    const response = await fetch("/api/group-event/state", { credentials: "include" });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Ошибка загрузки состояния группового ивента");
+    }
+    return response.json();
+}
+
+async function performGroupEventAction(path) {
+    const response = await fetch(path, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const detail = payload && payload.detail ? payload.detail : {};
+        const message = typeof detail === "string" ? detail : (detail.message || "Ошибка действия");
+        const error = new Error(message);
+        if (detail && typeof detail === "object") {
+            error.code = detail.code;
+        }
+        throw error;
+    }
+    return payload;
+}
+
+async function clearGroupEventResult() {
+    await performGroupEventAction("/api/group-event/result/clear");
+}
+
+function renderGroupModal() {
+    if (!groupModalOpen || !groupModal) {
+        return;
+    }
+    const state = groupEventState || createDefaultGroupEventState();
+
+    if (groupModalHallImage) {
+        const useResultHall = !state.active && state.result;
+        groupModalHallImage.src = useResultHall ? GROUP_HALL_RESULT_ASSET : GROUP_HALL_ASSET;
+    }
+
+    if (groupModalTitle) {
+        if (!state.active && state.result) {
+            groupModalTitle.textContent = "Мастурбашня — результат";
+        } else if (state.phase === "joining") {
+            groupModalTitle.textContent = `Мастурбашня (${formatCountdownSeconds(state.join_seconds_left)})`;
+        } else {
+            groupModalTitle.textContent = "Мастурбашня";
+        }
+    }
+
+    if (groupModalCountdownCard && groupModalCountdownTitle && groupModalCountdownValue) {
+        const showCountdown = state.active && state.phase === "preparing";
+        groupModalCountdownTitle.textContent = "До начала мастурбации:";
+        groupModalCountdownValue.textContent = formatCountdownSeconds(state.prepare_seconds_left);
+        setHidden(groupModalCountdownCard, !showCountdown);
+    }
+
+    const renderState = (!state.active && state.result)
+        ? {
+            ...state,
+            event_token: state.result.event_token || state.event_token || "result",
+            participants: Array.isArray(state.result.participants) ? state.result.participants.map((item) => normalizeGroupMember(item, "participant")) : [],
+            spectators: Array.isArray(state.result.spectators) ? state.result.spectators.map((item) => normalizeGroupMember(item, "spectator")) : [],
+        }
+        : state;
+    renderGroupModalAvatars(renderState);
+
+    if (groupModalResult) {
+        const hasResult = !state.active && state.result;
+        groupModalResult.textContent = hasResult ? formatGroupResultText(state.result) : "";
+        setHidden(groupModalResult, !hasResult);
+    }
+
+    const buttons = [];
+    if (!state.active && !state.result) {
+        buttons.push({
+            text: `Инициировать таинство групповой мастурбации (${formatMicrosits(state.start_cost_millisits)} миллисит)`,
+            disabled: !state.can_start,
+            onClick: async () => {
+                try {
+                    clearGroupModalMessage();
+                    const payload = await performGroupEventAction("/api/group-event/start");
+                    if (payload && payload.balance !== undefined) {
+                        setHeaderBalance(payload.balance);
+                    }
+                    if (payload && payload.group_event) {
+                        setGroupEventState(payload.group_event);
+                    }
+                } catch (error) {
+                    setGroupModalMessage(error.message || "Недостаточно сит для участия. Вы можете бесплатно посмотреть", true);
+                }
+            },
+        });
+    } else if (state.active && state.phase === "preparing") {
+        if (state.viewer_role === "none") {
+            buttons.push({
+                text: "Напомнить о начале",
+                disabled: !state.can_remind,
+                onClick: async () => {
+                    try {
+                        clearGroupModalMessage();
+                        const payload = await performGroupEventAction("/api/group-event/remind");
+                        if (state.event_token) {
+                            groupEventKnownReminders.add(state.event_token);
+                        }
+                        if (payload && payload.group_event) {
+                            setGroupEventState(payload.group_event);
+                        }
+                        setGroupModalMessage("Напоминание включено");
+                    } catch (error) {
+                        setGroupModalMessage(error.message || "Не удалось включить напоминание", true);
+                    }
+                },
+            });
+        } else {
+            buttons.push({
+                text: "Вы уже участвуете в этом сеансе",
+                disabled: true,
+            });
+        }
+    } else if (state.active && state.phase === "joining") {
+        if (state.viewer_role === "none") {
+            buttons.push({
+                text: "Посмотреть (бесплатно)",
+                kind: "secondary",
+                disabled: !state.can_join_spectator,
+                onClick: async () => {
+                    try {
+                        clearGroupModalMessage();
+                        const payload = await performGroupEventAction("/api/group-event/join-spectator");
+                        if (payload && payload.group_event) {
+                            setGroupEventState(payload.group_event);
+                        }
+                    } catch (error) {
+                        setGroupModalMessage(error.message || "Не удалось присоединиться как зритель", true);
+                    }
+                },
+            });
+            buttons.push({
+                text: `Участвовать (${formatMicrosits(state.join_cost_millisits)} мс)`,
+                disabled: !state.can_join_participant,
+                onClick: async () => {
+                    try {
+                        clearGroupModalMessage();
+                        const payload = await performGroupEventAction("/api/group-event/join-participant");
+                        if (payload && payload.balance !== undefined) {
+                            setHeaderBalance(payload.balance);
+                        }
+                        if (payload && payload.group_event) {
+                            setGroupEventState(payload.group_event);
+                        }
+                    } catch (error) {
+                        setGroupModalMessage(error.message || "Недостаточно сит для участия. Вы можете бесплатно посмотреть", true);
+                    }
+                },
+            });
+        } else {
+            buttons.push({
+                text: state.viewer_role === "spectator" ? "Вы уже в списке зрителей" : "Вы уже участвуете в этом сеансе",
+                disabled: true,
+            });
+        }
+    } else if (!state.active && state.result) {
+        buttons.push({
+            text: `Инициировать таинство групповой мастурбации (${formatMicrosits(state.start_cost_millisits)} миллисит)`,
+            disabled: !state.can_start,
+            onClick: async () => {
+                try {
+                    clearGroupModalMessage();
+                    const payload = await performGroupEventAction("/api/group-event/start");
+                    if (payload && payload.balance !== undefined) {
+                        setHeaderBalance(payload.balance);
+                    }
+                    if (payload && payload.group_event) {
+                        setGroupEventState(payload.group_event);
+                    }
+                } catch (error) {
+                    setGroupModalMessage(error.message || "Недостаточно сит для участия. Вы можете бесплатно посмотреть", true);
+                }
+            },
+        });
+    } else {
+        buttons.push({
+            text: "Сеанс завершается...",
+            disabled: true,
+        });
+    }
+    renderGroupModalActions(buttons);
+}
+
+function setGroupModalOpen(isOpen) {
+    groupModalOpen = Boolean(isOpen);
+    setHidden(groupModal, !groupModalOpen);
+    if (!groupModalOpen) {
+        clearGroupAvatarAnimations();
+        clearGroupModalMessage();
+    } else {
+        renderGroupModal();
+    }
+    renderGroupEventBanner();
+}
+
+async function openGroupModal() {
+    setGroupModalOpen(true);
+    try {
+        const payload = await fetchGroupEventState();
+        if (payload && payload.chat_id !== undefined && Number(payload.chat_id) !== Number(activeSelectedChatId)) {
+            return;
+        }
+        if (payload && payload.group_event) {
+            setGroupEventState(payload.group_event);
+        }
+    } catch (error) {
+        setGroupModalMessage(error.message || "Не удалось обновить состояние ивента", true);
+    }
+}
+
+async function closeGroupModal(options = {}) {
+    const shouldClearResult = options.clearResult !== false;
+    const state = groupEventState || createDefaultGroupEventState();
+    const shouldCallClear = shouldClearResult && !state.active && state.result;
+    setGroupModalOpen(false);
+    if (shouldCallClear) {
+        try {
+            const payload = await clearGroupEventResult();
+            if (payload && payload.group_event) {
+                setGroupEventState(payload.group_event);
+            }
+        } catch (_error) {
+            // no-op
+        }
+    }
+}
+
+function setGroupEventState(nextState, options = {}) {
+    const normalized = normalizeGroupEventState(nextState);
+    const previousPhase = lastGroupEventPhase;
+    const previousToken = lastGroupEventToken;
+    const nextToken = normalized.event_token;
+
+    if (nextToken && nextToken !== previousToken) {
+        if (dismissedGroupEventToken && dismissedGroupEventToken !== nextToken) {
+            dismissedGroupEventToken = null;
+        }
+        clearGroupModalMessage();
+    }
+
+    groupEventState = normalized;
+    lastGroupEventPhase = normalized.phase;
+    lastGroupEventToken = nextToken;
+
+    const becameJoining = (
+        normalized.active
+        && nextToken
+        && nextToken === previousToken
+        && previousPhase === "preparing"
+        && normalized.phase === "joining"
+    );
+    if (becameJoining && (groupEventKnownReminders.has(nextToken) || webSettings.notify_group_masturbation)) {
+        playGroupReminderSound();
+    }
+
+    if (groupModalOpen) {
+        renderGroupModal();
+    }
+    renderGroupEventBanner();
+
+    if (!options.silent) {
+        scheduleGroupEventPolling();
+    }
+}
+
+function clearGroupEventPolling() {
+    if (groupEventPollTimeoutId !== null) {
+        clearTimeout(groupEventPollTimeoutId);
+        groupEventPollTimeoutId = null;
+    }
+}
+
+function scheduleGroupEventPolling() {
+    clearGroupEventPolling();
+    if (activeSelectedChatId == null) {
+        return;
+    }
+    groupEventPollTimeoutId = window.setTimeout(async () => {
+        try {
+            const payload = await fetchGroupEventState();
+            if (activeSelectedChatId == null || Number(payload.chat_id) !== Number(activeSelectedChatId)) {
+                scheduleGroupEventPolling();
+                return;
+            }
+            if (payload && payload.group_event) {
+                setGroupEventState(payload.group_event, { silent: true });
+            }
+        } catch (_error) {
+            // no-op
+        } finally {
+            scheduleGroupEventPolling();
+        }
+    }, GROUP_EVENT_POLL_MS);
 }
 
 function renderSettingsControls() {
     applySwitchState(hideBaseSwitch, webSettings.hide_base);
     applySwitchState(rejectGuestGeyserSwitch, webSettings.reject_geyser_catch_by_guest);
+    applySwitchState(notifyGroupSwitch, webSettings.notify_group_masturbation);
     setSettingsSwitchesDisabled(settingsUpdateInFlight || activeSelectedChatId == null);
 }
 
 function setWebSettings(settings) {
     webSettings = normalizeWebSettings(settings);
     renderSettingsControls();
+    renderGroupEventBanner();
 }
 
 function setSettingsMenuOpen(isOpen) {
@@ -1226,7 +1976,11 @@ async function toggleWebSetting(settingKey) {
     if (activeSelectedChatId == null || settingsUpdateInFlight) {
         return;
     }
-    if (settingKey !== "hide_base" && settingKey !== "reject_geyser_catch_by_guest") {
+    if (
+        settingKey !== "hide_base"
+        && settingKey !== "reject_geyser_catch_by_guest"
+        && settingKey !== "notify_group_masturbation"
+    ) {
         return;
     }
 
@@ -2067,6 +2821,7 @@ function renderState(state) {
 
     if (!state.authorized) {
         activeSelectedChatId = null;
+        groupEventKnownReminders = new Set();
         activeBuildingsOwnerUserId = null;
         lastIdleBuildings = [];
         setVisitMode(false);
@@ -2085,8 +2840,12 @@ function renderState(state) {
         setWebSettings({
             hide_base: false,
             reject_geyser_catch_by_guest: false,
+            notify_group_masturbation: true,
         });
         setSettingsMenuOpen(false);
+        clearGroupEventPolling();
+        setGroupEventState(createDefaultGroupEventState(), { silent: true });
+        void closeGroupModal({ clearResult: false });
         setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         return false;
@@ -2100,6 +2859,7 @@ function renderState(state) {
 
     if (!chats.length) {
         activeSelectedChatId = null;
+        groupEventKnownReminders = new Set();
         activeBuildingsOwnerUserId = null;
         lastIdleBuildings = [];
         setVisitMode(false);
@@ -2114,8 +2874,12 @@ function renderState(state) {
         setWebSettings({
             hide_base: false,
             reject_geyser_catch_by_guest: false,
+            notify_group_masturbation: true,
         });
         setSettingsMenuOpen(false);
+        clearGroupEventPolling();
+        setGroupEventState(createDefaultGroupEventState(), { silent: true });
+        void closeGroupModal({ clearResult: false });
         setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         setLoadingMessage("Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.");
@@ -2124,6 +2888,7 @@ function renderState(state) {
 
     if (state.selected_chat_id == null) {
         activeSelectedChatId = null;
+        groupEventKnownReminders = new Set();
         activeBuildingsOwnerUserId = null;
         lastIdleBuildings = [];
         setVisitMode(false);
@@ -2137,8 +2902,12 @@ function renderState(state) {
         setWebSettings({
             hide_base: false,
             reject_geyser_catch_by_guest: false,
+            notify_group_masturbation: true,
         });
         setSettingsMenuOpen(false);
+        clearGroupEventPolling();
+        setGroupEventState(createDefaultGroupEventState(), { silent: true });
+        void closeGroupModal({ clearResult: false });
         setHourlyIncomeMicrosits(0);
         setHeaderBalance(0);
         setLoadingMessage("");
@@ -2148,6 +2917,8 @@ function renderState(state) {
 
     const selectedChatId = Number(state.selected_chat_id);
     if (activeSelectedChatId !== null && Number(activeSelectedChatId) !== selectedChatId) {
+        groupEventKnownReminders = new Set();
+        dismissedGroupEventToken = null;
         setHourlyIncomeMicrosits(0);
     }
     if (activeSelectedChatId === null || Number(activeSelectedChatId) !== selectedChatId) {
@@ -2165,10 +2936,12 @@ function renderState(state) {
     setWebSettings(state.web_settings || {
         hide_base: false,
         reject_geyser_catch_by_guest: false,
+        notify_group_masturbation: true,
     });
     setGeyserProgress(state.geyser_caught_today, state.geyser_daily_limit, {
         visitBlockedByOwner: Boolean(state.visit_geyser_blocked),
     });
+    setGroupEventState(state.group_event || createDefaultGroupEventState(), { silent: true });
     setHeaderBalance(state.balance);
     if (!buildingsPanelAutoOpened) {
         if (!visitModeActive) {
@@ -2184,6 +2957,7 @@ function renderState(state) {
     if (buildingsPanelOpen && buildingsPanel) {
         setHidden(buildingsPanel, false);
     }
+    scheduleGroupEventPolling();
     return true;
 }
 
@@ -2202,6 +2976,8 @@ async function selectChat(chatId, options = {}) {
     }
     try {
         closeTransferModal();
+        void closeGroupModal({ clearResult: false });
+        clearGroupEventPolling();
         setVisitMode(false);
         lastIdleBuildings = [];
         activeBuildingsOwnerUserId = null;
@@ -2419,9 +3195,51 @@ if (transferModal) {
     });
 }
 
+if (groupEventBanner) {
+    groupEventBanner.addEventListener("click", (event) => {
+        if (groupEventBannerClose && groupEventBannerClose.contains(event.target)) {
+            return;
+        }
+        void openGroupModal();
+    });
+}
+
+if (groupEventBannerClose) {
+    groupEventBannerClose.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const token = groupEventState && groupEventState.event_token ? String(groupEventState.event_token) : null;
+        dismissedGroupEventToken = token;
+        renderGroupEventBanner();
+    });
+}
+
+if (groupModalCloseBtn) {
+    groupModalCloseBtn.addEventListener("click", () => {
+        void closeGroupModal();
+    });
+}
+
+if (groupModalScrim) {
+    groupModalScrim.addEventListener("click", () => {
+        void closeGroupModal();
+    });
+}
+
+if (groupModal) {
+    groupModal.addEventListener("click", (event) => {
+        if (event.target === groupModal) {
+            void closeGroupModal();
+        }
+    });
+}
+
 window.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && transferModalOpen) {
         closeTransferModal();
+    }
+    if (event.key === "Escape" && groupModalOpen) {
+        void closeGroupModal();
     }
     if (event.key === "Escape" && settingsMenuOpen) {
         setSettingsMenuOpen(false);
@@ -2499,5 +3317,7 @@ window.addEventListener("resize", () => {
 closeTransferModal();
 setWebSettings(webSettings);
 setSettingsMenuOpen(false);
+setGroupEventState(createDefaultGroupEventState(), { silent: true });
+setGroupModalOpen(false);
 loadScene();
 refresh();

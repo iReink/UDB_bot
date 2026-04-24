@@ -28,6 +28,7 @@ def ensure_web_settings_table(cur: sqlite3.Cursor) -> bool:
             chat_id INTEGER NOT NULL,
             hide_base INTEGER NOT NULL DEFAULT 0 CHECK(hide_base IN (0, 1)),
             reject_geyser_catch_by_guest INTEGER NOT NULL DEFAULT 0 CHECK(reject_geyser_catch_by_guest IN (0, 1)),
+            notify_group_masturbation INTEGER NOT NULL DEFAULT 1 CHECK(notify_group_masturbation IN (0, 1)),
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (user_id, chat_id)
         )
@@ -40,12 +41,37 @@ def ensure_web_settings_table(cur: sqlite3.Cursor) -> bool:
         """
     )
 
+    cur.execute("PRAGMA table_info(web_settings)")
+    columns = {str(row[1]).lower() for row in cur.fetchall()}
+    if "notify_group_masturbation" not in columns:
+        cur.execute(
+            """
+            ALTER TABLE web_settings
+            ADD COLUMN notify_group_masturbation INTEGER NOT NULL DEFAULT 1
+            CHECK(notify_group_masturbation IN (0, 1))
+            """
+        )
+
     if _table_exists(cur, "users"):
         cur.execute(
             """
-            INSERT OR IGNORE INTO web_settings (user_id, chat_id, hide_base, reject_geyser_catch_by_guest)
-            SELECT u.user_id, u.chat_id, 0, 0
+            INSERT OR IGNORE INTO web_settings (
+                user_id,
+                chat_id,
+                hide_base,
+                reject_geyser_catch_by_guest,
+                notify_group_masturbation
+            )
+            SELECT u.user_id, u.chat_id, 0, 0, 1
             FROM users u
+            """
+        )
+        cur.execute(
+            """
+            UPDATE web_settings
+            SET notify_group_masturbation = 1
+            WHERE notify_group_masturbation NOT IN (0, 1)
+               OR notify_group_masturbation IS NULL
             """
         )
     return True

@@ -36,6 +36,8 @@ class MasturbateStore:
                         join_message_id INTEGER,
                         thread_id INTEGER,
                         started_by_user_id INTEGER NOT NULL,
+                        prepare_until INTEGER NOT NULL DEFAULT 0,
+                        join_until INTEGER NOT NULL DEFAULT 0,
                         created_at INTEGER NOT NULL,
                         updated_at INTEGER NOT NULL
                     );
@@ -76,13 +78,39 @@ class MasturbateStore:
 
                     CREATE INDEX IF NOT EXISTS idx_outbox_pending
                     ON outbox(processed_at, id);
+
+                    CREATE TABLE IF NOT EXISTS event_results (
+                        chat_id INTEGER PRIMARY KEY,
+                        event_token TEXT NOT NULL,
+                        winner_user_id INTEGER,
+                        winner_name TEXT,
+                        winner_reward_sits REAL NOT NULL DEFAULT 0,
+                        lucky_user_id INTEGER,
+                        lucky_name TEXT,
+                        lucky_dick_user_id INTEGER,
+                        lucky_dick_name TEXT,
+                        participants_json TEXT NOT NULL DEFAULT '[]',
+                        spectators_json TEXT NOT NULL DEFAULT '[]',
+                        created_at INTEGER NOT NULL
+                    );
                     """
                 )
+
+                def ensure_column(table_name: str, column_name: str, alter_sql: str) -> None:
+                    cur.execute(f"PRAGMA table_info({table_name})")
+                    columns = {str(row["name"]).lower() for row in cur.fetchall()}
+                    if column_name.lower() not in columns:
+                        cur.execute(alter_sql)
+
+                ensure_column("events", "prepare_until", "ALTER TABLE events ADD COLUMN prepare_until INTEGER NOT NULL DEFAULT 0")
+                ensure_column("events", "join_until", "ALTER TABLE events ADD COLUMN join_until INTEGER NOT NULL DEFAULT 0")
+
                 if reset_runtime_state:
                     cur.execute("DELETE FROM participants")
                     cur.execute("DELETE FROM reminders")
                     cur.execute("DELETE FROM events")
                     cur.execute("DELETE FROM outbox")
+                    cur.execute("DELETE FROM event_results")
                 conn.commit()
 
     def get_event(self, chat_id: int) -> sqlite3.Row | None:
@@ -91,12 +119,34 @@ class MasturbateStore:
             cur.execute(
                 """
                 SELECT chat_id, status, join_open, join_message_id, thread_id, started_by_user_id
+                     , prepare_until, join_until, created_at
                 FROM events
                 WHERE chat_id = ?
                 """,
                 (chat_id,),
             )
             return cur.fetchone()
+
+    def list_active_events(self) -> list[sqlite3.Row]:
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    chat_id,
+                    status,
+                    join_open,
+                    join_message_id,
+                    thread_id,
+                    started_by_user_id,
+                    prepare_until,
+                    join_until,
+                    created_at
+                FROM events
+                ORDER BY created_at ASC
+                """
+            )
+            return cur.fetchall()
 
     def create_event(
         self,
@@ -107,6 +157,8 @@ class MasturbateStore:
         source: str = "tg",
     ) -> str:
         now = int(time.time())
+        prepare_until = now + (10 * 60)
+        join_until = prepare_until + (5 * 60)
         with self._connect() as conn:
             cur = conn.cursor()
             cur.execute("BEGIN IMMEDIATE")
@@ -114,6 +166,8 @@ class MasturbateStore:
             if cur.fetchone():
                 conn.rollback()
                 return "active_exists"
+
+            cur.execute("DELETE FROM event_results WHERE chat_id = ?", (chat_id,))
 
             cur.execute(
                 """
@@ -124,12 +178,22 @@ class MasturbateStore:
                     join_message_id,
                     thread_id,
                     started_by_user_id,
+                    prepare_until,
+                    join_until,
                     created_at,
                     updated_at
                 )
-                VALUES (?, 'preparing', 0, NULL, ?, ?, ?, ?)
+                VALUES (?, 'preparing', 0, NULL, ?, ?, ?, ?, ?, ?)
                 """,
-                (chat_id, thread_id, started_by_user_id, now, now),
+                (
+                    chat_id,
+                    thread_id,
+                    started_by_user_id,
+                    prepare_until,
+                    join_until,
+                    now,
+                    now,
+                ),
             )
             cur.execute(
                 """
@@ -323,6 +387,129 @@ class MasturbateStore:
             cur.execute("DELETE FROM participants WHERE chat_id = ?", (chat_id,))
             cur.execute("DELETE FROM reminders WHERE chat_id = ?", (chat_id,))
             cur.execute("DELETE FROM events WHERE chat_id = ?", (chat_id,))
+            conn.commit()
+
+    def save_event_result(
+        self,
+        chat_id: int,
+        event_token: str,
+        winner_user_id: int | None,
+        winner_name: str | None,
+        winner_reward_sits: float,
+        lucky_user_id: int | None,
+        lucky_name: str | None,
+        lucky_dick_user_id: int | None,
+        lucky_dick_name: str | None,
+        participants: list[dict[str, Any]],
+        spectators: list[dict[str, Any]],
+    ) -> None:
+        now = int(time.time())
+        participants_json = json.dumps(participants or [], ensure_ascii=False)
+        spectators_json = json.dumps(spectators or [], ensure_ascii=False)
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO event_results (
+                    chat_id,
+                    event_token,
+                    winner_user_id,
+                    winner_name,
+                    winner_reward_sits,
+                    lucky_user_id,
+                    lucky_name,
+                    lucky_dick_user_id,
+                    lucky_dick_name,
+                    participants_json,
+                    spectators_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    event_token = excluded.event_token,
+                    winner_user_id = excluded.winner_user_id,
+                    winner_name = excluded.winner_name,
+                    winner_reward_sits = excluded.winner_reward_sits,
+                    lucky_user_id = excluded.lucky_user_id,
+                    lucky_name = excluded.lucky_name,
+                    lucky_dick_user_id = excluded.lucky_dick_user_id,
+                    lucky_dick_name = excluded.lucky_dick_name,
+                    participants_json = excluded.participants_json,
+                    spectators_json = excluded.spectators_json,
+                    created_at = excluded.created_at
+                """,
+                (
+                    chat_id,
+                    str(event_token),
+                    winner_user_id,
+                    winner_name,
+                    float(winner_reward_sits),
+                    lucky_user_id,
+                    lucky_name,
+                    lucky_dick_user_id,
+                    lucky_dick_name,
+                    participants_json,
+                    spectators_json,
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def get_event_result(self, chat_id: int) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    chat_id,
+                    event_token,
+                    winner_user_id,
+                    winner_name,
+                    winner_reward_sits,
+                    lucky_user_id,
+                    lucky_name,
+                    lucky_dick_user_id,
+                    lucky_dick_name,
+                    participants_json,
+                    spectators_json,
+                    created_at
+                FROM event_results
+                WHERE chat_id = ?
+                """,
+                (chat_id,),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        participants_raw = row["participants_json"]
+        spectators_raw = row["spectators_json"]
+        try:
+            participants = json.loads(participants_raw) if participants_raw else []
+        except json.JSONDecodeError:
+            participants = []
+        try:
+            spectators = json.loads(spectators_raw) if spectators_raw else []
+        except json.JSONDecodeError:
+            spectators = []
+        return {
+            "chat_id": int(row["chat_id"]),
+            "event_token": str(row["event_token"] or ""),
+            "winner_user_id": int(row["winner_user_id"]) if row["winner_user_id"] is not None else None,
+            "winner_name": row["winner_name"],
+            "winner_reward_sits": float(row["winner_reward_sits"] or 0),
+            "lucky_user_id": int(row["lucky_user_id"]) if row["lucky_user_id"] is not None else None,
+            "lucky_name": row["lucky_name"],
+            "lucky_dick_user_id": int(row["lucky_dick_user_id"]) if row["lucky_dick_user_id"] is not None else None,
+            "lucky_dick_name": row["lucky_dick_name"],
+            "participants": participants if isinstance(participants, list) else [],
+            "spectators": spectators if isinstance(spectators, list) else [],
+            "created_at": int(row["created_at"] or 0),
+        }
+
+    def clear_event_result(self, chat_id: int) -> None:
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM event_results WHERE chat_id = ?", (chat_id,))
             conn.commit()
 
     def enqueue_outbox(self, chat_id: int, kind: str, payload: dict[str, Any]) -> int:

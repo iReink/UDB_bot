@@ -66,6 +66,7 @@ class GroupEventEngine:
         user_id: int,
         display_name: str,
         source: str = "tg",
+        allow_freebie_on_insufficient: bool = True,
     ) -> EngineResult:
         event = self.store.get_event(chat_id)
         if not event:
@@ -75,6 +76,8 @@ class GroupEventEngine:
 
         balance = float(get_sits(chat_id, user_id))
         if balance < JOIN_COST:
+            if not allow_freebie_on_insufficient:
+                return EngineResult(ok=False, code="insufficient_sits", display_name=display_name, thread_id=event["thread_id"])
             status = self.store.add_member(
                 chat_id=chat_id,
                 user_id=user_id,

@@ -29,6 +29,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sits import normalize_sits
+from group_event_engine import EVENT_COST, GroupEventEngine, JOIN_COST
+from masturbate_store import MasturbateStore
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -48,6 +50,22 @@ IDLE_UNLOCK_PREVIOUS_LEVEL = 10
 GEYSER_DAILY_LIMIT = 10
 GEYSER_REWARD_MIN_MILLISITS = 500
 GEYSER_REWARD_MAX_MILLISITS = 1000
+GROUP_PREPARE_DELAY_SECONDS = 10 * 60
+GROUP_JOIN_WINDOW_SECONDS = 5 * 60
+GROUP_EVENT_STICKER_FILE_ID = "CAACAgIAAyEFAASjKavKAAIDrGi31TwpfP-R-JI64M0v6eRnTCFxAAJMUAACITxRSq0hIi2dEdhQNgQ"
+GROUP_JOIN_ANNOUNCE_MESSAGES = [
+    "{name} пристраивается сбоку",
+    "{name} садится на диван и смотрит",
+    "Все немного двигаются чтобы дать {name} место",
+    "{name} садится в центр круга",
+    "{name} немного стесняется и активничает из-за угла",
+    "Для {name} не нашлось лишнего стула, поэтому пришлось сесть на полу",
+    "{name} тихонько подкрадывается и устраивается сзади",
+    '{name} врывается в комнату с криком: "Я опоздал?"',
+    "К всеобщей радости, {name} наконец-то с нами",
+    '{name} аккуратно протискивается между диваном и столом со словами "Можно я тут?"',
+    "{name} появляется с тарелкой печенья и моментально становится душой компании",
+]
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
@@ -56,6 +74,8 @@ logger = logging.getLogger(__name__)
 idle_income_task: asyncio.Task[None] | None = None
 idle_catalog_ready = False
 idle_catalog_lock = threading.Lock()
+group_store = MasturbateStore()
+group_engine = GroupEventEngine(group_store)
 
 if not SESSION_SECRET and BOT_TOKEN:
     SESSION_SECRET = hashlib.sha256(f"{BOT_TOKEN}:web-session".encode("utf-8")).hexdigest()
@@ -93,6 +113,11 @@ class TransferSitsRequest(BaseModel):
 class UpdateWebSettingsRequest(BaseModel):
     hide_base: bool | None = None
     reject_geyser_catch_by_guest: bool | None = None
+    notify_group_masturbation: bool | None = None
+
+
+class GroupEventActionRequest(BaseModel):
+    pass
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -157,15 +182,32 @@ def _ensure_web_settings_table() -> None:
                 chat_id INTEGER NOT NULL,
                 hide_base INTEGER NOT NULL DEFAULT 0 CHECK(hide_base IN (0, 1)),
                 reject_geyser_catch_by_guest INTEGER NOT NULL DEFAULT 0 CHECK(reject_geyser_catch_by_guest IN (0, 1)),
+                notify_group_masturbation INTEGER NOT NULL DEFAULT 1 CHECK(notify_group_masturbation IN (0, 1)),
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (user_id, chat_id)
             )
             """
         )
+        cur.execute("PRAGMA table_info(web_settings)")
+        columns = {str(row["name"]).lower() for row in cur.fetchall()}
+        if "notify_group_masturbation" not in columns:
+            cur.execute(
+                """
+                ALTER TABLE web_settings
+                ADD COLUMN notify_group_masturbation INTEGER NOT NULL DEFAULT 1
+                CHECK(notify_group_masturbation IN (0, 1))
+                """
+            )
         cur.execute(
             """
-            INSERT OR IGNORE INTO web_settings (user_id, chat_id, hide_base, reject_geyser_catch_by_guest)
-            SELECT u.user_id, u.chat_id, 0, 0
+            INSERT OR IGNORE INTO web_settings (
+                user_id,
+                chat_id,
+                hide_base,
+                reject_geyser_catch_by_guest,
+                notify_group_masturbation
+            )
+            SELECT u.user_id, u.chat_id, 0, 0, 1
             FROM users u
             """
         )
@@ -180,7 +222,8 @@ def _get_web_settings(user_id: int, chat_id: int) -> dict[str, bool]:
             """
             SELECT
                 COALESCE(hide_base, 0) AS hide_base,
-                COALESCE(reject_geyser_catch_by_guest, 0) AS reject_geyser_catch_by_guest
+                COALESCE(reject_geyser_catch_by_guest, 0) AS reject_geyser_catch_by_guest,
+                COALESCE(notify_group_masturbation, 1) AS notify_group_masturbation
             FROM web_settings
             WHERE user_id = ? AND chat_id = ?
             """,
@@ -191,10 +234,12 @@ def _get_web_settings(user_id: int, chat_id: int) -> dict[str, bool]:
         return {
             "hide_base": False,
             "reject_geyser_catch_by_guest": False,
+            "notify_group_masturbation": True,
         }
     return {
         "hide_base": bool(int(row["hide_base"] or 0)),
         "reject_geyser_catch_by_guest": bool(int(row["reject_geyser_catch_by_guest"] or 0)),
+        "notify_group_masturbation": bool(int(row["notify_group_masturbation"] or 0)),
     }
 
 
@@ -203,6 +248,7 @@ def _update_web_settings(
     chat_id: int,
     hide_base: bool | None = None,
     reject_geyser_catch_by_guest: bool | None = None,
+    notify_group_masturbation: bool | None = None,
 ) -> dict[str, bool]:
     _ensure_web_settings_table()
     with _get_connection() as conn:
@@ -212,7 +258,8 @@ def _update_web_settings(
             """
             SELECT
                 COALESCE(hide_base, 0) AS hide_base,
-                COALESCE(reject_geyser_catch_by_guest, 0) AS reject_geyser_catch_by_guest
+                COALESCE(reject_geyser_catch_by_guest, 0) AS reject_geyser_catch_by_guest,
+                COALESCE(notify_group_masturbation, 1) AS notify_group_masturbation
             FROM web_settings
             WHERE user_id = ? AND chat_id = ?
             """,
@@ -221,8 +268,10 @@ def _update_web_settings(
         row = cur.fetchone()
         current_hide = bool(int(row["hide_base"] or 0)) if row else False
         current_reject = bool(int(row["reject_geyser_catch_by_guest"] or 0)) if row else False
+        current_notify = bool(int(row["notify_group_masturbation"] or 1)) if row else True
         next_hide = current_hide if hide_base is None else bool(hide_base)
         next_reject = current_reject if reject_geyser_catch_by_guest is None else bool(reject_geyser_catch_by_guest)
+        next_notify = current_notify if notify_group_masturbation is None else bool(notify_group_masturbation)
         cur.execute(
             """
             INSERT INTO web_settings (
@@ -230,20 +279,23 @@ def _update_web_settings(
                 chat_id,
                 hide_base,
                 reject_geyser_catch_by_guest,
+                notify_group_masturbation,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 hide_base = excluded.hide_base,
                 reject_geyser_catch_by_guest = excluded.reject_geyser_catch_by_guest,
+                notify_group_masturbation = excluded.notify_group_masturbation,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (user_id, chat_id, int(next_hide), int(next_reject)),
+            (user_id, chat_id, int(next_hide), int(next_reject), int(next_notify)),
         )
         conn.commit()
     return {
         "hide_base": next_hide,
         "reject_geyser_catch_by_guest": next_reject,
+        "notify_group_masturbation": next_notify,
     }
 
 
@@ -737,6 +789,231 @@ def _get_user_balance(user_id: int, chat_id: int) -> float:
     if not row:
         raise HTTPException(status_code=404, detail="Пользователь не найден в выбранном чате")
     return float(row["sits"] or 0)
+
+
+def _get_user_profile(chat_id: int, user_id: int) -> dict[str, Any]:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                COALESCE(name, '') AS name,
+                COALESCE(nick, '') AS nick,
+                COALESCE(sex, '') AS sex
+            FROM users
+            WHERE user_id = ? AND chat_id = ?
+            LIMIT 1
+            """,
+            (user_id, chat_id),
+        )
+        row = cur.fetchone()
+    if not row:
+        return {
+            "name": f"Игрок {user_id}",
+            "nick": "",
+            "sex": "",
+        }
+    name = str(row["name"] or "").strip()
+    nick = str(row["nick"] or "").strip()
+    return {
+        "name": name or nick or f"Игрок {user_id}",
+        "nick": nick,
+        "sex": str(row["sex"] or "").strip().lower(),
+    }
+
+
+def _event_token(chat_id: int, created_at: int) -> str:
+    return f"{chat_id}:{int(created_at)}"
+
+
+def _seconds_left(target_ts: int, now_ts: int | None = None) -> int:
+    current = int(now_ts if now_ts is not None else time.time())
+    return max(0, int(target_ts) - current)
+
+
+def _build_group_members_state(chat_id: int) -> dict[str, list[dict[str, Any]]]:
+    participant_rows = group_store.list_participants(chat_id=chat_id, role="participant")
+    spectator_rows = group_store.list_participants(chat_id=chat_id, role="spectator")
+    event_row = group_store.get_event(chat_id)
+    starter_user_id = int(event_row["started_by_user_id"]) if event_row else None
+
+    def enrich(rows: list[sqlite3.Row], role: str) -> list[dict[str, Any]]:
+        members: list[dict[str, Any]] = []
+        for row in rows:
+            member_user_id = int(row["user_id"])
+            profile = _get_user_profile(chat_id, member_user_id)
+            members.append(
+                {
+                    "user_id": member_user_id,
+                    "name": str(row["display_name"] or profile["name"]),
+                    "nick": profile["nick"],
+                    "sex": profile["sex"],
+                    "role": role,
+                    "joined_order": int(row["joined_order"] or 0),
+                    "is_starter": bool(starter_user_id is not None and member_user_id == starter_user_id),
+                }
+            )
+        return members
+
+    return {
+        "participants": enrich(participant_rows, "participant"),
+        "spectators": enrich(spectator_rows, "spectator"),
+    }
+
+
+def _build_group_result_state(chat_id: int) -> dict[str, Any] | None:
+    result = group_store.get_event_result(chat_id)
+    if not result:
+        return None
+
+    def enrich_user(target_user_id: int | None, fallback_name: str | None) -> dict[str, Any] | None:
+        if target_user_id is None:
+            return None
+        profile = _get_user_profile(chat_id, int(target_user_id))
+        return {
+            "user_id": int(target_user_id),
+            "name": str(fallback_name or profile["name"]),
+            "sex": profile["sex"],
+        }
+
+    participants: list[dict[str, Any]] = []
+    for item in result["participants"]:
+        if not isinstance(item, dict):
+            continue
+        uid = item.get("user_id")
+        try:
+            member_user_id = int(uid)
+        except (TypeError, ValueError):
+            continue
+        profile = _get_user_profile(chat_id, member_user_id)
+        participants.append(
+            {
+                "user_id": member_user_id,
+                "name": str(item.get("name") or profile["name"]),
+                "sex": profile["sex"],
+                "role": "participant",
+            }
+        )
+
+    spectators: list[dict[str, Any]] = []
+    for item in result["spectators"]:
+        if not isinstance(item, dict):
+            continue
+        uid = item.get("user_id")
+        try:
+            member_user_id = int(uid)
+        except (TypeError, ValueError):
+            continue
+        profile = _get_user_profile(chat_id, member_user_id)
+        spectators.append(
+            {
+                "user_id": member_user_id,
+                "name": str(item.get("name") or profile["name"]),
+                "sex": profile["sex"],
+                "role": "spectator",
+            }
+        )
+
+    return {
+        "event_token": str(result["event_token"] or ""),
+        "winner": enrich_user(result["winner_user_id"], result["winner_name"]),
+        "winner_reward_millisits": _sits_to_microsits(result["winner_reward_sits"]),
+        "lucky": enrich_user(result["lucky_user_id"], result["lucky_name"]),
+        "lucky_dick": enrich_user(result["lucky_dick_user_id"], result["lucky_dick_name"]),
+        "participants": participants,
+        "spectators": spectators,
+        "created_at": int(result["created_at"] or 0),
+    }
+
+
+def _build_group_event_state(chat_id: int, user_id: int) -> dict[str, Any]:
+    event_row = group_store.get_event(chat_id)
+    now_ts = int(time.time())
+    if not event_row:
+        return {
+            "active": False,
+            "phase": "idle",
+            "event_token": None,
+            "prepare_seconds_left": 0,
+            "join_seconds_left": 0,
+            "viewer_role": "none",
+            "viewer_is_starter": False,
+            "can_start": True,
+            "can_remind": False,
+            "can_join_participant": False,
+            "can_join_spectator": False,
+            "start_cost_millisits": _sits_to_microsits(EVENT_COST),
+            "join_cost_millisits": _sits_to_microsits(JOIN_COST),
+            "participants": [],
+            "spectators": [],
+            "result": _build_group_result_state(chat_id),
+        }
+
+    created_at = int(event_row["created_at"] or now_ts)
+    prepare_until = int(event_row["prepare_until"] or (created_at + GROUP_PREPARE_DELAY_SECONDS))
+    join_until = int(event_row["join_until"] or (prepare_until + GROUP_JOIN_WINDOW_SECONDS))
+    status = str(event_row["status"] or "").strip().lower()
+    join_open = bool(int(event_row["join_open"] or 0))
+    token = _event_token(chat_id, created_at)
+
+    if join_open or status == "joining":
+        phase = "joining"
+    elif status == "preparing" and now_ts < prepare_until:
+        phase = "preparing"
+    else:
+        phase = "finishing"
+
+    members = _build_group_members_state(chat_id)
+    participants = members["participants"]
+    spectators = members["spectators"]
+
+    viewer_role = "none"
+    viewer_is_starter = False
+    for member in participants:
+        if int(member["user_id"]) == user_id:
+            viewer_role = "participant"
+            viewer_is_starter = bool(member["is_starter"])
+            break
+    if viewer_role == "none":
+        for member in spectators:
+            if int(member["user_id"]) == user_id:
+                viewer_role = "spectator"
+                viewer_is_starter = bool(member["is_starter"])
+                break
+
+    return {
+        "active": True,
+        "phase": phase,
+        "event_token": token,
+        "prepare_seconds_left": _seconds_left(prepare_until, now_ts) if phase == "preparing" else 0,
+        "join_seconds_left": _seconds_left(join_until, now_ts) if phase == "joining" else 0,
+        "viewer_role": viewer_role,
+        "viewer_is_starter": viewer_is_starter,
+        "can_start": False,
+        "can_remind": phase == "preparing" and viewer_role == "none",
+        "can_join_participant": phase == "joining" and viewer_role == "none",
+        "can_join_spectator": phase == "joining" and viewer_role == "none",
+        "start_cost_millisits": _sits_to_microsits(EVENT_COST),
+        "join_cost_millisits": _sits_to_microsits(JOIN_COST),
+        "participants": participants,
+        "spectators": spectators,
+        "result": _build_group_result_state(chat_id),
+    }
+
+
+def _enqueue_group_text(chat_id: int, text: str, thread_id: int | None = None) -> None:
+    group_store.enqueue_outbox(
+        chat_id=chat_id,
+        kind="send_text",
+        payload={
+            "text": str(text),
+            "thread_id": int(thread_id) if thread_id is not None else None,
+        },
+    )
+
+
+def _enqueue_group_start_flow(chat_id: int) -> None:
+    group_store.enqueue_outbox(chat_id=chat_id, kind="start_event_flow", payload={})
 
 
 def _parse_transfer_amount(value: Any) -> float:
@@ -1649,6 +1926,7 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     default_settings = {
         "hide_base": False,
         "reject_geyser_catch_by_guest": False,
+        "notify_group_masturbation": True,
     }
     selected_settings = default_settings
     visit_geyser_blocked = False
@@ -1662,6 +1940,26 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
             visit_settings = _get_web_settings(geyser_owner_user_id, selected_chat)
             visit_geyser_blocked = bool(visit_settings["reject_geyser_catch_by_guest"])
         geyser_caught_today = _get_geyser_catches_for_today(geyser_owner_user_id, selected_chat)
+        group_event_state = _build_group_event_state(selected_chat, user_id)
+    else:
+        group_event_state = {
+            "active": False,
+            "phase": "idle",
+            "event_token": None,
+            "prepare_seconds_left": 0,
+            "join_seconds_left": 0,
+            "viewer_role": "none",
+            "viewer_is_starter": False,
+            "can_start": False,
+            "can_remind": False,
+            "can_join_participant": False,
+            "can_join_spectator": False,
+            "start_cost_millisits": _sits_to_microsits(EVENT_COST),
+            "join_cost_millisits": _sits_to_microsits(JOIN_COST),
+            "participants": [],
+            "spectators": [],
+            "result": None,
+        }
 
     state = {
         "authorized": True,
@@ -1684,6 +1982,7 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
         "visit_geyser_blocked": visit_geyser_blocked if selected else False,
         "web_settings": selected_settings if selected else default_settings,
         "view_mode": "visit" if visit_target else "self",
+        "group_event": group_event_state,
         "visit": {
             "active": bool(visit_target),
             "user_id": int(visit_target["user_id"]) if visit_target else None,
@@ -1837,6 +2136,7 @@ def logout() -> JSONResponse:
 @app.on_event("startup")
 async def startup_idle_income_worker() -> None:
     global idle_income_task
+    group_store.initialize(reset_runtime_state=False)
     _ensure_idle_catalog_ready(force=True)
     _ensure_idle_service_tables()
     _ensure_geyser_tables()
@@ -1943,6 +2243,7 @@ def update_web_settings(request: Request, data: UpdateWebSettingsRequest) -> JSO
         chat_id=chat_id,
         hide_base=data.hide_base,
         reject_geyser_catch_by_guest=data.reject_geyser_catch_by_guest,
+        notify_group_masturbation=data.notify_group_masturbation,
     )
     return JSONResponse(
         {
@@ -2083,6 +2384,206 @@ def geyser_catch(request: Request) -> JSONResponse:
             },
             "visit_geyser_blocked": visit_geyser_blocked,
             **result,
+        }
+    )
+
+
+@app.get("/api/group-event/state")
+def group_event_state(request: Request) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "group_event": _build_group_event_state(chat_id, user_id),
+        }
+    )
+
+
+def _group_event_http_error(code: str) -> HTTPException:
+    if code == "insufficient_sits":
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "INSUFFICIENT_SITS",
+                "message": "Недостаточно сит для участия. Вы можете бесплатно посмотреть",
+            },
+        )
+    if code == "event_already_active":
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "EVENT_ALREADY_ACTIVE",
+                "message": "Групповая мастурбация уже идёт",
+            },
+        )
+    if code == "no_active_event":
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "NO_ACTIVE_EVENT",
+                "message": "Сейчас нет активного сеанса",
+            },
+        )
+    if code == "join_window_closed":
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "JOIN_WINDOW_CLOSED",
+                "message": "Окно регистрации закрыто",
+            },
+        )
+    if code == "already_joined":
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "ALREADY_JOINED",
+                "message": "Вы уже участвуете в этом сеансе",
+            },
+        )
+    if code == "reminder_exists":
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "REMINDER_EXISTS",
+                "message": "Напоминание уже включено",
+            },
+        )
+    return HTTPException(
+        status_code=500,
+        detail={
+            "code": "UNEXPECTED_ERROR",
+            "message": "Не удалось выполнить действие",
+        },
+    )
+
+
+@app.post("/api/group-event/start")
+def group_event_start(request: Request, _: GroupEventActionRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    profile = _get_user_profile(chat_id, user_id)
+    display_name = str(profile["name"] or f"Игрок {user_id}")
+
+    result = group_engine.start_event(
+        chat_id=chat_id,
+        user_id=user_id,
+        display_name=display_name,
+        thread_id=None,
+        source="web",
+    )
+    if not result.ok:
+        raise _group_event_http_error(result.code)
+
+    _enqueue_group_text(chat_id=chat_id, text=f"С твоего счёта списано {EVENT_COST} сит за запуск ивента")
+    if GROUP_EVENT_STICKER_FILE_ID:
+        group_store.enqueue_outbox(
+            chat_id=chat_id,
+            kind="send_sticker",
+            payload={"sticker": GROUP_EVENT_STICKER_FILE_ID, "thread_id": None},
+        )
+    _enqueue_group_start_flow(chat_id=chat_id)
+
+    balance = _get_user_balance(user_id, chat_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "balance": normalize_sits(balance),
+            "group_event": _build_group_event_state(chat_id, user_id),
+        }
+    )
+
+
+@app.post("/api/group-event/remind")
+def group_event_remind(request: Request, _: GroupEventActionRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    profile = _get_user_profile(chat_id, user_id)
+    display_name = str(profile["name"] or f"Игрок {user_id}")
+
+    result = group_engine.add_reminder(chat_id=chat_id, user_id=user_id, display_name=display_name)
+    if not result.ok:
+        raise _group_event_http_error(result.code)
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "group_event": _build_group_event_state(chat_id, user_id),
+        }
+    )
+
+
+@app.post("/api/group-event/join-participant")
+def group_event_join_participant(request: Request, _: GroupEventActionRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    profile = _get_user_profile(chat_id, user_id)
+    display_name = str(profile["name"] or f"Игрок {user_id}")
+
+    result = group_engine.join_as_participant(
+        chat_id=chat_id,
+        user_id=user_id,
+        display_name=display_name,
+        source="web",
+        allow_freebie_on_insufficient=False,
+    )
+    if not result.ok:
+        raise _group_event_http_error(result.code)
+
+    phrase = random.choice(GROUP_JOIN_ANNOUNCE_MESSAGES).format(name=display_name)
+    _enqueue_group_text(chat_id=chat_id, text=phrase, thread_id=result.thread_id)
+
+    balance = _get_user_balance(user_id, chat_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "balance": normalize_sits(balance),
+            "group_event": _build_group_event_state(chat_id, user_id),
+        }
+    )
+
+
+@app.post("/api/group-event/join-spectator")
+def group_event_join_spectator(request: Request, _: GroupEventActionRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    profile = _get_user_profile(chat_id, user_id)
+    display_name = str(profile["name"] or f"Игрок {user_id}")
+
+    result = group_engine.join_as_spectator(
+        chat_id=chat_id,
+        user_id=user_id,
+        display_name=display_name,
+        source="web",
+    )
+    if not result.ok:
+        raise _group_event_http_error(result.code)
+
+    _enqueue_group_text(chat_id=chat_id, text=f"👀 {display_name} просто посмотрит онлайн-трансляцию", thread_id=result.thread_id)
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "group_event": _build_group_event_state(chat_id, user_id),
+        }
+    )
+
+
+@app.post("/api/group-event/result/clear")
+def group_event_clear_result(request: Request, _: GroupEventActionRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    group_store.clear_event_result(chat_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "group_event": _build_group_event_state(chat_id, user_id),
         }
     )
 

@@ -84,11 +84,26 @@
                     <span class="settings-switch-thumb"></span>
                 </button>
             </div>
+            <div class="settings-item" data-setting-key="notify_group_masturbation" role="button" tabindex="0">
+                <span class="settings-item-label">Уведомлять о групповых мастурбациях</span>
+                <button id="notifyGroupSwitch" class="settings-switch" type="button" role="switch" aria-checked="false">
+                    <span class="settings-switch-thumb"></span>
+                </button>
+            </div>
             <button id="settingsLogoutBtn" class="settings-logout-btn" type="button">&#1042;&#1099;&#1081;&#1090;&#1080; &#1080;&#1079; &#1072;&#1082;&#1082;&#1072;&#1091;&#1085;&#1090;&#1072;</button>
         </div>
     </div>
     <div class="visit-geyser-label hidden" id="visitGeyserLabel"></div>
 </header>
+<div class="group-event-banner hidden" id="groupEventBanner" role="status" aria-live="polite">
+    <div class="group-event-banner-text">Внимание! Идёт мастурбация!</div>
+    <button class="group-event-banner-close" id="groupEventBannerClose" type="button" aria-label="Скрыть уведомление">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="5" y1="5" x2="19" y2="19"></line>
+            <line x1="19" y1="5" x2="5" y2="19"></line>
+        </svg>
+    </button>
+</div>
 <div class="visit-home-wrap hidden" id="visitHomeWrap">
     <button id="visitHomeBtn" class="visit-home-btn" type="button">ДОМОЙ</button>
 </div>
@@ -185,6 +200,32 @@
         <div class="transfer-message transfer-message--note" id="transferMessage">
             Хочется сказать, что если вы передали сит по ошибке, то это ваша проблема и решать вам её самостоятельно
         </div>
+    </div>
+</div>
+
+<div class="group-modal hidden" id="groupModal" aria-hidden="true">
+    <div class="group-modal-scrim" id="groupModalScrim"></div>
+    <div class="group-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle">
+        <div class="group-modal-head">
+            <h2 class="group-modal-title" id="groupModalTitle">Мастурбашня</h2>
+            <button class="group-modal-close" id="groupModalCloseBtn" type="button" aria-label="Закрыть окно">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <line x1="5" y1="5" x2="19" y2="19"></line>
+                    <line x1="19" y1="5" x2="5" y2="19"></line>
+                </svg>
+            </button>
+        </div>
+        <div class="group-modal-scene-wrap">
+            <img id="groupModalHallImage" class="group-modal-hall-image" src="/static/assets/masturbate/modals/sit_hall.png" alt="Зал мастурбации">
+            <div class="group-modal-avatar-layer" id="groupModalAvatarLayer"></div>
+            <div class="group-modal-countdown-card hidden" id="groupModalCountdownCard">
+                <div class="group-modal-countdown-title" id="groupModalCountdownTitle"></div>
+                <div class="group-modal-countdown-value" id="groupModalCountdownValue"></div>
+            </div>
+        </div>
+        <div class="group-modal-result hidden" id="groupModalResult"></div>
+        <div class="group-modal-actions" id="groupModalActions"></div>
+        <div class="group-modal-message" id="groupModalMessage"></div>
     </div>
 </div>
 
