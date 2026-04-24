@@ -164,10 +164,9 @@ def _ensure_web_settings_table() -> None:
         )
         cur.execute(
             """
-            INSERT INTO web_settings (user_id, chat_id, hide_base, reject_geyser_catch_by_guest)
+            INSERT OR IGNORE INTO web_settings (user_id, chat_id, hide_base, reject_geyser_catch_by_guest)
             SELECT u.user_id, u.chat_id, 0, 0
             FROM users u
-            ON CONFLICT(user_id, chat_id) DO NOTHING
             """
         )
         conn.commit()
