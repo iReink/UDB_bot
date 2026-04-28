@@ -176,6 +176,7 @@ const GEYSER_REWARD_TOAST_FADE_MS = 2000;
 const GROUP_EVENT_POLL_MS = 2500;
 const GROUP_EVENT_LIVE_TICK_MS = 250;
 const WEB_CHAT_POLL_MS = 2500;
+const WEB_CHAT_BOTTOM_STICKY_THRESHOLD = 20;
 const GROUP_HALL_ASSET = "/static/assets/masturbate/modals/sit_hall.png";
 const GROUP_HALL_RESULT_ASSET = "/static/assets/masturbate/modals/sit_hall_sit.png";
 const GROUP_BUILDING_ASSET = "/static/assets/masturbate/buildings/masturhall.png";
@@ -2565,16 +2566,35 @@ function getLastWebChatMessageId() {
     }, 0);
 }
 
-function renderWebChatMessages() {
+function isWebChatNearBottom(thresholdPx = WEB_CHAT_BOTTOM_STICKY_THRESHOLD) {
+    if (!webChatMessages) {
+        return true;
+    }
+    const distance = webChatMessages.scrollHeight - (webChatMessages.scrollTop + webChatMessages.clientHeight);
+    return distance <= Math.max(0, Number(thresholdPx) || 0);
+}
+
+function renderWebChatMessages(options = {}) {
     if (!webChatMessages) {
         return;
     }
+    const forceToBottom = Boolean(options.forceToBottom);
+    const preservePosition = options.preservePosition !== false;
+    const previousScrollTop = webChatMessages.scrollTop;
+    let shouldStickToBottom = forceToBottom;
+    if (!shouldStickToBottom && preservePosition) {
+        shouldStickToBottom = isWebChatNearBottom();
+    }
+
     webChatMessages.innerHTML = "";
     if (webChatLoading && !webChatMessagesState.length) {
         const loader = document.createElement("div");
         loader.className = "web-chat-empty";
         loader.textContent = "Загружаем сообщения...";
         webChatMessages.appendChild(loader);
+        if (shouldStickToBottom) {
+            webChatMessages.scrollTop = webChatMessages.scrollHeight;
+        }
         return;
     }
     if (!webChatMessagesState.length) {
@@ -2582,6 +2602,9 @@ function renderWebChatMessages() {
         empty.className = "web-chat-empty";
         empty.textContent = "В этом чате пока нет сообщений.";
         webChatMessages.appendChild(empty);
+        if (shouldStickToBottom) {
+            webChatMessages.scrollTop = webChatMessages.scrollHeight;
+        }
         return;
     }
 
@@ -2633,7 +2656,14 @@ function renderWebChatMessages() {
         row.appendChild(text);
         webChatMessages.appendChild(row);
     });
-    webChatMessages.scrollTop = webChatMessages.scrollHeight;
+    if (shouldStickToBottom) {
+        webChatMessages.scrollTop = webChatMessages.scrollHeight;
+        return;
+    }
+    if (preservePosition) {
+        const maxTop = Math.max(0, webChatMessages.scrollHeight - webChatMessages.clientHeight);
+        webChatMessages.scrollTop = Math.min(previousScrollTop, maxTop);
+    }
 }
 
 function setWebChatStatus(message, isError = false) {
@@ -2689,7 +2719,7 @@ async function fetchWebChatMessages(options = {}) {
         webChatLoadedChatId = activeSelectedChatId;
     }
     mergeWebChatMessages(payload.messages || []);
-    renderWebChatMessages();
+    renderWebChatMessages({ forceToBottom: reset });
 }
 
 function clearWebChatPolling() {
@@ -2775,7 +2805,7 @@ async function submitWebChatMessage() {
         pending: true,
     });
     webChatMessagesState.push(pendingMessage);
-    renderWebChatMessages();
+    renderWebChatMessages({ forceToBottom: true });
     try {
         const response = await fetch("/api/chat/messages", {
             method: "POST",
@@ -2789,7 +2819,7 @@ async function submitWebChatMessage() {
         }
         webChatInput.value = "";
         webChatMessagesState = webChatMessagesState.filter((message) => message !== pendingMessage);
-        renderWebChatMessages();
+        renderWebChatMessages({ forceToBottom: true });
         window.setTimeout(() => {
             void fetchWebChatMessages({ reset: false }).catch((error) => {
                 setWebChatStatus(error.message || "Не удалось обновить чат", true);
@@ -2799,7 +2829,7 @@ async function submitWebChatMessage() {
         pendingMessage.pending = false;
         pendingMessage.failed = true;
         setWebChatStatus(error.message || "Не удалось отправить сообщение", true);
-        renderWebChatMessages();
+        renderWebChatMessages({ forceToBottom: true });
     } finally {
         webChatSending = false;
         updateWebChatSubmitState();

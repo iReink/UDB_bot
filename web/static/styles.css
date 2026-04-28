@@ -640,7 +640,14 @@ body.is-visit-mode .visit-home-wrap {
 .players-panel,
 .web-chat-panel {
     max-height: 60vh;
+}
+
+.players-panel {
     overflow: auto;
+}
+
+.web-chat-panel {
+    overflow: hidden;
 }
 
 .buildings-panel-inner,
@@ -769,7 +776,7 @@ a.web-chat-author:hover {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
-    align-items: end;
+    align-items: stretch;
 }
 
 .web-chat-input {
@@ -795,7 +802,8 @@ a.web-chat-author:hover {
 }
 
 .web-chat-send-btn {
-    height: 52px;
+    height: auto;
+    min-height: 52px;
     width: 56px;
     border: 1px solid transparent;
     border-radius: 8px;
@@ -809,6 +817,7 @@ a.web-chat-author:hover {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    align-self: stretch;
 }
 
 .web-chat-send-btn svg {
@@ -1887,10 +1896,13 @@ a.web-chat-author:hover {
 
     .web-chat-panel-inner {
         max-height: none;
-        min-height: calc(100dvh - var(--app-header-height, 64px) - 16px);
+        min-height: 0;
+        height: calc(100dvh - var(--app-header-height, 64px) - 16px);
+        grid-template-rows: minmax(0, 1fr) auto auto;
     }
 
     .web-chat-messages {
+        min-height: 0;
         max-height: none;
     }
 
