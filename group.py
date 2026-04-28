@@ -29,6 +29,8 @@ STICKER_FILE_ID = "CAACAgIAAyEFAASjKavKAAIDrGi31TwpfP-R-JI64M0v6eRnTCFxAAJMUAACI
 
 PREPARE_DELAY_SEC = 10 * 60
 JOIN_WINDOW_SEC = 5 * 60
+FORCED_GROUP_THREAD_CHAT_ID = -1002730880821
+FORCED_GROUP_THREAD_ID = 137047
 
 GROUP_JOIN_MESSAGES = [
     "{name} пристраивается сбоку",
@@ -152,17 +154,24 @@ def get_winner_mention(chat_id: int, user_id: int, fallback_name: str) -> str:
     return nick or fallback_name
 
 
-def _send_kwargs_from_thread_id(thread_id: int | None) -> dict[str, Any]:
-    return {"message_thread_id": thread_id} if thread_id is not None else {}
+def _resolve_group_thread_id(chat_id: int, thread_id: int | None) -> int | None:
+    if int(chat_id) == FORCED_GROUP_THREAD_CHAT_ID:
+        return FORCED_GROUP_THREAD_ID
+    return thread_id
+
+
+def _send_kwargs_from_thread_id(chat_id: int, thread_id: int | None) -> dict[str, Any]:
+    effective_thread_id = _resolve_group_thread_id(chat_id, thread_id)
+    return {"message_thread_id": effective_thread_id} if effective_thread_id is not None else {}
 
 
 def _enqueue_outbox_text(chat_id: int, text: str, thread_id: int | None = None) -> None:
-    payload = {"text": text, "thread_id": thread_id}
+    payload = {"text": text, "thread_id": _resolve_group_thread_id(chat_id, thread_id)}
     _store.enqueue_outbox(chat_id=chat_id, kind="send_text", payload=payload)
 
 
 def _enqueue_outbox_sticker(chat_id: int, sticker: str, thread_id: int | None = None) -> None:
-    payload = {"sticker": sticker, "thread_id": thread_id}
+    payload = {"sticker": sticker, "thread_id": _resolve_group_thread_id(chat_id, thread_id)}
     _store.enqueue_outbox(chat_id=chat_id, kind="send_sticker", payload=payload)
 
 
@@ -180,7 +189,7 @@ async def _outbox_worker(bot: Bot) -> None:
                 kind = str(row["kind"])
                 chat_id = int(row["chat_id"])
                 thread_id = payload.get("thread_id")
-                send_kwargs = _send_kwargs_from_thread_id(thread_id)
+                send_kwargs = _send_kwargs_from_thread_id(chat_id, thread_id)
 
                 if kind == "send_text":
                     text = str(payload.get("text") or "")
@@ -317,6 +326,8 @@ def register_group_handlers(dp):
 
 async def start_group_event(message: types.Message, user_id: int):
     chat_id = message.chat.id
+    thread_id = _resolve_group_thread_id(chat_id, message.message_thread_id)
+    send_kwargs = _send_kwargs_from_thread_id(chat_id, thread_id)
     fallback_name = message.from_user.full_name or (f"@{message.from_user.username}" if message.from_user.username else str(user_id))
     display_name = _engine.resolve_display_name(chat_id, user_id, fallback_name)
 
@@ -324,7 +335,7 @@ async def start_group_event(message: types.Message, user_id: int):
         chat_id=chat_id,
         user_id=user_id,
         display_name=display_name,
-        thread_id=message.message_thread_id,
+        thread_id=thread_id,
         source="tg",
     )
     if not result.ok:
@@ -348,7 +359,7 @@ async def start_group_event(message: types.Message, user_id: int):
         suffix="Сит-премиум, сбор объявлен. Если хочешь участвовать, жди открытия окна и жми кнопку.",
     )
     if subscription_ping_text:
-        await message.answer(subscription_ping_text)
+        await message.answer(subscription_ping_text, **send_kwargs)
 
     _enqueue_outbox_sticker(chat_id=chat_id, sticker=STICKER_FILE_ID, thread_id=result.thread_id)
     _enqueue_outbox_text(
@@ -360,6 +371,7 @@ async def start_group_event(message: types.Message, user_id: int):
     await message.answer(
         "Хочешь напоминание о старте? Нажми кнопку!",
         reply_markup=remind_keyboard(),
+        **send_kwargs,
     )
 
     _schedule_event_flow(message.bot, chat_id)
@@ -379,7 +391,7 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         return
     thread_id = event["thread_id"]
     event_token = f"{chat_id}:{int(event['created_at'] or int(datetime.now().timestamp()))}"
-    send_kwargs = _send_kwargs_from_thread_id(thread_id)
+    send_kwargs = _send_kwargs_from_thread_id(chat_id, thread_id)
 
     try:
         await asyncio.sleep(PREPARE_DELAY_SEC - 7 * 60)
