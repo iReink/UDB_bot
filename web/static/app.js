@@ -4,6 +4,7 @@ const codeAuthHint = document.getElementById("codeAuthHint");
 const authCodeInput = document.getElementById("authCodeInput");
 const chatBalanceLabel = document.getElementById("chatBalanceLabel");
 const chatSwitch = document.getElementById("chatSwitch");
+const chatSwitchMobile = document.getElementById("chatSwitchMobile");
 const settingsWrap = document.getElementById("settingsWrap");
 const settingsBtn = document.getElementById("settingsBtn");
 const settingsMenu = document.getElementById("settingsMenu");
@@ -2040,6 +2041,15 @@ function clearGroupEventPolling() {
     }
 }
 
+function updateHeaderHeightVar() {
+    const fallback = 64;
+    let nextHeight = fallback;
+    if (appHeader && !appHeader.classList.contains("hidden")) {
+        nextHeight = Math.max(fallback, Math.round(appHeader.offsetHeight || fallback));
+    }
+    document.documentElement.style.setProperty("--app-header-height", `${nextHeight}px`);
+}
+
 function clearGroupEventLiveTicker() {
     if (groupEventLiveTickIntervalId !== null) {
         clearInterval(groupEventLiveTickIntervalId);
@@ -2492,6 +2502,32 @@ async function submitTransferSits() {
     }
 }
 
+function buildTelegramProfileUrl(rawNick) {
+    const nick = String(rawNick || "").trim().replace(/^@+/, "");
+    if (/^[A-Za-z0-9_]{4,64}$/.test(nick)) {
+        return `https://t.me/${nick}`;
+    }
+    return "https://t.me/iReink";
+}
+
+function getWebChatDayParts(value) {
+    if (!value) {
+        return { key: "", label: "" };
+    }
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+        const yyyy = date.getFullYear();
+        const mm = String(date.getMonth() + 1).padStart(2, "0");
+        const dd = String(date.getDate()).padStart(2, "0");
+        return { key: `${yyyy}-${mm}-${dd}`, label: `${dd}.${mm}.${yyyy}` };
+    }
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+        return { key: `${match[1]}-${match[2]}-${match[3]}`, label: `${match[3]}.${match[2]}.${match[1]}` };
+    }
+    return { key: "", label: "" };
+}
+
 function normalizeWebChatMessage(message) {
     const source = message && typeof message === "object" ? message : {};
     return {
@@ -2500,6 +2536,9 @@ function normalizeWebChatMessage(message) {
         user_id: Number(source.user_id) || 0,
         author_name: String(source.author_name || source.author_nick || `Игрок ${Number(source.user_id) || 0}`),
         author_nick: String(source.author_nick || ""),
+        author_link: Object.prototype.hasOwnProperty.call(source, "author_link")
+            ? String(source.author_link || "")
+            : buildTelegramProfileUrl(source.author_nick || ""),
         text: String(source.text || ""),
         reactions_count: Math.max(0, Math.trunc(Number(source.reactions_count) || 0)),
         date: String(source.date || ""),
@@ -2546,7 +2585,19 @@ function renderWebChatMessages() {
         return;
     }
 
+    let previousDayKey = "";
     webChatMessagesState.forEach((message) => {
+        const day = getWebChatDayParts(message.date);
+        if (day.key && previousDayKey && day.key !== previousDayKey) {
+            const divider = document.createElement("div");
+            divider.className = "web-chat-day-divider";
+            divider.textContent = day.label;
+            webChatMessages.appendChild(divider);
+        }
+        if (day.key) {
+            previousDayKey = day.key;
+        }
+
         const row = document.createElement("article");
         row.className = "web-chat-message";
         if (message.pending) {
@@ -2559,9 +2610,14 @@ function renderWebChatMessages() {
         const head = document.createElement("div");
         head.className = "web-chat-message-head";
 
-        const author = document.createElement("span");
+        const author = message.author_link ? document.createElement("a") : document.createElement("span");
         author.className = "web-chat-author";
         author.textContent = message.author_name;
+        if (message.author_link) {
+            author.href = message.author_link;
+            author.target = "_blank";
+            author.rel = "noopener noreferrer";
+        }
         head.appendChild(author);
 
         const timeNode = document.createElement("span");
@@ -2714,6 +2770,7 @@ async function submitWebChatMessage() {
     const pendingMessage = normalizeWebChatMessage({
         message_id: -Date.now(),
         author_name: "Вы",
+        author_link: "",
         text,
         pending: true,
     });
@@ -3232,21 +3289,41 @@ function closeChatModal() {
 }
 
 function fillChatSwitch(chats, selectedChatId) {
-    chatSwitch.innerHTML = "";
+    if (chatSwitch) {
+        chatSwitch.innerHTML = "";
+    }
+    if (chatSwitchMobile) {
+        chatSwitchMobile.innerHTML = "";
+    }
     chats.forEach((chat) => {
-        const option = document.createElement("option");
-        option.value = String(chat.chat_id);
-        option.textContent = chat.label;
-        if (chat.chat_id === selectedChatId) {
-            option.selected = true;
+        const value = String(chat.chat_id);
+
+        if (chatSwitch) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = chat.label;
+            if (chat.chat_id === selectedChatId) {
+                option.selected = true;
+            }
+            chatSwitch.appendChild(option);
         }
-        chatSwitch.appendChild(option);
+
+        if (chatSwitchMobile) {
+            const optionMobile = document.createElement("option");
+            optionMobile.value = value;
+            optionMobile.textContent = chat.label;
+            if (chat.chat_id === selectedChatId) {
+                optionMobile.selected = true;
+            }
+            chatSwitchMobile.appendChild(optionMobile);
+        }
     });
 }
 
 function renderState(state) {
     setServerClock(state && typeof state === "object" ? state.server_now_iso : null);
     applyNightFilterForNow();
+    updateHeaderHeightVar();
 
     if (!state.authorized) {
         activeSelectedChatId = null;
@@ -3256,6 +3333,7 @@ function renderState(state) {
         setVisitMode(false);
         closeTransferModal();
         setHidden(appHeader, true);
+        updateHeaderHeightVar();
         setHidden(buildingsPanel, true);
         setHidden(playersPanel, true);
         setHidden(webChatPanel, true);
@@ -3284,6 +3362,7 @@ function renderState(state) {
 
     setHidden(authCard, true);
     setHidden(appHeader, false);
+    updateHeaderHeightVar();
 
     const chats = state.chats || [];
     fillChatSwitch(chats, state.selected_chat_id);
@@ -3392,6 +3471,7 @@ function renderState(state) {
         setHidden(buildingsPanel, false);
     }
     scheduleGroupEventPolling();
+    updateHeaderHeightVar();
     return true;
 }
 
@@ -3599,13 +3679,32 @@ if (settingsMenu) {
     });
 }
 
-chatSwitch.addEventListener("change", async (event) => {
+async function handleChatSwitchChange(rawValue, source) {
+    const value = String(rawValue || "");
+    if (source !== chatSwitch && chatSwitch) {
+        chatSwitch.value = value;
+    }
+    if (source !== chatSwitchMobile && chatSwitchMobile) {
+        chatSwitchMobile.value = value;
+    }
     try {
-        await selectChat(Number(event.target.value));
+        await selectChat(Number(value));
     } catch (error) {
         setLoadingMessage(error.message);
     }
-});
+}
+
+if (chatSwitch) {
+    chatSwitch.addEventListener("change", async (event) => {
+        await handleChatSwitchChange(event.target.value, chatSwitch);
+    });
+}
+
+if (chatSwitchMobile) {
+    chatSwitchMobile.addEventListener("change", async (event) => {
+        await handleChatSwitchChange(event.target.value, chatSwitchMobile);
+    });
+}
 
 if (playersSearchInput) {
     playersSearchInput.addEventListener("input", () => {
@@ -3781,6 +3880,7 @@ if (settingsLogoutBtn) {
 }
 
 window.addEventListener("resize", () => {
+    updateHeaderHeightVar();
     if (!lastIdleBuildings.length) {
         return;
     }
@@ -3792,5 +3892,6 @@ setWebSettings(webSettings);
 setSettingsMenuOpen(false);
 setGroupEventState(createDefaultGroupEventState(), { silent: true });
 setGroupModalOpen(false);
+updateHeaderHeightVar();
 loadScene();
 refresh();

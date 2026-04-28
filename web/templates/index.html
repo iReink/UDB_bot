@@ -84,6 +84,10 @@
             </svg>
         </button>
         <div class="settings-menu hidden" id="settingsMenu">
+            <div class="settings-mobile-chat">
+                <label class="settings-mobile-chat-label" for="chatSwitchMobile">Аккаунт</label>
+                <select id="chatSwitchMobile" class="chat-switch chat-switch--settings"></select>
+            </div>
             <div class="settings-item" data-setting-key="hide_base" role="button" tabindex="0">
                 <span class="settings-item-label">Скрыть свою базу из списка</span>
                 <button id="hideBaseSwitch" class="settings-switch" type="button" role="switch" aria-checked="false">
@@ -165,7 +169,11 @@
                 placeholder="Сообщение в чат"
                 aria-label="Сообщение в чат"
             ></textarea>
-            <button id="webChatSendBtn" class="web-chat-send-btn" type="submit" disabled>Отправить</button>
+            <button id="webChatSendBtn" class="web-chat-send-btn" type="submit" disabled aria-label="Отправить сообщение">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3.2 11.2 20.4 3.6a.8.8 0 0 1 1.1.9l-3 14.2a.8.8 0 0 1-1.3.5l-4.5-3.7-2.8 2.8a.8.8 0 0 1-1.3-.4l-1-4.7-4.2-1.8a.8.8 0 0 1-.2-1.2Zm5.2 1.3 1 4.2 1.9-1.9a.8.8 0 0 1 1.1 0l3.9 3.2 2.4-11.2-13.6 6 3.5 1.5a.8.8 0 0 1 .4.5Z"></path>
+                </svg>
+            </button>
         </form>
     </div>
 </section>

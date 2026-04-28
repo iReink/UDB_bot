@@ -1,6 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap");
 
 :root {
+    --app-header-height: 64px;
     --accent: #ff47d1;
     --accent-strong: #de33b5;
     --accent-soft: #ff9be9;
@@ -355,6 +356,24 @@ body.is-night .backdrop {
     gap: 8px;
 }
 
+.settings-mobile-chat {
+    display: none;
+}
+
+.settings-mobile-chat-label {
+    display: block;
+    margin: 0 0 6px;
+    font-size: 13px;
+    line-height: 1.2;
+    font-weight: 500;
+    color: var(--muted);
+}
+
+.chat-switch--settings {
+    width: 100%;
+    max-width: 100%;
+}
+
 .settings-item {
     min-height: 50px;
     border-radius: 8px;
@@ -609,7 +628,7 @@ body.is-visit-mode .visit-home-wrap {
     position: fixed;
     left: 24px;
     width: min(50vw, 900px);
-    top: 82px;
+    top: calc(var(--app-header-height, 64px) + 18px);
     z-index: 25;
 }
 
@@ -684,6 +703,15 @@ body.is-visit-mode .visit-home-wrap {
     font-weight: 600;
 }
 
+a.web-chat-author {
+    color: inherit;
+    text-decoration: none;
+}
+
+a.web-chat-author:hover {
+    text-decoration: none;
+}
+
 .web-chat-time {
     flex: 0 0 auto;
     color: #5b546a;
@@ -698,6 +726,17 @@ body.is-visit-mode .visit-home-wrap {
     font-size: 15px;
     line-height: 1.35;
     font-weight: 400;
+}
+
+.web-chat-day-divider {
+    display: flex;
+    justify-content: center;
+    text-align: center;
+    font-size: 11px;
+    line-height: 1.2;
+    font-weight: 400;
+    color: rgba(91, 84, 106, 0.78);
+    padding: 2px 0;
 }
 
 .web-chat-empty {
@@ -757,15 +796,25 @@ body.is-visit-mode .visit-home-wrap {
 
 .web-chat-send-btn {
     height: 52px;
+    width: 56px;
     border: 1px solid transparent;
     border-radius: 8px;
     background: var(--accent);
     color: #121215;
-    padding: 0 18px;
+    padding: 0;
     font-size: 14px;
     line-height: 1;
     font-weight: 500;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.web-chat-send-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
 }
 
 .web-chat-send-btn:hover:not(:disabled) {
@@ -1750,10 +1799,19 @@ body.is-visit-mode .visit-home-wrap {
 @media (max-width: 740px) {
     .app-header {
         height: auto;
+        min-height: 0;
         padding: 10px 12px;
-        align-items: flex-start;
-        flex-direction: column;
+        align-items: center;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "left settings"
+            "controls controls";
         gap: 8px;
+    }
+
+    .header-left {
+        grid-area: left;
     }
 
     .header-center {
@@ -1763,13 +1821,45 @@ body.is-visit-mode .visit-home-wrap {
         max-width: 100%;
     }
 
+    .brand {
+        font-size: 0;
+        line-height: 1;
+    }
+
+    .brand::before {
+        content: "УДБ";
+        font-size: 26px;
+        line-height: 1;
+        font-weight: 800;
+        color: var(--accent-strong);
+    }
+
     .header-controls {
+        grid-area: controls;
         width: 100%;
-        flex-wrap: wrap;
+        display: block;
     }
 
     .settings-wrap {
-        align-self: flex-end;
+        grid-area: settings;
+        align-self: center;
+        justify-self: end;
+    }
+
+    .header-controls .chat-switch,
+    .header-controls #logoutBtn {
+        display: none;
+    }
+
+    .chat-switch-label {
+        display: block;
+        font-size: 13px;
+        line-height: 1.25;
+        white-space: normal;
+    }
+
+    .settings-mobile-chat {
+        display: block;
     }
 
     .visit-geyser-label {
@@ -1779,40 +1869,41 @@ body.is-visit-mode .visit-home-wrap {
         margin-top: 2px;
     }
 
-    .chat-switch {
-        width: 100%;
-        max-width: 100%;
-    }
-
-    .ghost-btn {
-        width: 100%;
-    }
-
     .buildings-panel,
     .players-panel,
     .web-chat-panel {
-        top: 120px;
+        top: calc(var(--app-header-height, 64px) + 8px);
+        max-height: calc(100dvh - var(--app-header-height, 64px) - 16px);
     }
 
     .buildings-panel {
-        max-height: calc(100vh - 132px);
+        max-height: calc(100dvh - var(--app-header-height, 64px) - 16px);
     }
 
     .players-panel,
     .web-chat-panel {
-        max-height: 60vh;
+        max-height: calc(100dvh - var(--app-header-height, 64px) - 16px);
+    }
+
+    .web-chat-panel-inner {
+        max-height: none;
+        min-height: calc(100dvh - var(--app-header-height, 64px) - 16px);
+    }
+
+    .web-chat-messages {
+        max-height: none;
     }
 
     .app-main {
-        padding-top: 120px;
+        padding-top: calc(var(--app-header-height, 64px) + 10px);
     }
 
     .visit-home-wrap {
-        top: 112px;
+        top: calc(var(--app-header-height, 64px) + 4px);
     }
 
     .group-event-banner {
-        top: 122px;
+        top: calc(var(--app-header-height, 64px) + 8px);
     }
 
     .visit-home-btn {
