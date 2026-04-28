@@ -145,18 +145,22 @@ let webSettings = {
 const TRANSFER_NOTE_TEXT = "Хочется сказать, что если вы передали сит по ошибке, то это ваша проблема и решать вам её самостоятельно";
 let groupEventState = null;
 let groupEventPollTimeoutId = null;
+let groupEventLiveTickIntervalId = null;
 let groupModalOpen = false;
 let dismissedGroupEventToken = null;
 let lastGroupEventPhase = "idle";
 let lastGroupEventToken = null;
 let groupEventKnownReminders = new Set();
-const groupAvatarAnimationTimers = new Map();
+let groupAvatarAnimationLoopTimeoutId = null;
+let groupAvatarAnimationStopTimeoutId = null;
+let groupAvatarNodes = [];
 let lastGroupAvatarLayoutKey = "";
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
 const GEYSER_REWARD_TOAST_FADE_MS = 2000;
 const GROUP_EVENT_POLL_MS = 2500;
+const GROUP_EVENT_LIVE_TICK_MS = 250;
 const GROUP_HALL_ASSET = "/static/assets/masturbate/modals/sit_hall.png";
 const GROUP_HALL_RESULT_ASSET = "/static/assets/masturbate/modals/sit_hall_sit.png";
 const GROUP_BUILDING_ASSET = "/static/assets/masturbate/buildings/masturhall.png";
@@ -185,8 +189,8 @@ const GROUP_SLOT_SPECTATORS = [
     { x: 571, y: 371 },
 ];
 const GROUP_AVATAR_ANIM_CLASSES = ["is-animated", "is-animated-shake", "is-animated-spin"];
-const GROUP_AVATAR_ANIM_MIN_MS = 30000;
-const GROUP_AVATAR_ANIM_MAX_MS = 60000;
+const GROUP_AVATAR_ANIM_MIN_MS = 250;
+const GROUP_AVATAR_ANIM_MAX_MS = 1200;
 const GROUP_AVATAR_ANIM_DURATION_MS = 5000;
 const NIGHT_WINDOW_START_HOUR = 20;
 const NIGHT_WINDOW_END_HOUR = 8;
@@ -1303,6 +1307,9 @@ function createDefaultGroupEventState() {
         active: false,
         phase: "idle",
         event_token: null,
+        server_now_ts: 0,
+        prepare_until_ts: 0,
+        join_until_ts: 0,
         prepare_seconds_left: 0,
         join_seconds_left: 0,
         viewer_role: "none",
@@ -1316,6 +1323,7 @@ function createDefaultGroupEventState() {
         participants: [],
         spectators: [],
         result: null,
+        client_synced_at_ms: 0,
     };
 }
 
@@ -1338,6 +1346,9 @@ function normalizeGroupEventState(raw) {
         active: Boolean(source.active),
         phase: String(source.phase || "idle"),
         event_token: source.event_token ? String(source.event_token) : null,
+        server_now_ts: Math.max(0, Number(source.server_now_ts) || 0),
+        prepare_until_ts: Math.max(0, Number(source.prepare_until_ts) || 0),
+        join_until_ts: Math.max(0, Number(source.join_until_ts) || 0),
         prepare_seconds_left: Math.max(0, Math.trunc(Number(source.prepare_seconds_left) || 0)),
         join_seconds_left: Math.max(0, Math.trunc(Number(source.join_seconds_left) || 0)),
         viewer_role: String(source.viewer_role || "none"),
@@ -1351,6 +1362,7 @@ function normalizeGroupEventState(raw) {
         participants: Array.isArray(source.participants) ? source.participants.map((item) => normalizeGroupMember(item, "participant")) : [],
         spectators: Array.isArray(source.spectators) ? source.spectators.map((item) => normalizeGroupMember(item, "spectator")) : [],
         result: source.result && typeof source.result === "object" ? source.result : null,
+        client_synced_at_ms: Date.now(),
     };
 }
 
@@ -1359,6 +1371,51 @@ function formatCountdownSeconds(totalSeconds) {
     const minutes = Math.floor(value / 60);
     const seconds = value % 60;
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function estimateGroupServerNowTs(state) {
+    const source = state && typeof state === "object" ? state : {};
+    const baseNow = Math.max(0, Number(source.server_now_ts) || 0);
+    if (!baseNow) {
+        return Date.now() / 1000;
+    }
+    const syncedAtMs = Math.max(0, Number(source.client_synced_at_ms) || 0);
+    if (!syncedAtMs) {
+        return baseNow;
+    }
+    const elapsedSeconds = Math.max(0, (Date.now() - syncedAtMs) / 1000);
+    return baseNow + elapsedSeconds;
+}
+
+function getLiveGroupCountdownSeconds(state, phase) {
+    const source = state && typeof state === "object" ? state : {};
+    const baseSeconds = phase === "preparing"
+        ? Math.max(0, Number(source.prepare_seconds_left) || 0)
+        : Math.max(0, Number(source.join_seconds_left) || 0);
+    const syncedAtMs = Math.max(0, Number(source.client_synced_at_ms) || 0);
+    if (!syncedAtMs) {
+        return Math.trunc(baseSeconds);
+    }
+    const elapsedSeconds = Math.max(0, (Date.now() - syncedAtMs) / 1000);
+    return Math.max(0, Math.ceil(baseSeconds - elapsedSeconds));
+}
+
+function isGroupTransitionToStart(state) {
+    const source = state && typeof state === "object" ? state : {};
+    if (!source.active) {
+        return false;
+    }
+    if (source.phase === "preparing" && getLiveGroupCountdownSeconds(source, "preparing") <= 0) {
+        return true;
+    }
+    if (source.phase !== "finishing") {
+        return false;
+    }
+    const joinUntilTs = Math.max(0, Number(source.join_until_ts) || 0);
+    if (!joinUntilTs) {
+        return false;
+    }
+    return estimateGroupServerNowTs(source) < joinUntilTs;
 }
 
 function hashText(value) {
@@ -1423,43 +1480,60 @@ function randomOverflowSlot(keySeed) {
 }
 
 function clearGroupAvatarAnimations() {
-    groupAvatarAnimationTimers.forEach((timerIds) => {
-        if (!timerIds) {
+    if (groupAvatarAnimationLoopTimeoutId != null) {
+        clearTimeout(groupAvatarAnimationLoopTimeoutId);
+        groupAvatarAnimationLoopTimeoutId = null;
+    }
+    if (groupAvatarAnimationStopTimeoutId != null) {
+        clearTimeout(groupAvatarAnimationStopTimeoutId);
+        groupAvatarAnimationStopTimeoutId = null;
+    }
+    groupAvatarNodes.forEach((node) => {
+        if (!node) {
             return;
         }
-        if (timerIds.nextTimeout != null) {
-            clearTimeout(timerIds.nextTimeout);
-        }
-        if (timerIds.stopTimeout != null) {
-            clearTimeout(timerIds.stopTimeout);
-        }
+        GROUP_AVATAR_ANIM_CLASSES.forEach((className) => node.classList.remove(className));
     });
-    groupAvatarAnimationTimers.clear();
+    groupAvatarNodes = [];
 }
 
-function scheduleGroupAvatarAnimation(avatarNode, avatarKey) {
-    const runLater = () => {
-        const animClass = GROUP_AVATAR_ANIM_CLASSES[hashText(`${avatarKey}:${Date.now()}`) % GROUP_AVATAR_ANIM_CLASSES.length];
-        avatarNode.classList.add(animClass);
-        const stopTimeout = window.setTimeout(() => {
-            avatarNode.classList.remove(animClass);
-        }, GROUP_AVATAR_ANIM_DURATION_MS);
+function scheduleNextGroupAvatarAnimation() {
+    if (!groupAvatarNodes.length) {
+        return;
+    }
+    const randomIndex = Math.floor(Math.random() * groupAvatarNodes.length);
+    const avatarNode = groupAvatarNodes[randomIndex];
+    if (!avatarNode) {
+        return;
+    }
 
-        const nextDelay = GROUP_AVATAR_ANIM_MIN_MS
+    GROUP_AVATAR_ANIM_CLASSES.forEach((className) => avatarNode.classList.remove(className));
+    const animClass = GROUP_AVATAR_ANIM_CLASSES[
+        hashText(`${Date.now()}:${randomIndex}:${groupAvatarNodes.length}`) % GROUP_AVATAR_ANIM_CLASSES.length
+    ];
+    avatarNode.classList.add(animClass);
+
+    groupAvatarAnimationStopTimeoutId = window.setTimeout(() => {
+        avatarNode.classList.remove(animClass);
+        groupAvatarAnimationStopTimeoutId = null;
+        const pauseMs = GROUP_AVATAR_ANIM_MIN_MS
             + Math.floor(Math.random() * (GROUP_AVATAR_ANIM_MAX_MS - GROUP_AVATAR_ANIM_MIN_MS));
-        const nextTimeout = window.setTimeout(runLater, nextDelay);
-        groupAvatarAnimationTimers.set(avatarKey, {
-            nextTimeout,
-            stopTimeout,
-        });
-    };
-    const firstDelay = GROUP_AVATAR_ANIM_MIN_MS
-        + Math.floor(Math.random() * (GROUP_AVATAR_ANIM_MAX_MS - GROUP_AVATAR_ANIM_MIN_MS));
-    const nextTimeout = window.setTimeout(runLater, firstDelay);
-    groupAvatarAnimationTimers.set(avatarKey, {
-        nextTimeout,
-        stopTimeout: null,
-    });
+        groupAvatarAnimationLoopTimeoutId = window.setTimeout(() => {
+            groupAvatarAnimationLoopTimeoutId = null;
+            scheduleNextGroupAvatarAnimation();
+        }, pauseMs);
+    }, GROUP_AVATAR_ANIM_DURATION_MS);
+}
+
+function startGroupAvatarAnimations() {
+    if (!groupAvatarNodes.length) {
+        return;
+    }
+    const initialDelayMs = Math.floor(Math.random() * 250);
+    groupAvatarAnimationLoopTimeoutId = window.setTimeout(() => {
+        groupAvatarAnimationLoopTimeoutId = null;
+        scheduleNextGroupAvatarAnimation();
+    }, initialDelayMs);
 }
 
 function renderGroupModalAvatars(eventState) {
@@ -1468,6 +1542,7 @@ function renderGroupModalAvatars(eventState) {
     }
     clearGroupAvatarAnimations();
     groupModalAvatarLayer.innerHTML = "";
+    const renderedAvatarNodes = [];
 
     const participants = Array.isArray(eventState.participants) ? eventState.participants : [];
     const spectators = Array.isArray(eventState.spectators) ? eventState.spectators : [];
@@ -1528,12 +1603,17 @@ function renderGroupModalAvatars(eventState) {
 
         const name = document.createElement("div");
         name.className = "group-modal-avatar-name";
+        if (resultWinnerId != null && Number(member.user_id) === Number(resultWinnerId)) {
+            name.classList.add("is-winner");
+        }
         name.textContent = String(member.name || "Игрок");
         avatar.appendChild(name);
 
         groupModalAvatarLayer.appendChild(avatar);
-        scheduleGroupAvatarAnimation(avatar, `${eventToken}:${member.user_id}:${member.role}`);
+        renderedAvatarNodes.push(avatar);
     });
+    groupAvatarNodes = renderedAvatarNodes;
+    startGroupAvatarAnimations();
 }
 
 function setGroupModalMessage(message, isError = false) {
@@ -1682,6 +1762,9 @@ function renderGroupModal() {
         return;
     }
     const state = groupEventState || createDefaultGroupEventState();
+    const livePrepareSeconds = getLiveGroupCountdownSeconds(state, "preparing");
+    const liveJoinSeconds = getLiveGroupCountdownSeconds(state, "joining");
+    const isTransitionToStart = isGroupTransitionToStart(state);
 
     if (groupModalHallImage) {
         const useResultHall = !state.active && state.result;
@@ -1692,7 +1775,7 @@ function renderGroupModal() {
         if (!state.active && state.result) {
             groupModalTitle.textContent = "Мастурбашня — результат";
         } else if (state.phase === "joining") {
-            groupModalTitle.textContent = `Мастурбашня (${formatCountdownSeconds(state.join_seconds_left)})`;
+            groupModalTitle.textContent = `Мастурбашня (${formatCountdownSeconds(liveJoinSeconds)})`;
         } else {
             groupModalTitle.textContent = "Мастурбашня";
         }
@@ -1701,7 +1784,7 @@ function renderGroupModal() {
     if (groupModalCountdownCard && groupModalCountdownTitle && groupModalCountdownValue) {
         const showCountdown = state.active && state.phase === "preparing";
         groupModalCountdownTitle.textContent = "До начала мастурбации:";
-        groupModalCountdownValue.textContent = formatCountdownSeconds(state.prepare_seconds_left);
+        groupModalCountdownValue.textContent = formatCountdownSeconds(livePrepareSeconds);
         setHidden(groupModalCountdownCard, !showCountdown);
     }
 
@@ -1840,7 +1923,7 @@ function renderGroupModal() {
         });
     } else {
         buttons.push({
-            text: "Сеанс завершается...",
+            text: isTransitionToStart ? "Уже начинаем!" : "Сеанс завершается...",
             disabled: true,
         });
     }
@@ -1851,6 +1934,7 @@ function setGroupModalOpen(isOpen) {
     groupModalOpen = Boolean(isOpen);
     setHidden(groupModal, !groupModalOpen);
     if (!groupModalOpen) {
+        clearGroupEventLiveTicker();
         clearGroupAvatarAnimations();
         lastGroupAvatarLayoutKey = "";
         if (groupModalAvatarLayer) {
@@ -1859,6 +1943,7 @@ function setGroupModalOpen(isOpen) {
         clearGroupModalMessage();
     } else {
         renderGroupModal();
+        ensureGroupEventLiveTicker();
     }
     renderGroupEventBanner();
 }
@@ -1926,6 +2011,7 @@ function setGroupEventState(nextState, options = {}) {
     if (groupModalOpen) {
         renderGroupModal();
     }
+    ensureGroupEventLiveTicker();
     renderGroupEventBanner();
 
     if (!options.silent) {
@@ -1938,6 +2024,31 @@ function clearGroupEventPolling() {
         clearTimeout(groupEventPollTimeoutId);
         groupEventPollTimeoutId = null;
     }
+}
+
+function clearGroupEventLiveTicker() {
+    if (groupEventLiveTickIntervalId !== null) {
+        clearInterval(groupEventLiveTickIntervalId);
+        groupEventLiveTickIntervalId = null;
+    }
+}
+
+function ensureGroupEventLiveTicker() {
+    clearGroupEventLiveTicker();
+    if (!groupModalOpen) {
+        return;
+    }
+    const state = groupEventState || createDefaultGroupEventState();
+    if (!state.active) {
+        return;
+    }
+    groupEventLiveTickIntervalId = window.setInterval(() => {
+        if (!groupModalOpen) {
+            clearGroupEventLiveTicker();
+            return;
+        }
+        renderGroupModal();
+    }, GROUP_EVENT_LIVE_TICK_MS);
 }
 
 function scheduleGroupEventPolling() {

@@ -442,7 +442,7 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         if subscription_ping_text:
             await bot.send_message(chat_id, subscription_ping_text, **send_kwargs)
 
-        await asyncio.sleep(JOIN_WINDOW_SEC - 60 - 30 - 10 - 1)
+        await asyncio.sleep(JOIN_WINDOW_SEC - 60)
         await bot.send_message(chat_id, "⏳ Осталась одна минута! Готовимся!", **send_kwargs)
         await asyncio.sleep(30)
         await bot.send_message(chat_id, "🎯 Целимся!!", **send_kwargs)

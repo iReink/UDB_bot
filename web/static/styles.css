@@ -1330,8 +1330,8 @@ body.is-visit-mode .visit-home-wrap {
     display: inline-block;
     padding: 3px 10px;
     border-radius: 999px;
-    background: #7fd88a;
-    color: #13231a;
+    background: #ff47d1;
+    color: #1f0a1a;
     font-size: 14px;
     line-height: 1.1;
     font-weight: 500;
@@ -1339,6 +1339,11 @@ body.is-visit-mode .visit-home-wrap {
     max-width: 170px;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.group-modal-avatar-name.is-winner {
+    background: #7fd88a;
+    color: #13231a;
 }
 
 .group-modal-avatar.is-animated {
