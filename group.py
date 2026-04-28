@@ -175,6 +175,27 @@ def _enqueue_outbox_sticker(chat_id: int, sticker: str, thread_id: int | None = 
     _store.enqueue_outbox(chat_id=chat_id, kind="send_sticker", payload=payload)
 
 
+def _record_web_chat_message(chat_id: int, message_id: int, user_id: int, text: str) -> None:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO messages_reactions
+            (chat_id, message_id, user_id, message_text, reactions_count, date)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chat_id,
+                message_id,
+                user_id,
+                text,
+                0,
+                datetime.now().isoformat(),
+            ),
+        )
+        conn.commit()
+
+
 async def _outbox_worker(bot: Bot) -> None:
     while True:
         rows = _store.fetch_outbox_batch(limit=30)
@@ -195,6 +216,15 @@ async def _outbox_worker(bot: Bot) -> None:
                     text = str(payload.get("text") or "")
                     if text:
                         await bot.send_message(chat_id, text, **send_kwargs)
+                elif kind == "send_web_chat_message":
+                    text = str(payload.get("text") or "").strip()
+                    user_id = int(payload.get("user_id") or 0)
+                    display_name = str(payload.get("display_name") or f"Игрок {user_id}").strip()
+                    if text and user_id:
+                        thread_id = payload.get("thread_id")
+                        web_chat_send_kwargs = {"message_thread_id": int(thread_id)} if thread_id is not None else {}
+                        message = await bot.send_message(chat_id, f'{display_name} (/web): "{text}"', **web_chat_send_kwargs)
+                        _record_web_chat_message(chat_id, message.message_id, user_id, text)
                 elif kind == "send_sticker":
                     sticker = str(payload.get("sticker") or "")
                     if sticker:

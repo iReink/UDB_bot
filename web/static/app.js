@@ -15,6 +15,7 @@ const chatModal = document.getElementById("chatModal");
 const chatList = document.getElementById("chatList");
 const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
 const playersToggleBtn = document.getElementById("playersToggleBtn");
+const webChatToggleBtn = document.getElementById("webChatToggleBtn");
 const visitHeaderTitle = document.getElementById("visitHeaderTitle");
 const visitGeyserLabel = document.getElementById("visitGeyserLabel");
 const visitHomeWrap = document.getElementById("visitHomeWrap");
@@ -25,6 +26,12 @@ const playersPanel = document.getElementById("playersPanel");
 const playersSearchInput = document.getElementById("playersSearchInput");
 const playersList = document.getElementById("playersList");
 const playersEmpty = document.getElementById("playersEmpty");
+const webChatPanel = document.getElementById("webChatPanel");
+const webChatMessages = document.getElementById("webChatMessages");
+const webChatStatus = document.getElementById("webChatStatus");
+const webChatForm = document.getElementById("webChatForm");
+const webChatInput = document.getElementById("webChatInput");
+const webChatSendBtn = document.getElementById("webChatSendBtn");
 const chatmatesList = null;
 const screenLoader = document.getElementById("screenLoader");
 const sceneTooltip = document.getElementById("sceneTooltip");
@@ -105,6 +112,7 @@ const sceneSpawnedElements = [];
 
 let buildingsPanelOpen = false;
 let playersPanelOpen = false;
+let webChatPanelOpen = false;
 let buildingsPanelAutoOpened = false;
 let idleBuildingsRequestInFlight = false;
 let playersRequestInFlight = false;
@@ -137,6 +145,11 @@ let transferRecipientPlayer = null;
 let transferSenderBalance = 0;
 let settingsMenuOpen = false;
 let settingsUpdateInFlight = false;
+let webChatMessagesState = [];
+let webChatLoadedChatId = null;
+let webChatLoading = false;
+let webChatSending = false;
+let webChatPollTimeoutId = null;
 let webSettings = {
     hide_base: false,
     reject_geyser_catch_by_guest: false,
@@ -161,6 +174,7 @@ const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
 const GEYSER_REWARD_TOAST_FADE_MS = 2000;
 const GROUP_EVENT_POLL_MS = 2500;
 const GROUP_EVENT_LIVE_TICK_MS = 250;
+const WEB_CHAT_POLL_MS = 2500;
 const GROUP_HALL_ASSET = "/static/assets/masturbate/modals/sit_hall.png";
 const GROUP_HALL_RESULT_ASSET = "/static/assets/masturbate/modals/sit_hall_sit.png";
 const GROUP_BUILDING_ASSET = "/static/assets/masturbate/buildings/masturhall.png";
@@ -2212,6 +2226,9 @@ async function startVisit(targetUserId) {
             if (playersPanelOpen) {
                 await ensureIdlePlayersLoaded({ force: true, withLoader: false });
             }
+            if (webChatPanelOpen) {
+                await ensureWebChatLoaded({ force: true });
+            }
         }
     } finally {
         endScreenLoading();
@@ -2235,6 +2252,9 @@ async function leaveVisit() {
             await refreshIdleBuildings({ force: true });
             if (playersPanelOpen) {
                 await ensureIdlePlayersLoaded({ force: true, withLoader: false });
+            }
+            if (webChatPanelOpen) {
+                await ensureWebChatLoaded({ force: true });
             }
         }
     } finally {
@@ -2472,16 +2492,275 @@ async function submitTransferSits() {
     }
 }
 
+function normalizeWebChatMessage(message) {
+    const source = message && typeof message === "object" ? message : {};
+    return {
+        chat_id: Number(source.chat_id) || 0,
+        message_id: Number(source.message_id) || 0,
+        user_id: Number(source.user_id) || 0,
+        author_name: String(source.author_name || source.author_nick || `Игрок ${Number(source.user_id) || 0}`),
+        author_nick: String(source.author_nick || ""),
+        text: String(source.text || ""),
+        reactions_count: Math.max(0, Math.trunc(Number(source.reactions_count) || 0)),
+        date: String(source.date || ""),
+        pending: Boolean(source.pending),
+        failed: Boolean(source.failed),
+    };
+}
+
+function formatWebChatTime(value) {
+    if (!value) {
+        return "";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return String(value).slice(11, 16);
+    }
+    return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+
+function getLastWebChatMessageId() {
+    return webChatMessagesState.reduce((maxId, message) => {
+        const messageId = Number(message.message_id) || 0;
+        return messageId > maxId ? messageId : maxId;
+    }, 0);
+}
+
+function renderWebChatMessages() {
+    if (!webChatMessages) {
+        return;
+    }
+    webChatMessages.innerHTML = "";
+    if (webChatLoading && !webChatMessagesState.length) {
+        const loader = document.createElement("div");
+        loader.className = "web-chat-empty";
+        loader.textContent = "Загружаем сообщения...";
+        webChatMessages.appendChild(loader);
+        return;
+    }
+    if (!webChatMessagesState.length) {
+        const empty = document.createElement("div");
+        empty.className = "web-chat-empty";
+        empty.textContent = "В этом чате пока нет сообщений.";
+        webChatMessages.appendChild(empty);
+        return;
+    }
+
+    webChatMessagesState.forEach((message) => {
+        const row = document.createElement("article");
+        row.className = "web-chat-message";
+        if (message.pending) {
+            row.classList.add("is-pending");
+        }
+        if (message.failed) {
+            row.classList.add("is-failed");
+        }
+
+        const head = document.createElement("div");
+        head.className = "web-chat-message-head";
+
+        const author = document.createElement("span");
+        author.className = "web-chat-author";
+        author.textContent = message.author_name;
+        head.appendChild(author);
+
+        const timeNode = document.createElement("span");
+        timeNode.className = "web-chat-time";
+        timeNode.textContent = message.pending ? "отправляется" : formatWebChatTime(message.date);
+        head.appendChild(timeNode);
+
+        const text = document.createElement("div");
+        text.className = "web-chat-text";
+        text.textContent = message.text;
+
+        row.appendChild(head);
+        row.appendChild(text);
+        webChatMessages.appendChild(row);
+    });
+    webChatMessages.scrollTop = webChatMessages.scrollHeight;
+}
+
+function setWebChatStatus(message, isError = false) {
+    if (!webChatStatus) {
+        return;
+    }
+    webChatStatus.textContent = String(message || "");
+    webChatStatus.classList.toggle("is-error", Boolean(isError));
+}
+
+function mergeWebChatMessages(messages) {
+    const byId = new Map();
+    webChatMessagesState.forEach((message) => {
+        if (!message.pending && message.message_id > 0) {
+            byId.set(Number(message.message_id), message);
+        }
+    });
+    (Array.isArray(messages) ? messages : []).forEach((message) => {
+        const normalized = normalizeWebChatMessage(message);
+        if (normalized.message_id > 0) {
+            byId.set(Number(normalized.message_id), normalized);
+        }
+    });
+    webChatMessagesState = Array.from(byId.values())
+        .sort((a, b) => Number(a.message_id) - Number(b.message_id))
+        .slice(-100);
+}
+
+async function fetchWebChatMessages(options = {}) {
+    const reset = Boolean(options.reset);
+    if (activeSelectedChatId == null) {
+        return;
+    }
+    const params = new URLSearchParams();
+    if (!reset) {
+        const lastId = getLastWebChatMessageId();
+        if (lastId > 0) {
+            params.set("after_message_id", String(lastId));
+        }
+    }
+    const url = params.toString() ? `/api/chat/messages?${params.toString()}` : "/api/chat/messages";
+    const response = await fetch(url, { credentials: "include" });
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Не удалось загрузить чат");
+    }
+    const payload = await response.json();
+    if (activeSelectedChatId == null || Number(payload.chat_id) !== Number(activeSelectedChatId)) {
+        return;
+    }
+    if (reset) {
+        webChatMessagesState = [];
+        webChatLoadedChatId = activeSelectedChatId;
+    }
+    mergeWebChatMessages(payload.messages || []);
+    renderWebChatMessages();
+}
+
+function clearWebChatPolling() {
+    if (webChatPollTimeoutId !== null) {
+        clearTimeout(webChatPollTimeoutId);
+        webChatPollTimeoutId = null;
+    }
+}
+
+function scheduleWebChatPolling() {
+    clearWebChatPolling();
+    if (!webChatPanelOpen || activeSelectedChatId == null) {
+        return;
+    }
+    webChatPollTimeoutId = window.setTimeout(async () => {
+        try {
+            await fetchWebChatMessages({ reset: false });
+        } catch (error) {
+            setWebChatStatus(error.message || "Не удалось обновить чат", true);
+        } finally {
+            scheduleWebChatPolling();
+        }
+    }, WEB_CHAT_POLL_MS);
+}
+
+function resetWebChatState() {
+    clearWebChatPolling();
+    webChatMessagesState = [];
+    webChatLoadedChatId = null;
+    webChatLoading = false;
+    webChatSending = false;
+    setWebChatStatus("");
+    renderWebChatMessages();
+}
+
+async function ensureWebChatLoaded(options = {}) {
+    if (!webChatPanelOpen || activeSelectedChatId == null || webChatLoading) {
+        return;
+    }
+    const force = Boolean(options.force);
+    if (!force && webChatLoadedChatId !== null && Number(webChatLoadedChatId) === Number(activeSelectedChatId)) {
+        scheduleWebChatPolling();
+        return;
+    }
+    webChatLoading = true;
+    setWebChatStatus("");
+    renderWebChatMessages();
+    try {
+        await fetchWebChatMessages({ reset: true });
+    } catch (error) {
+        setWebChatStatus(error.message || "Не удалось загрузить чат", true);
+    } finally {
+        webChatLoading = false;
+        renderWebChatMessages();
+        scheduleWebChatPolling();
+    }
+}
+
+function updateWebChatSubmitState() {
+    if (!webChatSendBtn || !webChatInput) {
+        return;
+    }
+    webChatSendBtn.disabled = webChatSending || !(webChatInput.value || "").trim();
+}
+
+async function submitWebChatMessage() {
+    if (!webChatInput || webChatSending || activeSelectedChatId == null) {
+        return;
+    }
+    const text = (webChatInput.value || "").trim();
+    if (!text) {
+        updateWebChatSubmitState();
+        return;
+    }
+    webChatSending = true;
+    updateWebChatSubmitState();
+    setWebChatStatus("");
+    const pendingMessage = normalizeWebChatMessage({
+        message_id: -Date.now(),
+        author_name: "Вы",
+        text,
+        pending: true,
+    });
+    webChatMessagesState.push(pendingMessage);
+    renderWebChatMessages();
+    try {
+        const response = await fetch("/api/chat/messages", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload.detail || "Не удалось отправить сообщение");
+        }
+        webChatInput.value = "";
+        webChatMessagesState = webChatMessagesState.filter((message) => message !== pendingMessage);
+        renderWebChatMessages();
+        window.setTimeout(() => {
+            void fetchWebChatMessages({ reset: false }).catch((error) => {
+                setWebChatStatus(error.message || "Не удалось обновить чат", true);
+            });
+        }, 700);
+    } catch (error) {
+        pendingMessage.pending = false;
+        pendingMessage.failed = true;
+        setWebChatStatus(error.message || "Не удалось отправить сообщение", true);
+        renderWebChatMessages();
+    } finally {
+        webChatSending = false;
+        updateWebChatSubmitState();
+        scheduleWebChatPolling();
+    }
+}
+
 function setActiveSidePanel(panelName) {
     if (settingsMenuOpen) {
         setSettingsMenuOpen(false);
     }
-    let normalized = panelName === "buildings" || panelName === "players" ? panelName : null;
+    let normalized = panelName === "buildings" || panelName === "players" || panelName === "chat" ? panelName : null;
     if (visitModeActive && normalized === "buildings") {
         normalized = null;
     }
     buildingsPanelOpen = normalized === "buildings";
     playersPanelOpen = normalized === "players";
+    webChatPanelOpen = normalized === "chat";
 
     if (buildingsToggleBtn) {
         buildingsToggleBtn.classList.toggle("is-active", buildingsPanelOpen);
@@ -2491,11 +2770,23 @@ function setActiveSidePanel(panelName) {
         playersToggleBtn.classList.toggle("is-active", playersPanelOpen);
         playersToggleBtn.setAttribute("aria-pressed", playersPanelOpen ? "true" : "false");
     }
+    if (webChatToggleBtn) {
+        webChatToggleBtn.classList.toggle("is-active", webChatPanelOpen);
+        webChatToggleBtn.setAttribute("aria-pressed", webChatPanelOpen ? "true" : "false");
+    }
     if (buildingsPanel) {
         buildingsPanel.classList.toggle("hidden", !buildingsPanelOpen);
     }
     if (playersPanel) {
         playersPanel.classList.toggle("hidden", !playersPanelOpen);
+    }
+    if (webChatPanel) {
+        webChatPanel.classList.toggle("hidden", !webChatPanelOpen);
+    }
+    if (webChatPanelOpen) {
+        void ensureWebChatLoaded();
+    } else {
+        clearWebChatPolling();
     }
 }
 
@@ -2967,10 +3258,12 @@ function renderState(state) {
         setHidden(appHeader, true);
         setHidden(buildingsPanel, true);
         setHidden(playersPanel, true);
+        setHidden(webChatPanel, true);
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
         closeChatModal();
         resetPlayersData();
+        resetWebChatState();
         clearBuildingsPanel();
         clearSceneBuildings();
         setHidden(authCard, false);
@@ -3005,6 +3298,7 @@ function renderState(state) {
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
         resetPlayersData();
+        resetWebChatState();
         clearBuildingsPanel();
         clearSceneBuildings();
         closeChatModal();
@@ -3034,6 +3328,7 @@ function renderState(state) {
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
         resetPlayersData();
+        resetWebChatState();
         clearBuildingsPanel();
         clearSceneBuildings();
         setGeyserProgress(0, 10, { visitBlockedByOwner: false });
@@ -3058,6 +3353,7 @@ function renderState(state) {
         groupEventKnownReminders = new Set();
         dismissedGroupEventToken = null;
         setHourlyIncomeMicrosits(0);
+        resetWebChatState();
     }
     if (activeSelectedChatId === null || Number(activeSelectedChatId) !== selectedChatId) {
         resetPlayersData();
@@ -3121,6 +3417,7 @@ async function selectChat(chatId, options = {}) {
         activeBuildingsOwnerUserId = null;
         setHourlyIncomeMicrosits(0);
         resetPlayersData();
+        resetWebChatState();
         clearSceneBuildings();
         clearBuildingsPanel();
         const response = await fetch("/api/select-chat", {
@@ -3140,6 +3437,9 @@ async function selectChat(chatId, options = {}) {
             if (playersPanelOpen) {
                 await ensureIdlePlayersLoaded({ force: true, withLoader: false });
             }
+            if (webChatPanelOpen) {
+                await ensureWebChatLoaded({ force: true });
+            }
         }
     } finally {
         if (withLoader) {
@@ -3157,6 +3457,9 @@ async function refresh() {
             await refreshIdleBuildings({ force: true });
             if (playersPanelOpen) {
                 await ensureIdlePlayersLoaded({ force: true, withLoader: false });
+            }
+            if (webChatPanelOpen) {
+                await ensureWebChatLoaded({ force: true });
             }
         }
     } catch (_error) {
@@ -3198,6 +3501,9 @@ async function submitCodeAuth() {
             if (playersPanelOpen) {
                 await ensureIdlePlayersLoaded({ force: true, withLoader: false });
             }
+            if (webChatPanelOpen) {
+                await ensureWebChatLoaded({ force: true });
+            }
         }
         authCodeInput.value = "";
     } catch (error) {
@@ -3231,6 +3537,35 @@ if (settingsBtn) {
             return;
         }
         setSettingsMenuOpen(!settingsMenuOpen);
+    });
+}
+
+if (webChatToggleBtn) {
+    webChatToggleBtn.addEventListener("click", () => {
+        if (activeSelectedChatId == null) {
+            setActiveSidePanel(null);
+            return;
+        }
+        setActiveSidePanel(webChatPanelOpen ? null : "chat");
+    });
+}
+
+if (webChatInput) {
+    webChatInput.addEventListener("input", () => {
+        updateWebChatSubmitState();
+    });
+    webChatInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            void submitWebChatMessage();
+        }
+    });
+}
+
+if (webChatForm) {
+    webChatForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void submitWebChatMessage();
     });
 }
 

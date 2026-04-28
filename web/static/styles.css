@@ -604,7 +604,8 @@ body.is-visit-mode .visit-home-wrap {
 }
 
 .buildings-panel,
-.players-panel {
+.players-panel,
+.web-chat-panel {
     position: fixed;
     left: 24px;
     width: min(50vw, 900px);
@@ -617,17 +618,167 @@ body.is-visit-mode .visit-home-wrap {
     overflow: auto;
 }
 
-.players-panel {
+.players-panel,
+.web-chat-panel {
     max-height: 60vh;
     overflow: auto;
 }
 
 .buildings-panel-inner,
-.players-panel-inner {
+.players-panel-inner,
+.web-chat-panel-inner {
     background: var(--panel-shell);
     border: 1px solid rgba(88, 59, 106, 0.15);
     border-radius: 8px;
     padding: 16px;
+}
+
+.web-chat-panel-inner {
+    display: grid;
+    grid-template-rows: minmax(220px, 1fr) auto auto;
+    gap: 10px;
+    max-height: 60vh;
+}
+
+.web-chat-messages {
+    min-height: 220px;
+    max-height: calc(60vh - 118px);
+    overflow: auto;
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding-right: 4px;
+}
+
+.web-chat-message {
+    border-radius: 8px;
+    background: var(--panel-row);
+    border: 1px solid rgba(104, 64, 125, 0.2);
+    padding: 10px 12px;
+    color: #121215;
+}
+
+.web-chat-message.is-pending {
+    opacity: 0.72;
+}
+
+.web-chat-message.is-failed {
+    border-color: rgba(206, 46, 118, 0.55);
+}
+
+.web-chat-message-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+.web-chat-author {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    line-height: 1.2;
+    font-weight: 600;
+}
+
+.web-chat-time {
+    flex: 0 0 auto;
+    color: #5b546a;
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 400;
+}
+
+.web-chat-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 15px;
+    line-height: 1.35;
+    font-weight: 400;
+}
+
+.web-chat-empty {
+    min-height: 160px;
+    border-radius: 8px;
+    background: var(--panel-row);
+    border: 1px solid rgba(104, 64, 125, 0.2);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 15px;
+    line-height: 1.35;
+}
+
+.web-chat-status {
+    min-height: 16px;
+    color: #5b546a;
+    font-size: 12px;
+    line-height: 1.3;
+}
+
+.web-chat-status.is-error {
+    color: #ce2e76;
+}
+
+.web-chat-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: end;
+}
+
+.web-chat-input {
+    width: 100%;
+    min-height: 52px;
+    max-height: 116px;
+    resize: vertical;
+    border-radius: 8px;
+    border: 1px solid rgba(104, 64, 125, 0.16);
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.35;
+    letter-spacing: 0;
+    padding: 10px 12px;
+}
+
+.web-chat-input:focus {
+    outline: 2px solid rgba(222, 51, 181, 0.3);
+    outline-offset: 1px;
+    border-color: rgba(222, 51, 181, 0.45);
+}
+
+.web-chat-send-btn {
+    height: 52px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #121215;
+    padding: 0 18px;
+    font-size: 14px;
+    line-height: 1;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.web-chat-send-btn:hover:not(:disabled) {
+    filter: brightness(1.03);
+}
+
+.web-chat-send-btn:active:not(:disabled) {
+    filter: brightness(0.97);
+}
+
+.web-chat-send-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .buildings-list {
@@ -1521,7 +1672,8 @@ body.is-visit-mode .visit-home-wrap {
 
 @media (max-width: 1020px) {
     .buildings-panel,
-    .players-panel {
+    .players-panel,
+    .web-chat-panel {
         left: 12px;
         right: 12px;
         width: auto;
@@ -1637,7 +1789,8 @@ body.is-visit-mode .visit-home-wrap {
     }
 
     .buildings-panel,
-    .players-panel {
+    .players-panel,
+    .web-chat-panel {
         top: 120px;
     }
 
@@ -1645,7 +1798,8 @@ body.is-visit-mode .visit-home-wrap {
         max-height: calc(100vh - 132px);
     }
 
-    .players-panel {
+    .players-panel,
+    .web-chat-panel {
         max-height: 60vh;
     }
 

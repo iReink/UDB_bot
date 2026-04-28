@@ -120,6 +120,10 @@ class GroupEventActionRequest(BaseModel):
     pass
 
 
+class ChatMessageRequest(BaseModel):
+    text: str = ""
+
+
 def _get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -1026,6 +1030,89 @@ def _enqueue_group_text(chat_id: int, text: str, thread_id: int | None = None) -
 
 def _enqueue_group_start_flow(chat_id: int) -> None:
     group_store.enqueue_outbox(chat_id=chat_id, kind="start_event_flow", payload={})
+
+
+def _sanitize_web_chat_text(value: Any) -> str:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Введите сообщение")
+    if len(text) > 1000:
+        raise HTTPException(status_code=400, detail="Сообщение не должно быть длиннее 1000 символов")
+    return text
+
+
+def _format_chat_message(row: sqlite3.Row) -> dict[str, Any]:
+    user_id = int(row["user_id"] or 0)
+    author_name = str(row["author_name"] or "").strip()
+    author_nick = str(row["author_nick"] or "").strip()
+    return {
+        "chat_id": int(row["chat_id"]),
+        "message_id": int(row["message_id"]),
+        "user_id": user_id,
+        "author_name": author_name or author_nick or f"Игрок {user_id}",
+        "author_nick": author_nick,
+        "text": str(row["message_text"] or ""),
+        "reactions_count": int(row["reactions_count"] or 0),
+        "date": str(row["date"] or ""),
+    }
+
+
+def _get_chat_messages(chat_id: int, after_message_id: int | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit or 100), 100))
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        if after_message_id is not None and after_message_id > 0:
+            cur.execute(
+                """
+                SELECT
+                    mr.chat_id,
+                    mr.message_id,
+                    mr.user_id,
+                    mr.message_text,
+                    mr.reactions_count,
+                    mr.date,
+                    COALESCE(u.name, '') AS author_name,
+                    COALESCE(u.nick, '') AS author_nick
+                FROM messages_reactions mr
+                LEFT JOIN users u
+                    ON u.chat_id = mr.chat_id AND u.user_id = mr.user_id
+                WHERE mr.chat_id = ?
+                    AND mr.message_id > ?
+                    AND TRIM(COALESCE(mr.message_text, '')) != ''
+                ORDER BY mr.message_id ASC
+                LIMIT ?
+                """,
+                (chat_id, int(after_message_id), limit),
+            )
+            rows = cur.fetchall()
+        else:
+            cur.execute(
+                """
+                SELECT *
+                FROM (
+                    SELECT
+                        mr.chat_id,
+                        mr.message_id,
+                        mr.user_id,
+                        mr.message_text,
+                        mr.reactions_count,
+                        mr.date,
+                        COALESCE(u.name, '') AS author_name,
+                        COALESCE(u.nick, '') AS author_nick
+                    FROM messages_reactions mr
+                    LEFT JOIN users u
+                        ON u.chat_id = mr.chat_id AND u.user_id = mr.user_id
+                    WHERE mr.chat_id = ?
+                        AND TRIM(COALESCE(mr.message_text, '')) != ''
+                    ORDER BY mr.message_id DESC
+                    LIMIT ?
+                )
+                ORDER BY message_id ASC
+                """,
+                (chat_id, limit),
+            )
+            rows = cur.fetchall()
+    return [_format_chat_message(row) for row in rows]
 
 
 def _parse_transfer_amount(value: Any) -> float:
@@ -2409,6 +2496,45 @@ def group_event_state(request: Request) -> JSONResponse:
             "chat_id": chat_id,
             "user_id": user_id,
             "group_event": _build_group_event_state(chat_id, user_id),
+        }
+    )
+
+
+@app.get("/api/chat/messages")
+def chat_messages(request: Request, after_message_id: int | None = None) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    messages = _get_chat_messages(chat_id=chat_id, after_message_id=after_message_id, limit=100)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "messages": messages,
+        }
+    )
+
+
+@app.post("/api/chat/messages")
+def chat_message_send(request: Request, data: ChatMessageRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    text = _sanitize_web_chat_text(data.text)
+    profile = _get_user_profile(chat_id, user_id)
+    display_name = str(profile["name"] or f"Игрок {user_id}")
+    group_store.enqueue_outbox(
+        chat_id=chat_id,
+        kind="send_web_chat_message",
+        payload={
+            "user_id": user_id,
+            "display_name": display_name,
+            "text": text,
+        },
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "queued": True,
         }
     )
 
