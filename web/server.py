@@ -114,6 +114,7 @@ class UpdateWebSettingsRequest(BaseModel):
     hide_base: bool | None = None
     reject_geyser_catch_by_guest: bool | None = None
     notify_group_masturbation: bool | None = None
+    notify_group_masturbation_sound: bool | None = None
 
 
 class GroupEventActionRequest(BaseModel):
@@ -187,6 +188,7 @@ def _ensure_web_settings_table() -> None:
                 hide_base INTEGER NOT NULL DEFAULT 0 CHECK(hide_base IN (0, 1)),
                 reject_geyser_catch_by_guest INTEGER NOT NULL DEFAULT 0 CHECK(reject_geyser_catch_by_guest IN (0, 1)),
                 notify_group_masturbation INTEGER NOT NULL DEFAULT 1 CHECK(notify_group_masturbation IN (0, 1)),
+                notify_group_masturbation_sound INTEGER NOT NULL DEFAULT 1 CHECK(notify_group_masturbation_sound IN (0, 1)),
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (user_id, chat_id)
             )
@@ -202,6 +204,14 @@ def _ensure_web_settings_table() -> None:
                 CHECK(notify_group_masturbation IN (0, 1))
                 """
             )
+        if "notify_group_masturbation_sound" not in columns:
+            cur.execute(
+                """
+                ALTER TABLE web_settings
+                ADD COLUMN notify_group_masturbation_sound INTEGER NOT NULL DEFAULT 1
+                CHECK(notify_group_masturbation_sound IN (0, 1))
+                """
+            )
         cur.execute(
             """
             INSERT OR IGNORE INTO web_settings (
@@ -209,9 +219,10 @@ def _ensure_web_settings_table() -> None:
                 chat_id,
                 hide_base,
                 reject_geyser_catch_by_guest,
-                notify_group_masturbation
+                notify_group_masturbation,
+                notify_group_masturbation_sound
             )
-            SELECT u.user_id, u.chat_id, 0, 0, 1
+            SELECT u.user_id, u.chat_id, 0, 0, 1, 1
             FROM users u
             """
         )
@@ -227,7 +238,8 @@ def _get_web_settings(user_id: int, chat_id: int) -> dict[str, bool]:
             SELECT
                 COALESCE(hide_base, 0) AS hide_base,
                 COALESCE(reject_geyser_catch_by_guest, 0) AS reject_geyser_catch_by_guest,
-                COALESCE(notify_group_masturbation, 1) AS notify_group_masturbation
+                COALESCE(notify_group_masturbation, 1) AS notify_group_masturbation,
+                COALESCE(notify_group_masturbation_sound, 1) AS notify_group_masturbation_sound
             FROM web_settings
             WHERE user_id = ? AND chat_id = ?
             """,
@@ -239,11 +251,13 @@ def _get_web_settings(user_id: int, chat_id: int) -> dict[str, bool]:
             "hide_base": False,
             "reject_geyser_catch_by_guest": False,
             "notify_group_masturbation": True,
+            "notify_group_masturbation_sound": True,
         }
     return {
         "hide_base": bool(int(row["hide_base"] or 0)),
         "reject_geyser_catch_by_guest": bool(int(row["reject_geyser_catch_by_guest"] or 0)),
         "notify_group_masturbation": bool(int(row["notify_group_masturbation"] or 0)),
+        "notify_group_masturbation_sound": bool(int(row["notify_group_masturbation_sound"] or 0)),
     }
 
 
@@ -253,6 +267,7 @@ def _update_web_settings(
     hide_base: bool | None = None,
     reject_geyser_catch_by_guest: bool | None = None,
     notify_group_masturbation: bool | None = None,
+    notify_group_masturbation_sound: bool | None = None,
 ) -> dict[str, bool]:
     _ensure_web_settings_table()
     with _get_connection() as conn:
@@ -263,7 +278,8 @@ def _update_web_settings(
             SELECT
                 COALESCE(hide_base, 0) AS hide_base,
                 COALESCE(reject_geyser_catch_by_guest, 0) AS reject_geyser_catch_by_guest,
-                COALESCE(notify_group_masturbation, 1) AS notify_group_masturbation
+                COALESCE(notify_group_masturbation, 1) AS notify_group_masturbation,
+                COALESCE(notify_group_masturbation_sound, 1) AS notify_group_masturbation_sound
             FROM web_settings
             WHERE user_id = ? AND chat_id = ?
             """,
@@ -273,9 +289,11 @@ def _update_web_settings(
         current_hide = bool(int(row["hide_base"] or 0)) if row else False
         current_reject = bool(int(row["reject_geyser_catch_by_guest"] or 0)) if row else False
         current_notify = bool(int(row["notify_group_masturbation"] or 1)) if row else True
+        current_notify_sound = bool(int(row["notify_group_masturbation_sound"] or 1)) if row else True
         next_hide = current_hide if hide_base is None else bool(hide_base)
         next_reject = current_reject if reject_geyser_catch_by_guest is None else bool(reject_geyser_catch_by_guest)
         next_notify = current_notify if notify_group_masturbation is None else bool(notify_group_masturbation)
+        next_notify_sound = current_notify_sound if notify_group_masturbation_sound is None else bool(notify_group_masturbation_sound)
         cur.execute(
             """
             INSERT INTO web_settings (
@@ -284,22 +302,25 @@ def _update_web_settings(
                 hide_base,
                 reject_geyser_catch_by_guest,
                 notify_group_masturbation,
+                notify_group_masturbation_sound,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(user_id, chat_id) DO UPDATE SET
                 hide_base = excluded.hide_base,
                 reject_geyser_catch_by_guest = excluded.reject_geyser_catch_by_guest,
                 notify_group_masturbation = excluded.notify_group_masturbation,
+                notify_group_masturbation_sound = excluded.notify_group_masturbation_sound,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (user_id, chat_id, int(next_hide), int(next_reject), int(next_notify)),
+            (user_id, chat_id, int(next_hide), int(next_reject), int(next_notify), int(next_notify_sound)),
         )
         conn.commit()
     return {
         "hide_base": next_hide,
         "reject_geyser_catch_by_guest": next_reject,
         "notify_group_masturbation": next_notify,
+        "notify_group_masturbation_sound": next_notify_sound,
     }
 
 
@@ -2026,6 +2047,7 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
         "hide_base": False,
         "reject_geyser_catch_by_guest": False,
         "notify_group_masturbation": True,
+        "notify_group_masturbation_sound": True,
     }
     selected_settings = default_settings
     visit_geyser_blocked = False
@@ -2343,6 +2365,7 @@ def update_web_settings(request: Request, data: UpdateWebSettingsRequest) -> JSO
         hide_base=data.hide_base,
         reject_geyser_catch_by_guest=data.reject_geyser_catch_by_guest,
         notify_group_masturbation=data.notify_group_masturbation,
+        notify_group_masturbation_sound=data.notify_group_masturbation_sound,
     )
     return JSONResponse(
         {

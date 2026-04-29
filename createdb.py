@@ -29,6 +29,7 @@ def ensure_web_settings_table(cur: sqlite3.Cursor) -> bool:
             hide_base INTEGER NOT NULL DEFAULT 0 CHECK(hide_base IN (0, 1)),
             reject_geyser_catch_by_guest INTEGER NOT NULL DEFAULT 0 CHECK(reject_geyser_catch_by_guest IN (0, 1)),
             notify_group_masturbation INTEGER NOT NULL DEFAULT 1 CHECK(notify_group_masturbation IN (0, 1)),
+            notify_group_masturbation_sound INTEGER NOT NULL DEFAULT 1 CHECK(notify_group_masturbation_sound IN (0, 1)),
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (user_id, chat_id)
         )
@@ -51,6 +52,14 @@ def ensure_web_settings_table(cur: sqlite3.Cursor) -> bool:
             CHECK(notify_group_masturbation IN (0, 1))
             """
         )
+    if "notify_group_masturbation_sound" not in columns:
+        cur.execute(
+            """
+            ALTER TABLE web_settings
+            ADD COLUMN notify_group_masturbation_sound INTEGER NOT NULL DEFAULT 1
+            CHECK(notify_group_masturbation_sound IN (0, 1))
+            """
+        )
 
     if _table_exists(cur, "users"):
         cur.execute(
@@ -60,9 +69,10 @@ def ensure_web_settings_table(cur: sqlite3.Cursor) -> bool:
                 chat_id,
                 hide_base,
                 reject_geyser_catch_by_guest,
-                notify_group_masturbation
+                notify_group_masturbation,
+                notify_group_masturbation_sound
             )
-            SELECT u.user_id, u.chat_id, 0, 0, 1
+            SELECT u.user_id, u.chat_id, 0, 0, 1, 1
             FROM users u
             """
         )
@@ -72,6 +82,14 @@ def ensure_web_settings_table(cur: sqlite3.Cursor) -> bool:
             SET notify_group_masturbation = 1
             WHERE notify_group_masturbation NOT IN (0, 1)
                OR notify_group_masturbation IS NULL
+            """
+        )
+        cur.execute(
+            """
+            UPDATE web_settings
+            SET notify_group_masturbation_sound = 1
+            WHERE notify_group_masturbation_sound NOT IN (0, 1)
+               OR notify_group_masturbation_sound IS NULL
             """
         )
     return True

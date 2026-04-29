@@ -11,6 +11,7 @@ const settingsMenu = document.getElementById("settingsMenu");
 const hideBaseSwitch = document.getElementById("hideBaseSwitch");
 const rejectGuestGeyserSwitch = document.getElementById("rejectGuestGeyserSwitch");
 const notifyGroupSwitch = document.getElementById("notifyGroupSwitch");
+const notifyGroupSoundSwitch = document.getElementById("notifyGroupSoundSwitch");
 const settingsLogoutBtn = document.getElementById("settingsLogoutBtn");
 const chatModal = document.getElementById("chatModal");
 const chatList = document.getElementById("chatList");
@@ -165,6 +166,7 @@ let webSettings = {
     hide_base: false,
     reject_geyser_catch_by_guest: false,
     notify_group_masturbation: true,
+    notify_group_masturbation_sound: true,
 };
 const TRANSFER_NOTE_TEXT = "Хочется сказать, что если вы передали миллиситы по ошибке, то это ваша проблема и решать вам её самостоятельно";
 let groupEventState = null;
@@ -189,6 +191,8 @@ const WEB_CHAT_POLL_MS = 2500;
 const WEB_CHAT_BOTTOM_STICKY_THRESHOLD = 20;
 const GROUP_HALL_ASSET = "/static/assets/masturbate/modals/sit_hall.png";
 const GROUP_HALL_RESULT_ASSET = "/static/assets/masturbate/modals/sit_hall_sit.png";
+const GROUP_SOUND_START_ASSET = "/static/assets/masturbate/sounds/mast_start.mp3";
+const GROUP_SOUND_ACTIVE_ASSET = "/static/assets/masturbate/sounds/mast_active.mp3";
 const GROUP_BUILDING_ASSET = "/static/assets/masturbate/buildings/masturhall.png";
 const GROUP_BUILDING_GLOW_ASSET = "/static/assets/masturbate/buildings/masturhall_glow.png";
 const GROUP_AVATARS_BASE = "/static/assets/masturbate/avatars/participants";
@@ -1310,6 +1314,7 @@ function normalizeWebSettings(settings) {
         hide_base: Boolean(source.hide_base),
         reject_geyser_catch_by_guest: Boolean(source.reject_geyser_catch_by_guest),
         notify_group_masturbation: source.notify_group_masturbation !== false,
+        notify_group_masturbation_sound: source.notify_group_masturbation_sound !== false,
     };
 }
 
@@ -1330,6 +1335,9 @@ function setSettingsSwitchesDisabled(disabled) {
     }
     if (notifyGroupSwitch) {
         notifyGroupSwitch.disabled = Boolean(disabled);
+    }
+    if (notifyGroupSoundSwitch) {
+        notifyGroupSoundSwitch.disabled = Boolean(disabled);
     }
 }
 
@@ -1659,31 +1667,29 @@ function clearGroupModalMessage() {
     setGroupModalMessage("", false);
 }
 
-function playGroupReminderSound() {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) {
+function playGroupEventSound(src) {
+    if (!src || !webSettings.notify_group_masturbation_sound) {
         return;
     }
     try {
-        const context = new AudioCtx();
-        const oscillator = context.createOscillator();
-        const gainNode = context.createGain();
-        oscillator.type = "triangle";
-        oscillator.frequency.setValueAtTime(740, context.currentTime);
-        oscillator.frequency.exponentialRampToValueAtTime(970, context.currentTime + 0.2);
-        gainNode.gain.setValueAtTime(0.0001, context.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.03);
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.42);
-        oscillator.connect(gainNode);
-        gainNode.connect(context.destination);
-        oscillator.start();
-        oscillator.stop(context.currentTime + 0.44);
-        window.setTimeout(() => {
-            void context.close().catch(() => {});
-        }, 600);
+        const audio = new Audio(src);
+        audio.preload = "auto";
+        audio.volume = 1;
+        const playPromise = audio.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+            playPromise.catch(() => {});
+        }
     } catch (_error) {
         // no-op
     }
+}
+
+function playGroupStartSound() {
+    playGroupEventSound(GROUP_SOUND_START_ASSET);
+}
+
+function playGroupActiveSound() {
+    playGroupEventSound(GROUP_SOUND_ACTIVE_ASSET);
 }
 
 function renderGroupEventBanner() {
@@ -2013,6 +2019,7 @@ async function closeGroupModal(options = {}) {
 
 function setGroupEventState(nextState, options = {}) {
     const normalized = normalizeGroupEventState(nextState);
+    const previousActive = Boolean(groupEventState && groupEventState.active);
     const previousPhase = lastGroupEventPhase;
     const previousToken = lastGroupEventToken;
     const nextToken = normalized.event_token;
@@ -2028,6 +2035,16 @@ function setGroupEventState(nextState, options = {}) {
     lastGroupEventPhase = normalized.phase;
     lastGroupEventToken = nextToken;
 
+    const becamePreparing = (
+        normalized.active
+        && normalized.phase === "preparing"
+        && (
+            !previousActive
+            || previousPhase !== "preparing"
+            || nextToken !== previousToken
+        )
+    );
+
     const becameJoining = (
         normalized.active
         && nextToken
@@ -2035,8 +2052,11 @@ function setGroupEventState(nextState, options = {}) {
         && previousPhase === "preparing"
         && normalized.phase === "joining"
     );
-    if (becameJoining && (groupEventKnownReminders.has(nextToken) || webSettings.notify_group_masturbation)) {
-        playGroupReminderSound();
+    if (becamePreparing) {
+        playGroupStartSound();
+    }
+    if (becameJoining) {
+        playGroupActiveSound();
     }
 
     if (groupModalOpen) {
@@ -2118,6 +2138,7 @@ function renderSettingsControls() {
     applySwitchState(hideBaseSwitch, webSettings.hide_base);
     applySwitchState(rejectGuestGeyserSwitch, webSettings.reject_geyser_catch_by_guest);
     applySwitchState(notifyGroupSwitch, webSettings.notify_group_masturbation);
+    applySwitchState(notifyGroupSoundSwitch, webSettings.notify_group_masturbation_sound);
     setSettingsSwitchesDisabled(settingsUpdateInFlight || activeSelectedChatId == null);
 }
 
@@ -2158,6 +2179,7 @@ async function toggleWebSetting(settingKey) {
         settingKey !== "hide_base"
         && settingKey !== "reject_geyser_catch_by_guest"
         && settingKey !== "notify_group_masturbation"
+        && settingKey !== "notify_group_masturbation_sound"
     ) {
         return;
     }
@@ -3533,6 +3555,7 @@ function renderState(state) {
             hide_base: false,
             reject_geyser_catch_by_guest: false,
             notify_group_masturbation: true,
+            notify_group_masturbation_sound: true,
         });
         setSettingsMenuOpen(false);
         clearGroupEventPolling();
@@ -3569,6 +3592,7 @@ function renderState(state) {
             hide_base: false,
             reject_geyser_catch_by_guest: false,
             notify_group_masturbation: true,
+            notify_group_masturbation_sound: true,
         });
         setSettingsMenuOpen(false);
         clearGroupEventPolling();
@@ -3598,6 +3622,7 @@ function renderState(state) {
             hide_base: false,
             reject_geyser_catch_by_guest: false,
             notify_group_masturbation: true,
+            notify_group_masturbation_sound: true,
         });
         setSettingsMenuOpen(false);
         clearGroupEventPolling();
@@ -3633,6 +3658,7 @@ function renderState(state) {
         hide_base: false,
         reject_geyser_catch_by_guest: false,
         notify_group_masturbation: true,
+        notify_group_masturbation_sound: true,
     });
     setGeyserProgress(state.geyser_caught_today, state.geyser_daily_limit, {
         visitBlockedByOwner: Boolean(state.visit_geyser_blocked),
