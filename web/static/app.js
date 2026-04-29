@@ -17,6 +17,12 @@ const chatList = document.getElementById("chatList");
 const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
 const playersToggleBtn = document.getElementById("playersToggleBtn");
 const webChatToggleBtn = document.getElementById("webChatToggleBtn");
+const chatPreviewBtn = document.getElementById("chatPreviewBtn");
+const chatPreviewTrack = document.getElementById("chatPreviewTrack");
+const chatPreviewCurrentAuthor = document.getElementById("chatPreviewCurrentAuthor");
+const chatPreviewCurrentText = document.getElementById("chatPreviewCurrentText");
+const chatPreviewNextAuthor = document.getElementById("chatPreviewNextAuthor");
+const chatPreviewNextText = document.getElementById("chatPreviewNextText");
 const visitHeaderTitle = document.getElementById("visitHeaderTitle");
 const visitGeyserLabel = document.getElementById("visitGeyserLabel");
 const visitHomeWrap = document.getElementById("visitHomeWrap");
@@ -151,6 +157,8 @@ let webChatLoadedChatId = null;
 let webChatLoading = false;
 let webChatSending = false;
 let webChatPollTimeoutId = null;
+let chatPreviewMessage = null;
+let chatPreviewAnimationTimeoutId = null;
 let webSettings = {
     hide_base: false,
     reject_geyser_catch_by_guest: false,
@@ -2566,6 +2574,126 @@ function getLastWebChatMessageId() {
     }, 0);
 }
 
+function getLatestWebChatMessage() {
+    if (!webChatMessagesState.length) {
+        return null;
+    }
+    return webChatMessagesState[webChatMessagesState.length - 1];
+}
+
+function setChatPreviewVisible(isVisible) {
+    if (!chatPreviewBtn) {
+        return;
+    }
+    setHidden(chatPreviewBtn, !isVisible);
+}
+
+function clearChatPreviewAnimation() {
+    if (!chatPreviewTrack) {
+        return;
+    }
+    chatPreviewTrack.classList.remove("is-animating");
+    if (chatPreviewAnimationTimeoutId !== null) {
+        clearTimeout(chatPreviewAnimationTimeoutId);
+        chatPreviewAnimationTimeoutId = null;
+    }
+}
+
+function applyChatPreviewCurrent(message) {
+    if (!chatPreviewCurrentAuthor || !chatPreviewCurrentText) {
+        return;
+    }
+    if (!message) {
+        chatPreviewCurrentAuthor.textContent = "";
+        chatPreviewCurrentText.textContent = "";
+        return;
+    }
+    chatPreviewCurrentAuthor.textContent = String(message.author_name || "");
+    chatPreviewCurrentText.textContent = String(message.text || "");
+}
+
+function applyChatPreviewNext(message) {
+    if (!chatPreviewNextAuthor || !chatPreviewNextText) {
+        return;
+    }
+    if (!message) {
+        chatPreviewNextAuthor.textContent = "";
+        chatPreviewNextText.textContent = "";
+        return;
+    }
+    chatPreviewNextAuthor.textContent = String(message.author_name || "");
+    chatPreviewNextText.textContent = String(message.text || "");
+}
+
+function shouldAnimateChatPreview(previousMessage, nextMessage) {
+    if (!previousMessage || !nextMessage) {
+        return false;
+    }
+    const previousId = Number(previousMessage.message_id) || 0;
+    const nextId = Number(nextMessage.message_id) || 0;
+    if (nextId <= previousId) {
+        return false;
+    }
+    return true;
+}
+
+function renderChatPreview(options = {}) {
+    if (!chatPreviewBtn) {
+        return;
+    }
+    const force = Boolean(options.force);
+    const latestMessage = getLatestWebChatMessage();
+    const isAvailable = Boolean(activeSelectedChatId != null && latestMessage && String(latestMessage.text || "").trim());
+    if (!isAvailable) {
+        chatPreviewMessage = null;
+        clearChatPreviewAnimation();
+        applyChatPreviewCurrent(null);
+        applyChatPreviewNext(null);
+        setChatPreviewVisible(false);
+        return;
+    }
+
+    setChatPreviewVisible(true);
+    const nextMessage = {
+        message_id: Number(latestMessage.message_id) || 0,
+        author_name: String(latestMessage.author_name || ""),
+        text: String(latestMessage.text || ""),
+    };
+    if (!chatPreviewMessage || force) {
+        chatPreviewMessage = nextMessage;
+        clearChatPreviewAnimation();
+        applyChatPreviewCurrent(nextMessage);
+        applyChatPreviewNext(nextMessage);
+        return;
+    }
+    if (
+        Number(chatPreviewMessage.message_id) === Number(nextMessage.message_id)
+        && String(chatPreviewMessage.text) === String(nextMessage.text)
+        && String(chatPreviewMessage.author_name) === String(nextMessage.author_name)
+    ) {
+        return;
+    }
+
+    if (!shouldAnimateChatPreview(chatPreviewMessage, nextMessage) || !chatPreviewTrack) {
+        chatPreviewMessage = nextMessage;
+        clearChatPreviewAnimation();
+        applyChatPreviewCurrent(nextMessage);
+        applyChatPreviewNext(nextMessage);
+        return;
+    }
+
+    clearChatPreviewAnimation();
+    applyChatPreviewCurrent(chatPreviewMessage);
+    applyChatPreviewNext(nextMessage);
+    chatPreviewTrack.classList.add("is-animating");
+    chatPreviewAnimationTimeoutId = window.setTimeout(() => {
+        chatPreviewMessage = nextMessage;
+        clearChatPreviewAnimation();
+        applyChatPreviewCurrent(nextMessage);
+        applyChatPreviewNext(nextMessage);
+    }, 390);
+}
+
 function isWebChatNearBottom(thresholdPx = WEB_CHAT_BOTTOM_STICKY_THRESHOLD) {
     if (!webChatMessages) {
         return true;
@@ -2719,6 +2847,7 @@ async function fetchWebChatMessages(options = {}) {
         webChatLoadedChatId = activeSelectedChatId;
     }
     mergeWebChatMessages(payload.messages || []);
+    renderChatPreview({ force: reset });
     renderWebChatMessages({ forceToBottom: reset });
 }
 
@@ -2731,7 +2860,7 @@ function clearWebChatPolling() {
 
 function scheduleWebChatPolling() {
     clearWebChatPolling();
-    if (!webChatPanelOpen || activeSelectedChatId == null) {
+    if (activeSelectedChatId == null) {
         return;
     }
     webChatPollTimeoutId = window.setTimeout(async () => {
@@ -2751,6 +2880,9 @@ function resetWebChatState() {
     webChatLoadedChatId = null;
     webChatLoading = false;
     webChatSending = false;
+    chatPreviewMessage = null;
+    clearChatPreviewAnimation();
+    renderChatPreview({ force: true });
     setWebChatStatus("");
     renderWebChatMessages();
 }
@@ -2877,8 +3009,6 @@ function setActiveSidePanel(panelName) {
             }, 0);
         }
         void ensureWebChatLoaded();
-    } else {
-        clearWebChatPolling();
     }
 }
 
@@ -3505,6 +3635,11 @@ function renderState(state) {
     if (buildingsPanelOpen && buildingsPanel) {
         setHidden(buildingsPanel, false);
     }
+    const needInitialChatLoad = webChatLoadedChatId === null || Number(webChatLoadedChatId) !== selectedChatId;
+    if (needInitialChatLoad) {
+        void fetchWebChatMessages({ reset: true }).catch(() => {});
+    }
+    scheduleWebChatPolling();
     scheduleGroupEventPolling();
     updateHeaderHeightVar();
     return true;
@@ -3662,6 +3797,15 @@ if (webChatToggleBtn) {
             return;
         }
         setActiveSidePanel(webChatPanelOpen ? null : "chat");
+    });
+}
+
+if (chatPreviewBtn) {
+    chatPreviewBtn.addEventListener("click", () => {
+        if (activeSelectedChatId == null) {
+            return;
+        }
+        setActiveSidePanel("chat");
     });
 }
 

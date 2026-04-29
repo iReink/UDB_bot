@@ -275,6 +275,91 @@ body.is-night .backdrop {
     min-width: 0;
 }
 
+.chat-preview {
+    margin-left: 8px;
+    width: min(400px, 32vw);
+    min-width: 260px;
+    height: 46px;
+    border-radius: 8px;
+    border: 1px solid rgba(104, 64, 125, 0.18);
+    background: rgba(255, 255, 255, 0.82);
+    color: #121215;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.chat-preview:hover {
+    border-color: rgba(222, 51, 181, 0.45);
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.chat-preview-viewport {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+}
+
+.chat-preview-track {
+    position: absolute;
+    inset: 0;
+}
+
+.chat-preview-track.is-animating {
+    animation: chat-preview-slide 380ms ease both;
+}
+
+.chat-preview-item {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: grid;
+    align-content: center;
+    row-gap: 2px;
+}
+
+.chat-preview-item:first-child {
+    top: 0;
+}
+
+.chat-preview-item:last-child {
+    top: 100%;
+}
+
+.chat-preview-author,
+.chat-preview-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.chat-preview-author {
+    font-size: 13px;
+    line-height: 1.15;
+    font-weight: 700;
+    color: #121215;
+}
+
+.chat-preview-text {
+    font-size: 13px;
+    line-height: 1.15;
+    font-weight: 400;
+    color: #2a2434;
+}
+
+@keyframes chat-preview-slide {
+    0% { transform: translateY(0); opacity: 1; }
+    70% { opacity: 0.85; }
+    100% { transform: translateY(-100%); opacity: 1; }
+}
+
 .brand {
     font-weight: 800;
     color: var(--accent-strong);
@@ -576,6 +661,10 @@ body.is-visit-mode .header-controls {
 }
 
 body.is-visit-mode .settings-wrap {
+    display: none;
+}
+
+body.is-visit-mode .chat-preview {
     display: none;
 }
 
@@ -1769,6 +1858,10 @@ a.web-chat-author:hover {
 }
 
 @media (max-width: 1020px) {
+    .chat-preview {
+        display: none !important;
+    }
+
     .buildings-panel,
     .players-panel,
     .web-chat-panel {
