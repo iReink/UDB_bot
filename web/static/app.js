@@ -181,6 +181,7 @@ let groupAvatarAnimationLoopTimeoutId = null;
 let groupAvatarAnimationStopTimeoutId = null;
 let groupAvatarNodes = [];
 let lastGroupAvatarLayoutKey = "";
+let lastGroupModalActionsSignature = "";
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
@@ -1746,9 +1747,24 @@ function renderGroupModalActions(buttons) {
     if (!groupModalActions) {
         return;
     }
+    const normalizedButtons = Array.isArray(buttons) ? buttons : [];
+    const signature = normalizedButtons
+        .map((config, index) => {
+            const kind = String(config && config.kind ? config.kind : "");
+            const text = String(config && config.text ? config.text : "");
+            const disabled = config && config.disabled ? "1" : "0";
+            return `${index}|${kind}|${disabled}|${text}`;
+        })
+        .join("||");
+
+    if (signature === lastGroupModalActionsSignature) {
+        return;
+    }
+    lastGroupModalActionsSignature = signature;
+
     groupModalActions.innerHTML = "";
-    groupModalActions.classList.toggle("is-double", Array.isArray(buttons) && buttons.length === 2);
-    (Array.isArray(buttons) ? buttons : []).forEach((config) => {
+    groupModalActions.classList.toggle("is-double", normalizedButtons.length === 2);
+    normalizedButtons.forEach((config) => {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = `group-modal-btn ${config.kind === "secondary" ? "group-modal-btn--secondary" : ""}`.trim();
@@ -1974,8 +1990,13 @@ function setGroupModalOpen(isOpen) {
         clearGroupEventLiveTicker();
         clearGroupAvatarAnimations();
         lastGroupAvatarLayoutKey = "";
+        lastGroupModalActionsSignature = "";
         if (groupModalAvatarLayer) {
             groupModalAvatarLayer.innerHTML = "";
+        }
+        if (groupModalActions) {
+            groupModalActions.innerHTML = "";
+            groupModalActions.classList.remove("is-double");
         }
         clearGroupModalMessage();
     } else {
