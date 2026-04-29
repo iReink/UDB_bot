@@ -2871,6 +2871,11 @@ function setActiveSidePanel(panelName) {
         webChatPanel.classList.toggle("hidden", !webChatPanelOpen);
     }
     if (webChatPanelOpen) {
+        if (webChatInput) {
+            window.setTimeout(() => {
+                webChatInput.focus({ preventScroll: true });
+            }, 0);
+        }
         void ensureWebChatLoaded();
     } else {
         clearWebChatPolling();
