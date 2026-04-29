@@ -682,10 +682,6 @@ body.is-visit-mode .settings-wrap {
     display: none;
 }
 
-body.is-visit-mode .chat-preview {
-    display: none;
-}
-
 body.is-visit-mode .header-center {
     display: block;
 }
