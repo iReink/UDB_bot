@@ -157,6 +157,7 @@ let webChatLoadedChatId = null;
 let webChatLoading = false;
 let webChatSending = false;
 let webChatPollTimeoutId = null;
+let webChatOpenedForChatId = null;
 let chatPreviewMessage = null;
 let chatPreviewAnimationTimeoutId = null;
 let webSettings = {
@@ -2878,6 +2879,7 @@ function resetWebChatState() {
     clearWebChatPolling();
     webChatMessagesState = [];
     webChatLoadedChatId = null;
+    webChatOpenedForChatId = null;
     webChatLoading = false;
     webChatSending = false;
     chatPreviewMessage = null;
@@ -2977,6 +2979,7 @@ function setActiveSidePanel(panelName) {
     if (visitModeActive && normalized === "buildings") {
         normalized = null;
     }
+    const wasWebChatPanelOpen = webChatPanelOpen;
     buildingsPanelOpen = normalized === "buildings";
     playersPanelOpen = normalized === "players";
     webChatPanelOpen = normalized === "chat";
@@ -3006,6 +3009,17 @@ function setActiveSidePanel(panelName) {
         if (webChatInput) {
             window.setTimeout(() => {
                 webChatInput.focus({ preventScroll: true });
+            }, 0);
+        }
+        const isFirstOpenForCurrentChat = (
+            !wasWebChatPanelOpen
+            && activeSelectedChatId != null
+            && Number(webChatOpenedForChatId) !== Number(activeSelectedChatId)
+        );
+        if (isFirstOpenForCurrentChat) {
+            webChatOpenedForChatId = Number(activeSelectedChatId);
+            window.setTimeout(() => {
+                renderWebChatMessages({ forceToBottom: true, preservePosition: false });
             }, 0);
         }
         void ensureWebChatLoaded();
