@@ -176,6 +176,7 @@ let groupModalOpen = false;
 let dismissedGroupEventToken = null;
 let lastGroupEventPhase = "idle";
 let lastGroupEventToken = null;
+let lastGroupActiveSoundToken = null;
 let groupEventKnownReminders = new Set();
 let groupAvatarAnimationLoopTimeoutId = null;
 let groupAvatarAnimationStopTimeoutId = null;
@@ -2073,11 +2074,18 @@ function setGroupEventState(nextState, options = {}) {
         && previousPhase === "preparing"
         && normalized.phase === "joining"
     );
+    const shouldPlayActiveByToken = (
+        normalized.active
+        && normalized.phase === "joining"
+        && Boolean(nextToken)
+        && nextToken !== lastGroupActiveSoundToken
+    );
     if (becamePreparing) {
         playGroupStartSound();
     }
-    if (becameJoining) {
+    if (becameJoining || shouldPlayActiveByToken) {
         playGroupActiveSound();
+        lastGroupActiveSoundToken = String(nextToken);
     }
 
     if (groupModalOpen) {
