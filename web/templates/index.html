@@ -80,7 +80,7 @@
     </div>
     <div class="header-center hidden" id="visitHeaderTitle"></div>
     <div class="header-controls">
-        <label class="chat-switch-label" id="chatBalanceLabel" for="chatSwitch">0 сита</label>
+        <label class="chat-switch-label" id="chatBalanceLabel" for="chatSwitch">0 миллисит</label>
         <select id="chatSwitch" class="chat-switch"></select>
         <button id="logoutBtn" class="ghost-btn" type="button">Выйти</button>
     </div>
@@ -232,7 +232,7 @@
         aria-describedby="transferMessage"
     >
         <div class="transfer-modal-head">
-            <h2 class="transfer-modal-title" id="transferModalTitle">Отправить сит</h2>
+            <h2 class="transfer-modal-title" id="transferModalTitle">Отправить миллиситы</h2>
             <button class="transfer-modal-close" id="transferModalCloseBtn" type="button" aria-label="Закрыть окно">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                     <line x1="5" y1="5" x2="19" y2="19"></line>
@@ -240,18 +240,21 @@
                 </svg>
             </button>
         </div>
-        <input
-            id="transferAmountInput"
-            class="transfer-amount-input"
-            type="text"
-            inputmode="decimal"
-            autocomplete="off"
-            placeholder="0"
-            aria-label="Количество сита"
-        >
+        <div class="transfer-amount-wrap">
+            <input
+                id="transferAmountInput"
+                class="transfer-amount-input"
+                type="text"
+                inputmode="numeric"
+                autocomplete="off"
+                placeholder="1 сит = 1000 миллисит"
+                aria-label="Количество миллиситов"
+            >
+            <span id="transferAmountUnit" class="transfer-amount-unit" aria-hidden="true"></span>
+        </div>
         <button id="transferSubmitBtn" class="transfer-submit-btn" type="button" disabled>Отправить</button>
         <div class="transfer-message transfer-message--note" id="transferMessage">
-            Хочется сказать, что если вы передали сит по ошибке, то это ваша проблема и решать вам её самостоятельно
+            Если вы передали миллиситы по ошибке, то это ваша проблема и решать вам её самостоятельно
         </div>
     </div>
 </div>

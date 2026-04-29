@@ -50,6 +50,7 @@ const transferModalScrim = document.getElementById("transferModalScrim");
 const transferModalCloseBtn = document.getElementById("transferModalCloseBtn");
 const transferModalTitle = document.getElementById("transferModalTitle");
 const transferAmountInput = document.getElementById("transferAmountInput");
+const transferAmountUnit = document.getElementById("transferAmountUnit");
 const transferSubmitBtn = document.getElementById("transferSubmitBtn");
 const transferMessage = document.getElementById("transferMessage");
 const groupEventBanner = document.getElementById("groupEventBanner");
@@ -165,7 +166,7 @@ let webSettings = {
     reject_geyser_catch_by_guest: false,
     notify_group_masturbation: true,
 };
-const TRANSFER_NOTE_TEXT = "Хочется сказать, что если вы передали сит по ошибке, то это ваша проблема и решать вам её самостоятельно";
+const TRANSFER_NOTE_TEXT = "Хочется сказать, что если вы передали миллиситы по ошибке, то это ваша проблема и решать вам её самостоятельно";
 let groupEventState = null;
 let groupEventPollTimeoutId = null;
 let groupEventLiveTickIntervalId = null;
@@ -1189,6 +1190,11 @@ function formatMicrosits(value) {
     return formatWithNarrowSpace(amount);
 }
 
+function sitsToMillisits(value) {
+    const sits = normalizeSits(value);
+    return Math.max(0, Math.round(sits * 1000));
+}
+
 function formatWithNarrowSpace(value) {
     const num = Number(value);
     if (!Number.isFinite(num)) {
@@ -1215,9 +1221,9 @@ function renderHeaderBalance() {
     if (!chatBalanceLabel) {
         return;
     }
-    const balance = normalizeSits(currentBalanceSits);
-    const incomeSitsPerHour = currentHourlyIncomeMicrosits / 1000;
-    chatBalanceLabel.textContent = `${currentGeyserCaughtToday}/${currentGeyserDailyLimit} гейзеров поймано | ${formatSits(balance)} (+${formatSitsFixed3(incomeSitsPerHour)}) ${sitWord(balance)}`;
+    const balanceMillisits = sitsToMillisits(currentBalanceSits);
+    const incomeMillisitsPerHour = Math.max(0, Math.trunc(Number(currentHourlyIncomeMicrosits) || 0));
+    chatBalanceLabel.textContent = `${currentGeyserCaughtToday}/${currentGeyserDailyLimit} гейзеров поймано | ${formatMicrosits(balanceMillisits)} (+${formatMicrosits(incomeMillisitsPerHour)}) миллисит`;
     renderVisitGeyserLabel();
 }
 
@@ -1849,7 +1855,7 @@ function renderGroupModal() {
                         setGroupEventState(payload.group_event);
                     }
                 } catch (error) {
-                    setGroupModalMessage(error.message || "Недостаточно сит для участия. Вы можете бесплатно посмотреть", true);
+                    setGroupModalMessage(error.message || "Недостаточно миллиситов для участия. Вы можете бесплатно посмотреть", true);
                 }
             },
         });
@@ -1917,7 +1923,7 @@ function renderGroupModal() {
                             setGroupEventState(payload.group_event);
                         }
                     } catch (error) {
-                        setGroupModalMessage(error.message || "Недостаточно сит для участия. Вы можете бесплатно посмотреть", true);
+                        setGroupModalMessage(error.message || "Недостаточно миллиситов для участия. Вы можете бесплатно посмотреть", true);
                     }
                 },
             });
@@ -1942,7 +1948,7 @@ function renderGroupModal() {
                         setGroupEventState(payload.group_event);
                     }
                 } catch (error) {
-                    setGroupModalMessage(error.message || "Недостаточно сит для участия. Вы можете бесплатно посмотреть", true);
+                    setGroupModalMessage(error.message || "Недостаточно миллиситов для участия. Вы можете бесплатно посмотреть", true);
                 }
             },
         });
@@ -2297,7 +2303,7 @@ function setTransferMessageError(message, options = {}) {
     }
     transferMessage.classList.remove("transfer-message--note");
     transferMessage.classList.add("transfer-message--error");
-    transferMessage.textContent = String(message || "Ошибка передачи сита");
+    transferMessage.textContent = String(message || "Ошибка передачи миллиситов");
 
     if (!options.showFillBalance || !Number.isFinite(transferSenderBalance)) {
         return;
@@ -2310,7 +2316,8 @@ function setTransferMessageError(message, options = {}) {
         if (!transferAmountInput) {
             return;
         }
-        transferAmountInput.value = String(normalizeSits(transferSenderBalance)).replace(".", ",");
+        transferAmountInput.value = String(sitsToMillisits(transferSenderBalance));
+        renderTransferAmountUnit();
         updateTransferSubmitState();
         setTransferMessageNote();
         transferAmountInput.focus();
@@ -2320,42 +2327,34 @@ function setTransferMessageError(message, options = {}) {
 }
 
 function normalizeTransferInput(rawValue) {
-    const raw = String(rawValue || "");
-    let cleaned = "";
-    let separatorUsed = false;
-    for (const char of raw) {
-        if (char >= "0" && char <= "9") {
-            cleaned += char;
-            continue;
-        }
-        if ((char === "." || char === ",") && !separatorUsed) {
-            cleaned += ",";
-            separatorUsed = true;
-        }
-    }
-    return cleaned;
+    return String(rawValue || "").replace(/\D+/g, "");
 }
 
 function parseTransferInputAmount(rawValue) {
     const raw = String(rawValue || "").trim().replace(/\u202f/g, "").replace(/\s+/g, "");
     if (!raw) {
-        return { ok: false, code: "EMPTY", message: "Введите количество сита" };
+        return { ok: false, code: "EMPTY", message: "Введите количество миллиситов" };
     }
-    if (!/^[+-]?\d+(?:[.,]\d+)?$/.test(raw)) {
-        return { ok: false, code: "INVALID", message: "Сумма должна быть числом" };
+    if (!/^\d+$/.test(raw)) {
+        return { ok: false, code: "INVALID", message: "Можно вводить только целые миллиситы" };
     }
-    const amount = Number(raw.replace(",", "."));
-    if (!Number.isFinite(amount)) {
+    const amountMillisits = Number(raw);
+    if (!Number.isFinite(amountMillisits)) {
         return { ok: false, code: "INVALID", message: "Сумма должна быть конечным числом" };
     }
-    const normalized = normalizeSits(amount);
-    if (normalized < 0) {
-        return { ok: false, code: "NEGATIVE", message: "Нельзя передать отрицательное значение" };
+    if (amountMillisits <= 0) {
+        return { ok: false, code: "ZERO", message: "Можно передать минимум 1 миллисит" };
     }
-    if (normalized === 0) {
-        return { ok: false, code: "ZERO", message: "Можно передать минимум 0,001 сит" };
+    return { ok: true, amountMillisits: Math.trunc(amountMillisits), amountSits: normalizeSits(amountMillisits / 1000) };
+}
+
+function renderTransferAmountUnit() {
+    if (!transferAmountInput || !transferAmountUnit) {
+        return;
     }
-    return { ok: true, amount: normalized };
+    const hasValue = String(transferAmountInput.value || "").trim().length > 0;
+    transferAmountUnit.textContent = hasValue ? "миллисит" : "";
+    transferAmountUnit.classList.toggle("is-visible", hasValue);
 }
 
 function updateTransferSubmitState() {
@@ -2373,9 +2372,10 @@ function closeTransferModal() {
     transferSenderBalance = 0;
     if (transferAmountInput) {
         transferAmountInput.value = "";
-        transferAmountInput.placeholder = "0";
+        transferAmountInput.placeholder = "1 сит = 1000 миллисит";
         transferAmountInput.disabled = false;
     }
+    renderTransferAmountUnit();
     if (transferSubmitBtn) {
         transferSubmitBtn.disabled = true;
     }
@@ -2406,8 +2406,8 @@ async function sendSitsToPlayer(receiverUserId, amountValue) {
     if (!response.ok) {
         const detail = payload && payload.detail !== undefined ? payload.detail : null;
         const message = detail && typeof detail === "object"
-            ? (detail.message || "Ошибка передачи сита")
-            : (detail || "Ошибка передачи сита");
+            ? (detail.message || "Ошибка передачи миллиситов")
+            : (detail || "Ошибка передачи миллиситов");
         const error = new Error(message);
         if (detail && typeof detail === "object") {
             error.code = detail.code || "";
@@ -2430,9 +2430,9 @@ async function openTransferModalForPlayer(player) {
     transferSubmitInFlight = false;
     transferModalOpen = true;
     transferSenderBalance = normalizeSits(currentBalanceSits);
-    transferModalTitle.textContent = `Отправить сит ${transferRecipientPlayer.name}`;
+    transferModalTitle.textContent = `Отправить миллиситы ${transferRecipientPlayer.name}`;
     transferAmountInput.value = "";
-    transferAmountInput.placeholder = formatSits(transferSenderBalance);
+    transferAmountInput.placeholder = "1 сит = 1000 миллисит";
     transferAmountInput.disabled = true;
     transferSubmitBtn.disabled = true;
     setTransferMessageNote();
@@ -2441,13 +2441,15 @@ async function openTransferModalForPlayer(player) {
     try {
         const payload = await fetchTransferBalance();
         transferSenderBalance = normalizeSits(payload.balance);
-        transferAmountInput.placeholder = formatSits(transferSenderBalance);
+        transferAmountInput.placeholder = "1 сит = 1000 миллисит";
         setHeaderBalance(payload.balance);
         transferAmountInput.disabled = false;
+        renderTransferAmountUnit();
         updateTransferSubmitState();
         transferAmountInput.focus();
     } catch (error) {
         transferAmountInput.disabled = false;
+        renderTransferAmountUnit();
         setTransferMessageError(error.message || "Не удалось получить текущий баланс");
     }
 }
@@ -2468,9 +2470,9 @@ async function submitTransferSits() {
         return;
     }
 
-    if (parsed.amount + 1e-9 > transferSenderBalance) {
+    if (parsed.amountSits + 1e-9 > transferSenderBalance) {
         setTransferMessageError(
-            `Нельзя передать ${formatSits(parsed.amount)} ${sitWord(parsed.amount)}, у вас только ${formatSits(transferSenderBalance)}.`,
+            `Нельзя передать ${formatMicrosits(parsed.amountMillisits)} миллисит, у вас только ${formatMicrosits(sitsToMillisits(transferSenderBalance))}.`,
             { showFillBalance: true },
         );
         return;
@@ -2481,7 +2483,7 @@ async function submitTransferSits() {
     updateTransferSubmitState();
 
     try {
-        const payload = await sendSitsToPlayer(transferRecipientPlayer.user_id, transferAmountInput.value);
+        const payload = await sendSitsToPlayer(transferRecipientPlayer.user_id, parsed.amountSits);
         if (payload && payload.balance !== undefined) {
             transferSenderBalance = normalizeSits(payload.balance);
             setHeaderBalance(payload.balance);
@@ -2495,13 +2497,15 @@ async function submitTransferSits() {
                 transferSenderBalance = normalizeSits(error.balance);
                 setHeaderBalance(error.balance);
             }
-            const requestedAmount = error.requested !== undefined ? normalizeSits(error.requested) : parsed.amount;
+            const requestedAmountMillisits = error.requested !== undefined
+                ? sitsToMillisits(error.requested)
+                : parsed.amountMillisits;
             setTransferMessageError(
-                `Нельзя передать ${formatSits(requestedAmount)} ${sitWord(requestedAmount)}, у вас только ${formatSits(transferSenderBalance)}.`,
+                `Нельзя передать ${formatMicrosits(requestedAmountMillisits)} миллисит, у вас только ${formatMicrosits(sitsToMillisits(transferSenderBalance))}.`,
                 { showFillBalance: true },
             );
         } else {
-            setTransferMessageError(error.message || "Ошибка передачи сита");
+            setTransferMessageError(error.message || "Ошибка передачи миллиситов");
         }
     } finally {
         transferSubmitInFlight = false;
@@ -3912,6 +3916,7 @@ if (transferAmountInput) {
         if (transferAmountInput.value !== sanitized) {
             transferAmountInput.value = sanitized;
         }
+        renderTransferAmountUnit();
         updateTransferSubmitState();
         setTransferMessageNote();
     });
@@ -3922,6 +3927,7 @@ if (transferAmountInput) {
         const sanitized = normalizeTransferInput(clipboardText);
         const current = String(transferAmountInput.value || "");
         transferAmountInput.value = normalizeTransferInput(current + sanitized);
+        renderTransferAmountUnit();
         updateTransferSubmitState();
         setTransferMessageNote();
     });
