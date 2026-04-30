@@ -73,6 +73,14 @@ def _author_from_row(row: sqlite3.Row) -> str:
     return f"User {int(row['user_id'])}"
 
 
+def _users_has_nick_column() -> bool:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(users)")
+        cols = {str(r[1]) for r in cur.fetchall()}
+        return "nick" in cols
+
+
 def _ensure_summary_publish_table() -> None:
     with closing(get_connection()) as conn:
         cur = conn.cursor()
@@ -181,25 +189,46 @@ def export_daily_chatlogs() -> list[Path]:
     EXCHANGE_DIR.mkdir(parents=True, exist_ok=True)
     exported: list[Path] = []
 
+    has_nick = _users_has_nick_column()
+
     with closing(get_connection()) as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                mr.chat_id,
-                mr.user_id,
-                mr.message_text,
-                mr.date,
-                u.name,
-                u.nick
-            FROM messages_reactions mr
-            LEFT JOIN users u
-                ON u.chat_id = mr.chat_id
-               AND u.user_id = mr.user_id
-            WHERE mr.date IS NOT NULL
-            ORDER BY mr.chat_id ASC, mr.date ASC, mr.message_id ASC
-            """
-        )
+        if has_nick:
+            cur.execute(
+                """
+                SELECT
+                    mr.chat_id,
+                    mr.user_id,
+                    mr.message_text,
+                    mr.date,
+                    u.name,
+                    u.nick
+                FROM messages_reactions mr
+                LEFT JOIN users u
+                    ON u.chat_id = mr.chat_id
+                   AND u.user_id = mr.user_id
+                WHERE mr.date IS NOT NULL
+                ORDER BY mr.chat_id ASC, mr.date ASC, mr.message_id ASC
+                """
+            )
+        else:
+            cur.execute(
+                """
+                SELECT
+                    mr.chat_id,
+                    mr.user_id,
+                    mr.message_text,
+                    mr.date,
+                    u.name,
+                    '' AS nick
+                FROM messages_reactions mr
+                LEFT JOIN users u
+                    ON u.chat_id = mr.chat_id
+                   AND u.user_id = mr.user_id
+                WHERE mr.date IS NOT NULL
+                ORDER BY mr.chat_id ASC, mr.date ASC, mr.message_id ASC
+                """
+            )
         rows = cur.fetchall()
 
     by_chat: dict[int, list[dict[str, str]]] = {}
