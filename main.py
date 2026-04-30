@@ -94,6 +94,7 @@ import dick
 dick.register_dick_handlers(dp)
 
 import dashboard
+import chat_summary
 dashboard.register_dashboard_handlers(dp)
 
 from profanity import count_profanity
@@ -2071,6 +2072,8 @@ async def main():
     asyncio.create_task(geyser.schedule_daily_geysers(bot)) # Ежедневное планирование гейзеров (долгоживущая корутина)
     asyncio.create_task(geyser.geyser_loop_task(bot)) # Непрерывный цикл для запуска гейзеров
     asyncio.create_task(new_year_scheduler(bot))
+    asyncio.create_task(chat_summary.export_daily_chatlogs_task(bot))
+    asyncio.create_task(chat_summary.publish_daily_summary_task(bot))
 
     # Цикл polling с автоперезапуском при ошибках
     while True:

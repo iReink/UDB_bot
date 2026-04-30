@@ -105,3 +105,23 @@ chmod +x start_bot.sh stop_bot.sh
 ./start_bot.sh
 ./stop_bot.sh
 ```
+
+## Daily AI Summary Pipeline
+
+Добавлен файловый обмен для ежедневных саммари в папке `ai_exchange/`:
+
+- `yyyy_mm_dd_<chat_id>_chatlog.json` — экспорт сообщений окна `23:30(вчера) -> 23:30(сегодня)` по локальному времени сервера.
+- `yyyy_mm_dd_<chat_id>_summary.json` — результат агента.
+
+В `main.py` запущены фоновые задачи:
+
+- `23:30` — экспорт chatlog + `git add/commit/push` папки `ai_exchange/`.
+- `23:55` — чтение summary и публикация в соответствующий `chat_id`.
+
+Для подтягивания summary на VPS перед публикацией настройте cron:
+
+```bash
+50 23 * * * cd /root/UDB_bot && /usr/bin/git pull --ff-only >> /root/UDB_bot/summary_sync.log 2>&1
+```
+
+Шаблон лежит в `deploy/summary_git_pull.cron`.

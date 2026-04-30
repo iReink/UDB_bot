@@ -1,0 +1,5 @@
+# Daily summary sync for VPS local time
+# Install example:
+#   crontab -e
+#   50 23 * * * cd /root/UDB_bot && /usr/bin/git pull --ff-only >> /root/UDB_bot/summary_sync.log 2>&1
+
