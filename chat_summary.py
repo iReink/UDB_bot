@@ -130,15 +130,26 @@ def _git_commit_and_push_for_exchange(date_key: str) -> None:
             check=check,
         )
 
-    run(["git", "add", "ai_exchange/"])
-    status = run(["git", "status", "--porcelain", "ai_exchange/"], check=False)
-    if not status.stdout.strip():
-        logging.info("[chat_summary] No ai_exchange changes to commit")
-        return
+    try:
+        run(["git", "add", "ai_exchange/"])
+        status = run(["git", "status", "--porcelain", "ai_exchange/"], check=False)
+        if not status.stdout.strip():
+            logging.info("[chat_summary] No ai_exchange changes to commit")
+            return
 
-    run(["git", "commit", "-m", f"chatlog: {date_key}"])
-    run(["git", "push"])
-    logging.info("[chat_summary] chatlog pushed to git for %s", date_key)
+        run(["git", "commit", "-m", f"chatlog: {date_key}"])
+        run(["git", "push"])
+        logging.info("[chat_summary] chatlog pushed to git for %s", date_key)
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        stdout = (exc.stdout or "").strip()
+        logging.error(
+            "[chat_summary] git sync failed (export is still saved). cmd=%s code=%s stdout=%s stderr=%s",
+            " ".join(exc.cmd) if isinstance(exc.cmd, list) else str(exc.cmd),
+            exc.returncode,
+            stdout,
+            stderr,
+        )
 
 
 def export_daily_chatlogs() -> list[Path]:
