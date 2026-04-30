@@ -125,3 +125,18 @@ chmod +x start_bot.sh stop_bot.sh
 ```
 
 Шаблон лежит в `deploy/summary_git_pull.cron`.
+
+### Push из бота в GitHub
+
+Даже для публичного репозитория push требует авторизацию.  
+Для non-interactive push из nightly-экспорта задайте переменные окружения процесса бота:
+
+- `UDB_GIT_PUSH_TOKEN` — GitHub PAT (минимум права на push в репозиторий)
+- `UDB_GIT_PUSH_USERNAME` — опционально, по умолчанию `x-access-token`
+
+Пример для systemd environment file:
+
+```bash
+UDB_GIT_PUSH_TOKEN=ghp_xxx...
+UDB_GIT_PUSH_USERNAME=x-access-token
+```

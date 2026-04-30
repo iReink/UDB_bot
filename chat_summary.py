@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 from contextlib import closing
@@ -130,6 +131,30 @@ def _git_commit_and_push_for_exchange(date_key: str) -> None:
             check=check,
         )
 
+    def current_branch() -> str:
+        branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], check=False).stdout.strip()
+        return branch or "main"
+
+    def push_with_optional_token() -> None:
+        token = (os.getenv("UDB_GIT_PUSH_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
+        username = (os.getenv("UDB_GIT_PUSH_USERNAME") or "x-access-token").strip()
+        if not token:
+            run(["git", "push"])
+            return
+
+        origin = run(["git", "remote", "get-url", "origin"], check=False).stdout.strip()
+        match = re.match(r"^https://([^/]+)/(.+)$", origin)
+        if not match:
+            # SSH or unknown URL format: fallback to standard push
+            run(["git", "push"])
+            return
+
+        host, path = match.group(1), match.group(2)
+        auth_url = f"https://{username}:{token}@{host}/{path}"
+        branch = current_branch()
+        # Push current HEAD to current branch over authenticated URL.
+        run(["git", "push", auth_url, f"HEAD:{branch}"])
+
     try:
         run(["git", "add", "ai_exchange/"])
         status = run(["git", "status", "--porcelain", "ai_exchange/"], check=False)
@@ -138,14 +163,13 @@ def _git_commit_and_push_for_exchange(date_key: str) -> None:
             return
 
         run(["git", "commit", "-m", f"chatlog: {date_key}"])
-        run(["git", "push"])
+        push_with_optional_token()
         logging.info("[chat_summary] chatlog pushed to git for %s", date_key)
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").strip()
         stdout = (exc.stdout or "").strip()
         logging.error(
-            "[chat_summary] git sync failed (export is still saved). cmd=%s code=%s stdout=%s stderr=%s",
-            " ".join(exc.cmd) if isinstance(exc.cmd, list) else str(exc.cmd),
+            "[chat_summary] git sync failed (export is still saved). code=%s stdout=%s stderr=%s",
             exc.returncode,
             stdout,
             stderr,
