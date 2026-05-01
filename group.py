@@ -175,6 +175,10 @@ def _enqueue_outbox_sticker(chat_id: int, sticker: str, thread_id: int | None = 
     _store.enqueue_outbox(chat_id=chat_id, kind="send_sticker", payload=payload)
 
 
+def _enqueue_outbox_start_event_flow(chat_id: int) -> None:
+    _store.enqueue_outbox(chat_id=chat_id, kind="start_event_flow", payload={})
+
+
 def _record_web_chat_message(chat_id: int, message_id: int, user_id: int, text: str) -> None:
     with closing(get_connection()) as conn:
         cur = conn.cursor()
@@ -381,7 +385,12 @@ async def start_group_event(message: types.Message, user_id: int):
         await message.answer("Не удалось запустить ивент. Попробуй ещё раз.")
         return
 
-    await update_quest_progress(user_id, chat_id, "group_part", 1, bot=message.bot)
+    _enqueue_outbox_start_event_flow(chat_id)
+
+    try:
+        await update_quest_progress(user_id, chat_id, "group_part", 1, bot=message.bot)
+    except Exception:
+        logger.exception("[group] failed to update quest progress for group event start (chat_id=%s user_id=%s)", chat_id, user_id)
 
     subscription_ping_text = build_subscription_ping_text(
         chat_id,
@@ -404,7 +413,6 @@ async def start_group_event(message: types.Message, user_id: int):
         **send_kwargs,
     )
 
-    _schedule_event_flow(message.bot, chat_id)
 
 
 def _schedule_event_flow(bot: Bot, chat_id: int) -> None:
