@@ -108,42 +108,19 @@ chmod +x start_bot.sh stop_bot.sh
 
 ## Daily AI Summary Pipeline
 
-Добавлен файловый обмен для ежедневных саммари в папке `ai_exchange/`:
+Добавлен обмен через Google Sheets для ежедневных саммари. Локальные JSON-файлы в папке `ai_exchange/` сохраняются как отладочный снимок экспорта:
 
-- `yyyy_mm_dd_<chat_id>_chatlog.json` — экспорт сообщений окна `23:30(вчера) -> 23:30(сегодня)` по локальному времени сервера.
+- `yyyy_mm_dd_<chat_id>_chatlog.json` — экспорт сообщений окна `23:20(вчера) -> 23:20(сегодня)` по локальному времени сервера.
 - `yyyy_mm_dd_<chat_id>_summary.json` — результат агента.
 
 В `main.py` запущены фоновые задачи:
 
-- `23:30` — экспорт chatlog + `git add/commit/push` папки `ai_exchange/`.
+- `23:20` — экспорт chatlog в Google Sheets.
 - `23:55` — чтение summary и публикация в соответствующий `chat_id`.
-
-Для подтягивания summary на VPS перед публикацией настройте cron:
-
-```bash
-50 23 * * * cd /root/UDB_bot && /usr/bin/git pull --ff-only >> /root/UDB_bot/summary_sync.log 2>&1
-```
-
-Шаблон лежит в `deploy/summary_git_pull.cron`.
-
-### Push из бота в GitHub
-
-Даже для публичного репозитория push требует авторизацию.  
-Для non-interactive push из nightly-экспорта задайте переменные окружения процесса бота:
-
-- `UDB_GIT_PUSH_TOKEN` — GitHub PAT (минимум права на push в репозиторий)
-- `UDB_GIT_PUSH_USERNAME` — опционально, по умолчанию `x-access-token`
-
-Пример для systemd environment file:
-
-```bash
-UDB_GIT_PUSH_TOKEN=ghp_xxx...
-UDB_GIT_PUSH_USERNAME=x-access-token
-```
 
 ## Google Sheets Exchange (recommended)
 
-Вместо Git/email можно включить обмен через Google Sheets:
+Обмен через Google Sheets:
 
 - Бот пишет лог в лист `log` (перезаписывает только текущий день).
 - Automation читает `log` и пишет саммари в лист `summary`.
@@ -159,6 +136,15 @@ UDB_SHEETS_SUMMARY_SHEET=summary
 GOOGLE_SERVICE_ACCOUNT_FILE=/root/UDB_bot/google-service-account.json
 ```
 
+Опциональные таймауты для защиты фоновой задачи от зависаний:
+
+```bash
+UDB_CHATLOG_EXPORT_TIMEOUT_SECONDS=300
+UDB_SHEETS_HTTP_TIMEOUT_SECONDS=30
+```
+
+Для per-request таймаута Google Sheets установите также `google-auth-httplib2` и `httplib2`; без них общий таймаут фоновой задачи всё равно сохранит отзывчивость бота.
+
 ### Формат листов
 
 - `log` header:
@@ -171,5 +157,5 @@ GOOGLE_SERVICE_ACCOUNT_FILE=/root/UDB_bot/google-service-account.json
 ### Python зависимости (бот)
 
 ```bash
-pip install google-api-python-client google-auth
+pip install google-api-python-client google-auth google-auth-httplib2 httplib2
 ```

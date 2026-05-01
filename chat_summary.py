@@ -1,9 +1,9 @@
 import json
 import logging
 import os
-import re
 import sqlite3
-import subprocess
+import threading
+import time
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -18,6 +18,11 @@ from db import get_connection
 BASE_DIR = Path(__file__).resolve().parent
 EXCHANGE_DIR = BASE_DIR / "ai_exchange"
 SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+DAILY_EXPORT_HOUR = 23
+DAILY_EXPORT_MINUTE = 20
+DAILY_PUBLISH_HOUR = 23
+DAILY_PUBLISH_MINUTE = 55
+_EXPORT_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -31,8 +36,16 @@ def _sheets_enabled() -> bool:
     return (os.getenv("UDB_SHEETS_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"})
 
 
-def _git_sync_enabled() -> bool:
-    return (os.getenv("UDB_CHATLOG_GIT_SYNC", "0").strip().lower() in {"1", "true", "yes", "on"})
+def _env_float(name: str, default: float) -> float:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logging.warning("[chat_summary] invalid %s=%r, using %s", name, raw, default)
+        return default
+    return value if value > 0 else default
 
 
 def _get_sheets_config() -> dict[str, str]:
@@ -67,12 +80,43 @@ def _get_sheets_service():
         cfg["service_account_file"],
         scopes=SHEETS_SCOPES,
     )
-    return build("sheets", "v4", credentials=credentials, cache_discovery=False)
+    http_timeout = _env_float("UDB_SHEETS_HTTP_TIMEOUT_SECONDS", 30.0)
+    try:
+        from google_auth_httplib2 import AuthorizedHttp
+        import httplib2
+    except Exception:
+        logging.warning(
+            "[chat_summary] google-auth-httplib2/httplib2 is not installed; "
+            "Google Sheets per-request HTTP timeout is disabled"
+        )
+        return build("sheets", "v4", credentials=credentials, cache_discovery=False)
+
+    http = AuthorizedHttp(credentials, http=httplib2.Http(timeout=http_timeout))
+    return build("sheets", "v4", http=http, cache_discovery=False)
+
+
+def _execute_google_request(request: Any, operation: str) -> Any:
+    attempts = max(1, int(_env_float("UDB_SHEETS_RETRY_ATTEMPTS", 3.0)))
+    delay = _env_float("UDB_SHEETS_RETRY_DELAY_SECONDS", 2.0)
+    for attempt in range(1, attempts + 1):
+        try:
+            return request.execute()
+        except Exception:
+            if attempt >= attempts:
+                raise
+            logging.warning(
+                "[chat_summary] Google Sheets %s failed on attempt %d/%d; retrying",
+                operation,
+                attempt,
+                attempts,
+                exc_info=True,
+            )
+            time.sleep(delay * attempt)
 
 
 def _window_for_daily_export(now: datetime | None = None) -> Window:
     current = now or datetime.now()
-    day_start = current.replace(hour=23, minute=30, second=0, microsecond=0)
+    day_start = current.replace(hour=DAILY_EXPORT_HOUR, minute=DAILY_EXPORT_MINUTE, second=0, microsecond=0)
     start = day_start - timedelta(days=1)
     end = day_start
     return Window(
@@ -169,65 +213,6 @@ def _mark_published(chat_id: int, date_key: str, summary_file: str, message_id: 
         conn.commit()
 
 
-def _git_commit_and_push_for_exchange(date_key: str) -> None:
-    env = os.environ.copy()
-    env["GIT_TERMINAL_PROMPT"] = "0"
-
-    def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            cmd,
-            cwd=str(BASE_DIR),
-            env=env,
-            capture_output=True,
-            text=True,
-            check=check,
-        )
-
-    def current_branch() -> str:
-        branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], check=False).stdout.strip()
-        return branch or "main"
-
-    def push_with_optional_token() -> None:
-        token = (os.getenv("UDB_GIT_PUSH_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
-        username = (os.getenv("UDB_GIT_PUSH_USERNAME") or "x-access-token").strip()
-        if not token:
-            run(["git", "push"])
-            return
-
-        origin = run(["git", "remote", "get-url", "origin"], check=False).stdout.strip()
-        match = re.match(r"^https://([^/]+)/(.+)$", origin)
-        if not match:
-            # SSH or unknown URL format: fallback to standard push
-            run(["git", "push"])
-            return
-
-        host, path = match.group(1), match.group(2)
-        auth_url = f"https://{username}:{token}@{host}/{path}"
-        branch = current_branch()
-        # Push current HEAD to current branch over authenticated URL.
-        run(["git", "push", auth_url, f"HEAD:{branch}"])
-
-    try:
-        run(["git", "add", "ai_exchange/"])
-        status = run(["git", "status", "--porcelain", "ai_exchange/"], check=False)
-        if not status.stdout.strip():
-            logging.info("[chat_summary] No ai_exchange changes to commit")
-            return
-
-        run(["git", "commit", "-m", f"chatlog: {date_key}"])
-        push_with_optional_token()
-        logging.info("[chat_summary] chatlog pushed to git for %s", date_key)
-    except subprocess.CalledProcessError as exc:
-        stderr = (exc.stderr or "").strip()
-        stdout = (exc.stdout or "").strip()
-        logging.error(
-            "[chat_summary] git sync failed (export is still saved). code=%s stdout=%s stderr=%s",
-            exc.returncode,
-            stdout,
-            stderr,
-        )
-
-
 def _rewrite_log_sheet(date_key: str, window: Window, by_chat: dict[int, list[dict[str, str]]]) -> None:
     cfg = _get_sheets_config()
     service = _get_sheets_service()
@@ -252,17 +237,23 @@ def _rewrite_log_sheet(date_key: str, window: Window, by_chat: dict[int, list[di
             )
 
     # Keep only current day in log sheet: clear and write full body.
-    service.spreadsheets().values().clear(
-        spreadsheetId=spreadsheet_id,
-        range=f"{sheet_name}!A:Z",
-        body={},
-    ).execute()
-    service.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id,
-        range=f"{sheet_name}!A1",
-        valueInputOption="RAW",
-        body={"values": rows},
-    ).execute()
+    _execute_google_request(
+        service.spreadsheets().values().clear(
+            spreadsheetId=spreadsheet_id,
+            range=f"{sheet_name}!A:Z",
+            body={},
+        ),
+        "clear log sheet",
+    )
+    _execute_google_request(
+        service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{sheet_name}!A1",
+            valueInputOption="RAW",
+            body={"values": rows},
+        ),
+        "update log sheet",
+    )
     logging.info("[chat_summary] Google Sheet '%s' rewritten with %d message rows", sheet_name, max(0, len(rows) - 1))
 
 
@@ -272,10 +263,13 @@ def _read_summary_from_sheet(date_key: str) -> dict[int, list[str]]:
     sheet_name = cfg["summary_sheet"]
     spreadsheet_id = cfg["spreadsheet_id"]
 
-    resp = service.spreadsheets().values().get(
-        spreadsheetId=spreadsheet_id,
-        range=f"{sheet_name}!A:D",
-    ).execute()
+    resp = _execute_google_request(
+        service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=f"{sheet_name}!A:D",
+        ),
+        "read summary sheet",
+    )
     values = resp.get("values", [])
     if not values:
         return {}
@@ -332,8 +326,11 @@ def export_daily_chatlogs() -> list[Path]:
                     ON u.chat_id = mr.chat_id
                    AND u.user_id = mr.user_id
                 WHERE mr.date IS NOT NULL
+                  AND mr.date >= ?
+                  AND mr.date < ?
                 ORDER BY mr.chat_id ASC, mr.date ASC, mr.message_id ASC
-                """
+                """,
+                (window.start.isoformat(), window.end.isoformat()),
             )
         else:
             cur.execute(
@@ -350,8 +347,11 @@ def export_daily_chatlogs() -> list[Path]:
                     ON u.chat_id = mr.chat_id
                    AND u.user_id = mr.user_id
                 WHERE mr.date IS NOT NULL
+                  AND mr.date >= ?
+                  AND mr.date < ?
                 ORDER BY mr.chat_id ASC, mr.date ASC, mr.message_id ASC
-                """
+                """,
+                (window.start.isoformat(), window.end.isoformat()),
             )
         rows = cur.fetchall()
 
@@ -390,11 +390,8 @@ def export_daily_chatlogs() -> list[Path]:
         )
         exported.append(output_path)
 
-    if exported and _git_sync_enabled():
-        _git_commit_and_push_for_exchange(window.date_key)
-    else:
-        if not exported:
-            logging.info("[chat_summary] No messages exported for %s", window.date_key)
+    if not exported:
+        logging.info("[chat_summary] No messages exported for %s", window.date_key)
 
     if _sheets_enabled():
         try:
@@ -405,16 +402,24 @@ def export_daily_chatlogs() -> list[Path]:
 
 
 async def export_daily_chatlogs_task(bot: Bot) -> None:
+    import asyncio
+
     _ = bot
     while True:
         now = datetime.now()
-        target = now.replace(hour=23, minute=30, second=0, microsecond=0)
+        target = now.replace(hour=DAILY_EXPORT_HOUR, minute=DAILY_EXPORT_MINUTE, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
         await _sleep_until(target)
         try:
-            exported = export_daily_chatlogs()
+            timeout = _env_float("UDB_CHATLOG_EXPORT_TIMEOUT_SECONDS", 300.0)
+            exported = await asyncio.wait_for(asyncio.to_thread(_export_daily_chatlogs_locked), timeout=timeout)
             logging.info("[chat_summary] Exported %d chatlog files", len(exported))
+        except asyncio.TimeoutError:
+            logging.error(
+                "[chat_summary] export_daily_chatlogs timed out after %.1fs; bot event loop remains alive",
+                _env_float("UDB_CHATLOG_EXPORT_TIMEOUT_SECONDS", 300.0),
+            )
         except Exception:
             logging.exception("[chat_summary] export_daily_chatlogs failed")
 
@@ -422,7 +427,7 @@ async def export_daily_chatlogs_task(bot: Bot) -> None:
 async def publish_daily_summary_task(bot: Bot) -> None:
     while True:
         now = datetime.now()
-        target = now.replace(hour=23, minute=55, second=0, microsecond=0)
+        target = now.replace(hour=DAILY_PUBLISH_HOUR, minute=DAILY_PUBLISH_MINUTE, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
         await _sleep_until(target)
@@ -430,6 +435,16 @@ async def publish_daily_summary_task(bot: Bot) -> None:
             await publish_daily_summaries(bot)
         except Exception:
             logging.exception("[chat_summary] publish_daily_summaries failed")
+
+
+def _export_daily_chatlogs_locked() -> list[Path]:
+    if not _EXPORT_LOCK.acquire(blocking=False):
+        logging.warning("[chat_summary] previous export is still running; skip this scheduled run")
+        return []
+    try:
+        return export_daily_chatlogs()
+    finally:
+        _EXPORT_LOCK.release()
 
 
 async def _sleep_until(target: datetime) -> None:
@@ -465,11 +480,23 @@ def _format_summary_message(date_key: str, bullets: list[str]) -> str:
 
 
 async def publish_daily_summaries(bot: Bot) -> int:
+    import asyncio
+
     date_key = datetime.now().strftime("%Y_%m_%d")
     published = 0
     if _sheets_enabled():
         try:
-            summaries = _read_summary_from_sheet(date_key)
+            timeout = _env_float("UDB_SUMMARY_READ_TIMEOUT_SECONDS", 120.0)
+            summaries = await asyncio.wait_for(
+                asyncio.to_thread(_read_summary_from_sheet, date_key),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            logging.error(
+                "[chat_summary] read summary sheet timed out after %.1fs; skip publish for now",
+                _env_float("UDB_SUMMARY_READ_TIMEOUT_SECONDS", 120.0),
+            )
+            summaries = {}
         except Exception:
             logging.exception("[chat_summary] failed to read summary sheet")
             summaries = {}
