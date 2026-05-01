@@ -17,6 +17,7 @@ from db import get_connection
 
 BASE_DIR = Path(__file__).resolve().parent
 EXCHANGE_DIR = BASE_DIR / "ai_exchange"
+SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,49 @@ class Window:
     date_key: str
     start: datetime
     end: datetime
+
+
+def _sheets_enabled() -> bool:
+    return (os.getenv("UDB_SHEETS_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"})
+
+
+def _git_sync_enabled() -> bool:
+    return (os.getenv("UDB_CHATLOG_GIT_SYNC", "0").strip().lower() in {"1", "true", "yes", "on"})
+
+
+def _get_sheets_config() -> dict[str, str]:
+    spreadsheet_id = (os.getenv("UDB_SHEETS_ID") or "").strip()
+    service_account_file = (os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE") or "").strip()
+    log_sheet = (os.getenv("UDB_SHEETS_LOG_SHEET") or "log").strip()
+    summary_sheet = (os.getenv("UDB_SHEETS_SUMMARY_SHEET") or "summary").strip()
+    return {
+        "spreadsheet_id": spreadsheet_id,
+        "service_account_file": service_account_file,
+        "log_sheet": log_sheet,
+        "summary_sheet": summary_sheet,
+    }
+
+
+def _get_sheets_service():
+    cfg = _get_sheets_config()
+    if not cfg["spreadsheet_id"]:
+        raise RuntimeError("UDB_SHEETS_ID is not configured")
+    if not cfg["service_account_file"]:
+        raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_FILE is not configured")
+    if not Path(cfg["service_account_file"]).exists():
+        raise RuntimeError(f"Service account file not found: {cfg['service_account_file']}")
+
+    try:
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
+    except Exception as exc:
+        raise RuntimeError("google-api-python-client/google-auth are not installed") from exc
+
+    credentials = Credentials.from_service_account_file(
+        cfg["service_account_file"],
+        scopes=SHEETS_SCOPES,
+    )
+    return build("sheets", "v4", credentials=credentials, cache_discovery=False)
 
 
 def _window_for_daily_export(now: datetime | None = None) -> Window:
@@ -184,6 +228,86 @@ def _git_commit_and_push_for_exchange(date_key: str) -> None:
         )
 
 
+def _rewrite_log_sheet(date_key: str, window: Window, by_chat: dict[int, list[dict[str, str]]]) -> None:
+    cfg = _get_sheets_config()
+    service = _get_sheets_service()
+    sheet_name = cfg["log_sheet"]
+    spreadsheet_id = cfg["spreadsheet_id"]
+
+    rows: list[list[str]] = [
+        ["date_key", "chat_id", "author", "text", "message_datetime", "window_start", "window_end"]
+    ]
+    for chat_id in sorted(by_chat.keys()):
+        for item in by_chat[chat_id]:
+            rows.append(
+                [
+                    date_key,
+                    str(chat_id),
+                    str(item["author"]),
+                    str(item["text"]),
+                    str(item["date"]),
+                    window.start.isoformat(),
+                    window.end.isoformat(),
+                ]
+            )
+
+    # Keep only current day in log sheet: clear and write full body.
+    service.spreadsheets().values().clear(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A:Z",
+        body={},
+    ).execute()
+    service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A1",
+        valueInputOption="RAW",
+        body={"values": rows},
+    ).execute()
+    logging.info("[chat_summary] Google Sheet '%s' rewritten with %d message rows", sheet_name, max(0, len(rows) - 1))
+
+
+def _read_summary_from_sheet(date_key: str) -> dict[int, list[str]]:
+    cfg = _get_sheets_config()
+    service = _get_sheets_service()
+    sheet_name = cfg["summary_sheet"]
+    spreadsheet_id = cfg["spreadsheet_id"]
+
+    resp = service.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A:D",
+    ).execute()
+    values = resp.get("values", [])
+    if not values:
+        return {}
+
+    grouped: dict[int, list[tuple[int, str]]] = {}
+    # Expected columns: date_key, chat_id, bullet_order, bullet_text
+    for row in values[1:]:
+        if len(row) < 4:
+            continue
+        row_date = str(row[0]).strip()
+        if row_date != date_key:
+            continue
+        try:
+            chat_id = int(str(row[1]).strip())
+        except Exception:
+            continue
+        try:
+            order = int(str(row[2]).strip() or "0")
+        except Exception:
+            order = 0
+        bullet = str(row[3]).strip()
+        if not bullet:
+            continue
+        grouped.setdefault(chat_id, []).append((order, bullet))
+
+    result: dict[int, list[str]] = {}
+    for chat_id, items in grouped.items():
+        items.sort(key=lambda x: x[0])
+        result[chat_id] = [text for _, text in items]
+    return result
+
+
 def export_daily_chatlogs() -> list[Path]:
     window = _window_for_daily_export()
     EXCHANGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -266,10 +390,17 @@ def export_daily_chatlogs() -> list[Path]:
         )
         exported.append(output_path)
 
-    if exported:
+    if exported and _git_sync_enabled():
         _git_commit_and_push_for_exchange(window.date_key)
     else:
-        logging.info("[chat_summary] No messages exported for %s", window.date_key)
+        if not exported:
+            logging.info("[chat_summary] No messages exported for %s", window.date_key)
+
+    if _sheets_enabled():
+        try:
+            _rewrite_log_sheet(window.date_key, window, by_chat)
+        except Exception:
+            logging.exception("[chat_summary] failed to rewrite Google Sheet log")
     return exported
 
 
@@ -335,34 +466,53 @@ def _format_summary_message(date_key: str, bullets: list[str]) -> str:
 
 async def publish_daily_summaries(bot: Bot) -> int:
     date_key = datetime.now().strftime("%Y_%m_%d")
-    if not EXCHANGE_DIR.exists():
-        logging.info("[chat_summary] ai_exchange folder is missing")
-        return 0
-
-    files = sorted(EXCHANGE_DIR.glob(f"{date_key}_*_summary.json"))
     published = 0
-    for path in files:
-        data = _load_summary(path)
-        if not data:
-            logging.warning("[chat_summary] skip invalid summary file: %s", path.name)
-            continue
+    if _sheets_enabled():
         try:
-            chat_id = int(data.get("chat_id"))
+            summaries = _read_summary_from_sheet(date_key)
         except Exception:
-            logging.warning("[chat_summary] bad chat_id in %s", path.name)
-            continue
-        if _is_already_published(chat_id, date_key):
-            continue
+            logging.exception("[chat_summary] failed to read summary sheet")
+            summaries = {}
 
-        text = _format_summary_message(date_key, list(data["bullets"]))
-        try:
-            sent = await bot.send_message(chat_id, text)
-        except Exception:
-            logging.exception("[chat_summary] failed to send summary to chat %s", chat_id)
-            continue
+        for chat_id, bullets in summaries.items():
+            if _is_already_published(chat_id, date_key):
+                continue
+            text = _format_summary_message(date_key, bullets)
+            try:
+                sent = await bot.send_message(chat_id, text)
+            except Exception:
+                logging.exception("[chat_summary] failed to send summary to chat %s", chat_id)
+                continue
+            _mark_published(chat_id, date_key, "google_sheets", sent.message_id)
+            published += 1
+    else:
+        if not EXCHANGE_DIR.exists():
+            logging.info("[chat_summary] ai_exchange folder is missing")
+            return 0
 
-        _mark_published(chat_id, date_key, path.name, sent.message_id)
-        published += 1
+        files = sorted(EXCHANGE_DIR.glob(f"{date_key}_*_summary.json"))
+        for path in files:
+            data = _load_summary(path)
+            if not data:
+                logging.warning("[chat_summary] skip invalid summary file: %s", path.name)
+                continue
+            try:
+                chat_id = int(data.get("chat_id"))
+            except Exception:
+                logging.warning("[chat_summary] bad chat_id in %s", path.name)
+                continue
+            if _is_already_published(chat_id, date_key):
+                continue
+
+            text = _format_summary_message(date_key, list(data["bullets"]))
+            try:
+                sent = await bot.send_message(chat_id, text)
+            except Exception:
+                logging.exception("[chat_summary] failed to send summary to chat %s", chat_id)
+                continue
+
+            _mark_published(chat_id, date_key, path.name, sent.message_id)
+            published += 1
 
     logging.info("[chat_summary] published %d summaries for %s", published, date_key)
     return published

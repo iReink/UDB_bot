@@ -140,3 +140,36 @@ chmod +x start_bot.sh stop_bot.sh
 UDB_GIT_PUSH_TOKEN=ghp_xxx...
 UDB_GIT_PUSH_USERNAME=x-access-token
 ```
+
+## Google Sheets Exchange (recommended)
+
+Вместо Git/email можно включить обмен через Google Sheets:
+
+- Бот пишет лог в лист `log` (перезаписывает только текущий день).
+- Automation читает `log` и пишет саммари в лист `summary`.
+- Бот в `23:55` читает `summary` и публикует в чат.
+
+### Env переменные
+
+```bash
+UDB_SHEETS_ENABLED=1
+UDB_SHEETS_ID=1LpC-l0AFgraofQzjHb165B_08p5Bs4q4P3-Vex9R-FY
+UDB_SHEETS_LOG_SHEET=log
+UDB_SHEETS_SUMMARY_SHEET=summary
+GOOGLE_SERVICE_ACCOUNT_FILE=/root/UDB_bot/google-service-account.json
+```
+
+### Формат листов
+
+- `log` header:
+  - `date_key | chat_id | author | text | message_datetime | window_start | window_end`
+- `summary` header:
+  - `date_key | chat_id | bullet_order | bullet_text`
+
+Подробное ТЗ для automation: `ai_exchange/AUTOMATION_SPEC_GOOGLE_SHEETS.md`.
+
+### Python зависимости (бот)
+
+```bash
+pip install google-api-python-client google-auth
+```
