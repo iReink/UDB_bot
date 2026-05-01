@@ -86,18 +86,11 @@ def process_top1_throne_for_chat(chat_id: int) -> str | None:
         top_length = update_dick_length(top_user_id, chat_id, -penalty)
 
     top_name = get_user_display_name(top_user_id, chat_id)
-    if penalty == 0 and reward == 0:
-        return (
-            f"👑 Сегодня на троне {top_name} — уже {days} дн.\n"
-            "✨ Трон пока только разогревается: скоро начнутся и щедрые ситы, и суровый налог в сантиметрах!"
-        )
-
-    parts = [
-        f"👑 Сегодня на троне {top_name} — уже {days} дн.",
-        f"📉 Налог трона: -{penalty} см.",
-        f"💰 Награда за корону: +{reward} сит.",
-        f"🍆 Текущая длина: {top_length} см.",
-    ]
+    parts = [f"👑 На троне: {top_name} ({days} дн.)"]
+    if penalty > 0:
+        parts.append(f"📉 Налог: -{penalty} см")
+    if reward > 0:
+        parts.append(f"💰 Награда: +{reward} сит")
     return "\n".join(parts)
 
 

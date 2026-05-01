@@ -365,9 +365,9 @@ def find_user_id_by_nick(chat_id: int, nick: str) -> int | None:
 
 async def daily_punish_task():
     """
-    Каждый день в 22:45 применяет реальные штрафы:
-    для пользователей с punished==1 — уменьшает вдвое daily за сегодня и total,
-    отправляет отчёт в чат и сбрасывает punished.
+    Каждый день в 22:45 применяет штрафы для users.punished==1:
+    уменьшает daily/total наполовину и сбрасывает punished.
+    По каждому чату отправляет одно короткое сообщение со списком штрафов.
     """
     while True:
         now = datetime.now()
@@ -378,52 +378,62 @@ async def daily_punish_task():
         wait_seconds = (punish_time - now).total_seconds()
         await asyncio.sleep(wait_seconds)
 
-        # Получаем всех наказанных пользователей
         with closing(get_connection()) as conn:
             cur = conn.cursor()
             cur.execute("SELECT user_id, chat_id FROM users WHERE punished=1")
             punished_users = cur.fetchall()
 
+        punish_report_by_chat: dict[int, list[str]] = {}
+
         for row in punished_users:
             user_id = row["user_id"]
             chat_id = row["chat_id"]
 
-            # Получаем сегодняшнюю daily-статистику
             today_str = datetime.now().strftime("%Y-%m-%d")
             daily = get_daily_stats(user_id, chat_id, today_str)
             if not daily:
                 continue
 
-            # Вычисляем отрицательные значения для вычитания половины
             dm = daily["messages"] // 2
             dw = daily["words"] // 2
             dc = daily["chars"] // 2
             ds = daily["stickers"] // 2
-            # Умножаем на -1 для вычитания через increment
-            increment_daily_stats(user_id, chat_id, today_str,
-                                  messages=-dm, words=-dw, chars=-dc, stickers=-ds)
 
-            increment_total_stats(user_id, chat_id,
-                                  messages=-dm, words=-dw, chars=-dc, stickers=-ds)
+            increment_daily_stats(
+                user_id,
+                chat_id,
+                today_str,
+                messages=-dm,
+                words=-dw,
+                chars=-dc,
+                stickers=-ds,
+            )
+            increment_total_stats(
+                user_id,
+                chat_id,
+                messages=-dm,
+                words=-dw,
+                chars=-dc,
+                stickers=-ds,
+            )
 
-            # Сбрасываем punished
             with closing(get_connection()) as conn:
                 cur = conn.cursor()
                 cur.execute("UPDATE users SET punished=0 WHERE user_id=? AND chat_id=?", (user_id, chat_id))
                 conn.commit()
 
-            # Отправка отчета в чат
             name = get_user(user_id, chat_id)["name"] or str(user_id)
+            punish_report_by_chat.setdefault(chat_id, []).append(f"- {name}: -{dm} соо")
+
+        for chat_id, report_lines in punish_report_by_chat.items():
             try:
-                await bot.send_message(chat_id,
-                    f"Применены штрафы за чрезмерное потребление кофе:\n"
-                    f"{name}: -{dm} сообщений, -{dw} слов, -{dc} символов, -{ds} стикеров"
+                await bot.send_message(
+                    chat_id,
+                    "Дно зарастает, а штрафы применяются:\n" + "\n".join(report_lines),
                 )
             except Exception as e:
                 logging.exception(f"Не удалось отправить сообщение о штрафах в чат {chat_id}: {e}")
 
-
-# ---------- Награждение топ-3 ----------
 
 async def daily_reward_task():
     while True:

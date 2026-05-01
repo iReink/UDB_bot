@@ -21,7 +21,7 @@ SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 DAILY_EXPORT_HOUR = 23
 DAILY_EXPORT_MINUTE = 20
 DAILY_PUBLISH_HOUR = 23
-DAILY_PUBLISH_MINUTE = 55
+DAILY_PUBLISH_MINUTE = 59
 _EXPORT_LOCK = threading.Lock()
 
 

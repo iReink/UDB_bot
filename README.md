@@ -116,7 +116,7 @@ chmod +x start_bot.sh stop_bot.sh
 В `main.py` запущены фоновые задачи:
 
 - `23:20` — экспорт chatlog в Google Sheets.
-- `23:55` — чтение summary и публикация в соответствующий `chat_id`.
+- `23:59` — чтение summary и публикация в соответствующий `chat_id`.
 
 ## Google Sheets Exchange (recommended)
 
@@ -124,7 +124,7 @@ chmod +x start_bot.sh stop_bot.sh
 
 - Бот пишет лог в лист `log` (перезаписывает только текущий день).
 - Automation читает `log` и пишет саммари в лист `summary`.
-- Бот в `23:55` читает `summary` и публикует в чат.
+- Бот в `23:59` читает `summary` и публикует в чат.
 
 ### Env переменные
 

@@ -333,13 +333,10 @@ async def process_daily_regeneration():
 
         conn.commit()
 
-    # ÐžÑ‚Ð¿Ñ€Ð°Ð²Ð»ÑÐµÐ¼ ÑÐ¾Ð¾Ð±Ñ‰ÐµÐ½Ð¸Ðµ Ð¿Ð¾ Ñ‡Ð°Ñ‚Ð°Ð¼
-    for chat_id, report_lines in chat_reports.items():
-        report_text = "ðŸ’š ÐŸÐ¾ÐºÑƒÑÐ°Ð½Ð½Ñ‹Ðµ Ð¾Ñ‚Ñ€Ð°ÑÑ‚Ð¸Ð»Ð¸ ÑÐµÐ±Ðµ Ð½ÐµÐºÐ¾Ñ‚Ð¾Ñ€Ñ‹Ðµ Ñ‡Ð°ÑÑ‚Ð¸ Ñ‚ÐµÐ»Ð°:\n" + "\n".join(report_lines)
-        try:
-            await bot.send_message(chat_id, report_text)
-        except Exception as e:
-            logging.warning(f"[daily_regeneration] ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ñ‚Ð¿Ñ€Ð°Ð²Ð¸Ñ‚ÑŒ ÑÐ¾Ð¾Ð±Ñ‰ÐµÐ½Ð¸Ðµ Ð² Ñ‡Ð°Ñ‚ {chat_id}: {e}")
+    # Ñåðâèñíîå ñîîáùåíèå â ÷àò íå îòïðàâëÿåì, òîëüêî ëîãèðóåì ôàêò âîññòàíîâëåíèÿ.
+    restored = sum(len(lines) for lines in chat_reports.values())
+    if restored > 0:
+        logging.info("[daily_regeneration] restored body parts for %d users", restored)
 
 
 
