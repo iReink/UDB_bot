@@ -18,6 +18,7 @@ const chatList = document.getElementById("chatList");
 const buildingsToggleBtn = document.getElementById("buildingsToggleBtn");
 const playersToggleBtn = document.getElementById("playersToggleBtn");
 const webChatToggleBtn = document.getElementById("webChatToggleBtn");
+const dailyToggleBtn = document.getElementById("dailyToggleBtn");
 const chatPreviewBtn = document.getElementById("chatPreviewBtn");
 const chatPreviewTrack = document.getElementById("chatPreviewTrack");
 const chatPreviewCurrentAuthor = document.getElementById("chatPreviewCurrentAuthor");
@@ -40,6 +41,17 @@ const webChatStatus = document.getElementById("webChatStatus");
 const webChatForm = document.getElementById("webChatForm");
 const webChatInput = document.getElementById("webChatInput");
 const webChatSendBtn = document.getElementById("webChatSendBtn");
+const dailyPanel = document.getElementById("dailyPanel");
+const dailyList = document.getElementById("dailyList");
+const dailyAddBtn = document.getElementById("dailyAddBtn");
+const dailyLoadOldBtn = document.getElementById("dailyLoadOldBtn");
+const dailyLoadHint = document.getElementById("dailyLoadHint");
+const dailyDeleteModal = document.getElementById("dailyDeleteModal");
+const dailyDeleteModalScrim = document.getElementById("dailyDeleteModalScrim");
+const dailyDeleteModalBody = document.getElementById("dailyDeleteModalBody");
+const dailyDeleteModalError = document.getElementById("dailyDeleteModalError");
+const dailyDeleteCancelBtn = document.getElementById("dailyDeleteCancelBtn");
+const dailyDeleteConfirmBtn = document.getElementById("dailyDeleteConfirmBtn");
 const chatmatesList = null;
 const screenLoader = document.getElementById("screenLoader");
 const sceneTooltip = document.getElementById("sceneTooltip");
@@ -88,6 +100,8 @@ const BUILDING_SCENE_POINTS = {
     sitvolny_zavod: { x: 900, y: 397 },
 };
 const MASTUR_HALL_SCENE_POINT = { x: 1226, y: 692 };
+const DAILY_STAGECOACH_SCENE_POINT = { x: 500, y: 620 };
+const DAILY_STAGECOACH_ASSET = "/static/assets/daily/stagecoach.png";
 
 const SCENE_ITEM_STYLE_KEYS = [
     "left",
@@ -122,6 +136,7 @@ const sceneSpawnedElements = [];
 let buildingsPanelOpen = false;
 let playersPanelOpen = false;
 let webChatPanelOpen = false;
+let dailyPanelOpen = false;
 let buildingsPanelAutoOpened = false;
 let idleBuildingsRequestInFlight = false;
 let playersRequestInFlight = false;
@@ -183,6 +198,22 @@ let groupAvatarAnimationStopTimeoutId = null;
 let groupAvatarNodes = [];
 let lastGroupAvatarLayoutKey = "";
 let lastGroupModalActionsSignature = "";
+let dailyUpcoming = [];
+let dailyExpired = [];
+let dailyExpiredCursor = null;
+let dailyExpiredInitialLoaded = false;
+let dailyExpiredHasMore = true;
+let dailyLoading = false;
+let dailyLoadingExpired = false;
+let dailySavingById = new Set();
+let dailyOpenCards = new Set();
+let dailyEditingId = null;
+let dailyEditDraft = null;
+let dailyFieldErrors = {};
+let dailyPanelAutoOpened = false;
+let dailyDeleteModalOpen = false;
+let dailyDeleteTarget = null;
+let dailyDeleteInFlight = false;
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
@@ -683,12 +714,57 @@ function renderMasturHallBuilding(layerNode, scale) {
     sceneBuildingNodes.push(node);
 }
 
+function renderDailyStagecoach(layerNode, scale) {
+    if (!layerNode || activeSelectedChatId == null) {
+        return;
+    }
+    const mappedPoint = mapScenePointToViewport(DAILY_STAGECOACH_SCENE_POINT);
+    if (!mappedPoint) {
+        return;
+    }
+    const node = document.createElement("div");
+    node.className = "scene-building is-daily-stagecoach";
+    node.style.left = `${mappedPoint.x}px`;
+    node.style.top = `${mappedPoint.y}px`;
+    node.style.transform = `scale(${scale})`;
+    node.dataset.buildingCode = "daily-stagecoach";
+
+    const image = document.createElement("img");
+    image.className = "scene-building-image";
+    image.src = DAILY_STAGECOACH_ASSET;
+    image.alt = "Дейли";
+    image.decoding = "async";
+    image.loading = "lazy";
+    image.addEventListener("error", () => {
+        node.classList.add("hidden");
+    }, { once: true });
+
+    node.addEventListener("mouseenter", () => {
+        node.classList.add("is-hovered");
+    });
+    node.addEventListener("mouseleave", () => {
+        node.classList.remove("is-hovered");
+    });
+    node.addEventListener("click", () => {
+        setActiveSidePanel("daily");
+        if (!dailyPanelAutoOpened) {
+            dailyPanelAutoOpened = true;
+        }
+    });
+
+    node.appendChild(image);
+    layerNode.appendChild(node);
+    sceneBuildingNodes.push(node);
+}
+
 function renderSceneBuildings(buildings) {
     clearSceneBuildings();
     const layerNode = sceneLayerNodes.foreground;
     if (!layerNode) {
         return;
     }
+    const scale = getSceneScale();
+    renderDailyStagecoach(layerNode, scale);
 
     const purchased = Array.isArray(buildings)
         ? buildings
@@ -696,10 +772,9 @@ function renderSceneBuildings(buildings) {
             .sort((a, b) => (Number(a.building_order) || 0) - (Number(b.building_order) || 0))
         : [];
     if (!purchased.length) {
+        renderMasturHallBuilding(layerNode, scale);
         return;
     }
-
-    const scale = getSceneScale();
     purchased.forEach((building) => {
         const basePoint = getBuildingScenePoint(building);
         const mappedPoint = mapScenePointToViewport(basePoint);
@@ -2306,6 +2381,9 @@ async function startVisit(targetUserId) {
             if (webChatPanelOpen) {
                 await ensureWebChatLoaded({ force: true });
             }
+            if (dailyPanelOpen) {
+                await ensureDailyLoaded({ force: true });
+            }
         }
     } finally {
         endScreenLoading();
@@ -2332,6 +2410,9 @@ async function leaveVisit() {
             }
             if (webChatPanelOpen) {
                 await ensureWebChatLoaded({ force: true });
+            }
+            if (dailyPanelOpen) {
+                await ensureDailyLoaded({ force: true });
             }
         }
     } finally {
@@ -3026,11 +3107,836 @@ async function submitWebChatMessage() {
     }
 }
 
+function resetDailyState() {
+    dailyUpcoming = [];
+    dailyExpired = [];
+    dailyExpiredCursor = null;
+    dailyExpiredInitialLoaded = false;
+    dailyExpiredHasMore = true;
+    dailyLoading = false;
+    dailyLoadingExpired = false;
+    dailySavingById = new Set();
+    dailyOpenCards = new Set();
+    dailyEditingId = null;
+    dailyEditDraft = null;
+    dailyFieldErrors = {};
+    closeDailyDeleteModal({ silent: true });
+    renderDailyPanel();
+}
+
+function parseApiErrorMessage(payload, fallback) {
+    if (!payload || typeof payload !== "object") {
+        return fallback;
+    }
+    if (typeof payload.detail === "string" && payload.detail.trim()) {
+        return payload.detail.trim();
+    }
+    if (payload.detail && typeof payload.detail === "object" && typeof payload.detail.message === "string") {
+        return payload.detail.message;
+    }
+    if (typeof payload.message === "string" && payload.message.trim()) {
+        return payload.message.trim();
+    }
+    return fallback;
+}
+
+function setDailyLoadHint(message = "", isError = false) {
+    if (!dailyLoadHint) {
+        return;
+    }
+    const text = String(message || "").trim();
+    dailyLoadHint.textContent = text;
+    dailyLoadHint.classList.toggle("hidden", !text);
+    dailyLoadHint.classList.toggle("is-error", Boolean(text) && Boolean(isError));
+}
+
+function normalizeDailyEvent(event) {
+    if (!event || typeof event !== "object") {
+        return null;
+    }
+    return {
+        ...event,
+        id: Number(event.id),
+        creator_user_id: Number(event.creator_user_id),
+        cars_enabled: Boolean(event.cars_enabled),
+        expired: Boolean(event.expired),
+        viewer_is_participant: Boolean(event.viewer_is_participant),
+        viewer_is_driver: Boolean(event.viewer_is_driver),
+        can_edit: Boolean(event.can_edit),
+        can_delete: Boolean(event.can_delete),
+        can_toggle_participation: Boolean(event.can_toggle_participation),
+        can_toggle_driver: Boolean(event.can_toggle_driver),
+        can_tag_participants: Boolean(event.can_tag_participants),
+        participant_count: Number(event.participant_count || 0),
+        driver_count: Number(event.driver_count || 0),
+        capacity_shortage: Boolean(event.capacity_shortage),
+        participants: Array.isArray(event.participants) ? event.participants : [],
+        drivers: Array.isArray(event.drivers) ? event.drivers : [],
+        all_participants: Array.isArray(event.all_participants) ? event.all_participants : [],
+    };
+}
+
+function compareDailyAsc(a, b) {
+    const aKey = String(a.datetime_local || "");
+    const bKey = String(b.datetime_local || "");
+    if (aKey < bKey) {
+        return -1;
+    }
+    if (aKey > bKey) {
+        return 1;
+    }
+    return Number(a.id) - Number(b.id);
+}
+
+function compareDailyDesc(a, b) {
+    return -compareDailyAsc(a, b);
+}
+
+function sortDailyCollections() {
+    dailyUpcoming.sort(compareDailyAsc);
+    dailyExpired.sort(compareDailyDesc);
+}
+
+function findDailyEventById(dailyId) {
+    const id = Number(dailyId);
+    return dailyUpcoming.find((item) => Number(item.id) === id)
+        || dailyExpired.find((item) => Number(item.id) === id)
+        || null;
+}
+
+function removeDailyEventById(dailyId) {
+    const id = Number(dailyId);
+    dailyUpcoming = dailyUpcoming.filter((item) => Number(item.id) !== id);
+    dailyExpired = dailyExpired.filter((item) => Number(item.id) !== id);
+    dailyOpenCards.delete(id);
+}
+
+function upsertDailyEvent(event) {
+    const normalized = normalizeDailyEvent(event);
+    if (!normalized) {
+        return;
+    }
+    removeDailyEventById(normalized.id);
+    if (normalized.expired) {
+        dailyExpired.push(normalized);
+    } else {
+        dailyUpcoming.push(normalized);
+    }
+    sortDailyCollections();
+}
+
+function getDailyPeopleText(list) {
+    if (!Array.isArray(list) || !list.length) {
+        return "никого";
+    }
+    return list.map((item) => String(item.name || `Игрок ${item.user_id}`)).join(", ");
+}
+
+function formatDailyDateTime(event) {
+    const raw = String(event.datetime_local || "");
+    if (!raw.includes("T")) {
+        return `${String(event.date || "")} ${String(event.time || "")}`.trim();
+    }
+    const [datePart, timePart] = raw.split("T");
+    if (!datePart || !timePart) {
+        return raw;
+    }
+    const [y, m, d] = datePart.split("-");
+    if (!y || !m || !d) {
+        return raw;
+    }
+    return `${d}.${m}.${y} ${timePart}`;
+}
+
+function getDefaultDailyDraft() {
+    const base = getServerNowDate();
+    base.setMinutes(base.getMinutes() + 60);
+    base.setSeconds(0);
+    base.setMilliseconds(0);
+    const year = base.getFullYear();
+    const month = String(base.getMonth() + 1).padStart(2, "0");
+    const day = String(base.getDate()).padStart(2, "0");
+    const hour = String(base.getHours()).padStart(2, "0");
+    const minute = String(base.getMinutes()).padStart(2, "0");
+    return {
+        name: "",
+        description: "",
+        datetime: `${year}-${month}-${day}T${hour}:${minute}`,
+        link: "",
+        cars: false,
+    };
+}
+
+function openDailyEditor(dailyEvent) {
+    if (!dailyEvent) {
+        return;
+    }
+    dailyEditingId = Number(dailyEvent.id);
+    dailyFieldErrors = {};
+    dailyEditDraft = {
+        name: String(dailyEvent.name || ""),
+        description: String(dailyEvent.description || ""),
+        datetime: String(dailyEvent.datetime_local || ""),
+        link: String(dailyEvent.link || ""),
+        cars: Boolean(dailyEvent.cars_enabled),
+    };
+    dailyOpenCards.add(Number(dailyEvent.id));
+    renderDailyPanel();
+}
+
+function startCreateDaily() {
+    dailyEditingId = 0;
+    dailyFieldErrors = {};
+    dailyEditDraft = getDefaultDailyDraft();
+    dailyOpenCards.add(0);
+    renderDailyPanel();
+}
+
+function closeDailyEditor() {
+    dailyEditingId = null;
+    dailyEditDraft = null;
+    dailyFieldErrors = {};
+    dailyOpenCards.delete(0);
+    renderDailyPanel();
+}
+
+async function dailyApi(path, options = {}) {
+    const response = await fetch(path, {
+        credentials: "include",
+        ...options,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(parseApiErrorMessage(payload, "Ошибка запроса"));
+        error.payload = payload;
+        throw error;
+    }
+    return payload;
+}
+
+async function loadDailyUpcoming() {
+    const payload = await dailyApi("/api/daily/upcoming");
+    const events = Array.isArray(payload.events) ? payload.events.map(normalizeDailyEvent).filter(Boolean) : [];
+    dailyUpcoming = events;
+    sortDailyCollections();
+}
+
+async function loadDailyExpiredPage({ reset = false, limit = 10 } = {}) {
+    if (dailyLoadingExpired) {
+        return;
+    }
+    dailyLoadingExpired = true;
+    if (reset) {
+        dailyExpired = [];
+        dailyExpiredCursor = null;
+        dailyExpiredInitialLoaded = false;
+        dailyExpiredHasMore = true;
+    }
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    if (dailyExpiredCursor) {
+        params.set("cursor", dailyExpiredCursor);
+    }
+    try {
+        const payload = await dailyApi(`/api/daily/expired?${params.toString()}`);
+        const events = Array.isArray(payload.events) ? payload.events.map(normalizeDailyEvent).filter(Boolean) : [];
+        const existingIds = new Set(dailyExpired.map((item) => Number(item.id)));
+        events.forEach((item) => {
+            if (!existingIds.has(Number(item.id))) {
+                dailyExpired.push(item);
+            }
+        });
+        sortDailyCollections();
+        dailyExpiredCursor = payload.next_cursor ? String(payload.next_cursor) : null;
+        dailyExpiredHasMore = Boolean(dailyExpiredCursor);
+        dailyExpiredInitialLoaded = true;
+        setDailyLoadHint("");
+    } catch (error) {
+        setDailyLoadHint(error.message || "Не удалось загрузить прошедшие дейлики", true);
+    } finally {
+        dailyLoadingExpired = false;
+    }
+}
+
+async function ensureDailyLoaded({ force = false } = {}) {
+    if (dailyLoading) {
+        return;
+    }
+    if (!force && dailyUpcoming.length) {
+        return;
+    }
+    dailyLoading = true;
+    setDailyLoadHint("");
+    try {
+        await loadDailyUpcoming();
+        renderDailyPanel();
+    } catch (error) {
+        setDailyLoadHint(error.message || "Не удалось загрузить дейлики", true);
+    } finally {
+        dailyLoading = false;
+    }
+}
+
+function renderDailyInputField({ labelText, key, type = "text", placeholder = "", required = false, isTextarea = false }) {
+    const wrap = document.createElement("div");
+    wrap.className = "daily-row";
+    const label = document.createElement("label");
+    label.className = "daily-label";
+    label.textContent = labelText;
+    const fieldError = dailyFieldErrors && dailyFieldErrors[key] ? String(dailyFieldErrors[key]) : "";
+    let input = null;
+    if (isTextarea) {
+        input = document.createElement("textarea");
+        input.className = "daily-textarea";
+    } else {
+        input = document.createElement("input");
+        input.className = "daily-input";
+        input.type = type;
+    }
+    input.value = String((dailyEditDraft && dailyEditDraft[key] != null) ? dailyEditDraft[key] : "");
+    input.placeholder = placeholder;
+    if (required) {
+        input.required = true;
+    }
+    if (fieldError) {
+        input.classList.add("is-error");
+    }
+    input.addEventListener("input", (event) => {
+        if (!dailyEditDraft) {
+            return;
+        }
+        if (type === "checkbox") {
+            dailyEditDraft[key] = Boolean(event.target.checked);
+        } else {
+            dailyEditDraft[key] = event.target.value;
+        }
+        if (dailyFieldErrors[key]) {
+            delete dailyFieldErrors[key];
+            renderDailyPanel();
+        }
+    });
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    if (fieldError) {
+        const err = document.createElement("div");
+        err.className = "daily-field-error";
+        err.textContent = fieldError;
+        wrap.appendChild(err);
+    }
+    return wrap;
+}
+
+function renderDailyCard(event) {
+    const dailyId = Number(event.id);
+    const card = document.createElement("article");
+    card.className = "daily-card";
+    if (event.expired) {
+        card.classList.add("is-expired");
+    }
+    const isEditing = Number(dailyEditingId) === dailyId;
+    const isOpened = isEditing || dailyOpenCards.has(dailyId);
+
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "daily-card-head";
+    const title = document.createElement("span");
+    title.className = "daily-card-title";
+    title.textContent = String(event.name || "Новый дейлик");
+    const chevron = document.createElement("span");
+    chevron.className = "daily-card-chevron";
+    chevron.textContent = isOpened ? "▴" : "▾";
+    head.appendChild(title);
+    head.appendChild(chevron);
+    head.addEventListener("click", () => {
+        if (isEditing) {
+            return;
+        }
+        if (dailyOpenCards.has(dailyId)) {
+            dailyOpenCards.delete(dailyId);
+        } else {
+            dailyOpenCards.add(dailyId);
+        }
+        renderDailyPanel();
+    });
+    card.appendChild(head);
+
+    if (!isOpened) {
+        return card;
+    }
+
+    const body = document.createElement("div");
+    body.className = "daily-card-body";
+    if (isEditing) {
+        const grid = document.createElement("div");
+        grid.className = "daily-edit-grid";
+        grid.appendChild(renderDailyInputField({
+            labelText: "Название *",
+            key: "name",
+            placeholder: "Название дейлика",
+            required: true,
+        }));
+        grid.appendChild(renderDailyInputField({
+            labelText: "Дата и время *",
+            key: "datetime",
+            type: "datetime-local",
+            required: true,
+        }));
+        grid.appendChild(renderDailyInputField({
+            labelText: "Описание",
+            key: "description",
+            placeholder: "Описание (необязательно)",
+            isTextarea: true,
+        }));
+        grid.appendChild(renderDailyInputField({
+            labelText: "Ссылка",
+            key: "link",
+            placeholder: "https://...",
+        }));
+
+        const carsRow = document.createElement("label");
+        carsRow.className = "daily-row";
+        const carsLabel = document.createElement("span");
+        carsLabel.className = "daily-label";
+        carsLabel.textContent = "Нужны машины";
+        const carsInput = document.createElement("input");
+        carsInput.className = "daily-input";
+        carsInput.type = "checkbox";
+        carsInput.checked = Boolean(dailyEditDraft && dailyEditDraft.cars);
+        carsInput.addEventListener("change", (event) => {
+            if (dailyEditDraft) {
+                dailyEditDraft.cars = Boolean(event.target.checked);
+            }
+        });
+        carsRow.appendChild(carsLabel);
+        carsRow.appendChild(carsInput);
+        grid.appendChild(carsRow);
+        body.appendChild(grid);
+
+        const actions = document.createElement("div");
+        actions.className = "daily-admin-actions";
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "daily-btn daily-btn--secondary";
+        cancelBtn.textContent = "Отмена";
+        cancelBtn.disabled = dailySavingById.has(dailyId);
+        cancelBtn.addEventListener("click", () => {
+            closeDailyEditor();
+        });
+        actions.appendChild(cancelBtn);
+
+        if (dailyId > 0) {
+            const deleteBtn = document.createElement("button");
+            deleteBtn.type = "button";
+            deleteBtn.className = "daily-btn daily-btn--danger";
+            deleteBtn.textContent = "Удалить";
+            deleteBtn.disabled = dailySavingById.has(dailyId);
+            deleteBtn.addEventListener("click", () => {
+                openDailyDeleteModal(event);
+            });
+            actions.appendChild(deleteBtn);
+        }
+
+        const saveBtn = document.createElement("button");
+        saveBtn.type = "button";
+        saveBtn.className = "daily-btn";
+        saveBtn.textContent = "Сохранить";
+        saveBtn.disabled = dailySavingById.has(dailyId);
+        saveBtn.addEventListener("click", () => {
+            void saveDailyEditor(dailyId);
+        });
+        actions.appendChild(saveBtn);
+        body.appendChild(actions);
+    } else {
+        const dateRow = document.createElement("div");
+        dateRow.className = "daily-row";
+        const dateLabel = document.createElement("div");
+        dateLabel.className = "daily-label";
+        dateLabel.textContent = "Дата и время";
+        const dateValue = document.createElement("div");
+        dateValue.className = "daily-value";
+        dateValue.textContent = formatDailyDateTime(event);
+        dateRow.appendChild(dateLabel);
+        dateRow.appendChild(dateValue);
+        body.appendChild(dateRow);
+
+        if (event.description) {
+            const descRow = document.createElement("div");
+            descRow.className = "daily-row";
+            const descLabel = document.createElement("div");
+            descLabel.className = "daily-label";
+            descLabel.textContent = "Описание";
+            const descValue = document.createElement("div");
+            descValue.className = "daily-value";
+            descValue.textContent = String(event.description || "");
+            descRow.appendChild(descLabel);
+            descRow.appendChild(descValue);
+            body.appendChild(descRow);
+        }
+
+        if (event.link) {
+            const linkRow = document.createElement("div");
+            linkRow.className = "daily-row";
+            const linkLabel = document.createElement("div");
+            linkLabel.className = "daily-label";
+            linkLabel.textContent = "Ссылка";
+            const link = document.createElement("a");
+            link.className = "daily-link";
+            link.href = String(event.link);
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = "Открыть";
+            linkRow.appendChild(linkLabel);
+            linkRow.appendChild(link);
+            body.appendChild(linkRow);
+        }
+
+        const peopleGrid = document.createElement("div");
+        peopleGrid.className = "daily-grid";
+        if (!event.cars_enabled) {
+            peopleGrid.classList.add("single");
+        }
+        const participantsCol = document.createElement("div");
+        participantsCol.className = "daily-row";
+        const participantsLabel = document.createElement("div");
+        participantsLabel.className = "daily-label";
+        participantsLabel.textContent = "Участники";
+        const participantsValue = document.createElement("div");
+        participantsValue.className = "daily-people-list";
+        participantsValue.textContent = getDailyPeopleText(event.participants);
+        participantsCol.appendChild(participantsLabel);
+        participantsCol.appendChild(participantsValue);
+        peopleGrid.appendChild(participantsCol);
+
+        if (event.cars_enabled) {
+            const driversCol = document.createElement("div");
+            driversCol.className = "daily-row";
+            const driversLabel = document.createElement("div");
+            driversLabel.className = "daily-label";
+            driversLabel.textContent = "Водители";
+            const driversValue = document.createElement("div");
+            driversValue.className = "daily-people-list";
+            driversValue.textContent = getDailyPeopleText(event.drivers);
+            driversCol.appendChild(driversLabel);
+            driversCol.appendChild(driversValue);
+            peopleGrid.appendChild(driversCol);
+        }
+        body.appendChild(peopleGrid);
+
+        if (event.capacity_shortage) {
+            const shortage = document.createElement("div");
+            shortage.className = "daily-inline-error";
+            shortage.textContent = "Не хватает мест в машинах";
+            body.appendChild(shortage);
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "daily-actions";
+        if (!event.cars_enabled) {
+            actions.classList.add("single");
+        }
+        const joinBtn = document.createElement("button");
+        joinBtn.type = "button";
+        joinBtn.className = "daily-btn";
+        joinBtn.textContent = event.viewer_is_participant ? "Отказаться" : "Присоединиться";
+        joinBtn.disabled = !event.can_toggle_participation || event.expired;
+        joinBtn.addEventListener("click", () => {
+            void toggleDailyParticipation(dailyId);
+        });
+        actions.appendChild(joinBtn);
+
+        if (event.cars_enabled) {
+            const driverBtn = document.createElement("button");
+            driverBtn.type = "button";
+            driverBtn.className = "daily-btn daily-btn--secondary";
+            driverBtn.textContent = event.viewer_is_driver ? "Я не водитель" : "Я водитель";
+            driverBtn.disabled = !event.can_toggle_driver || event.expired;
+            driverBtn.addEventListener("click", () => {
+                void toggleDailyDriver(dailyId);
+            });
+            actions.appendChild(driverBtn);
+        }
+        body.appendChild(actions);
+
+        const subActions = document.createElement("div");
+        subActions.className = "daily-admin-actions";
+        const tagBtn = document.createElement("button");
+        tagBtn.type = "button";
+        tagBtn.className = "daily-btn daily-btn--secondary";
+        tagBtn.textContent = "Тегнуть участников";
+        tagBtn.disabled = !event.can_tag_participants || event.expired;
+        tagBtn.addEventListener("click", () => {
+            void tagDailyParticipants(dailyId);
+        });
+        subActions.appendChild(tagBtn);
+
+        if (event.can_edit && !event.expired) {
+            const editBtn = document.createElement("button");
+            editBtn.type = "button";
+            editBtn.className = "daily-btn";
+            editBtn.textContent = "Редактировать";
+            editBtn.addEventListener("click", () => {
+                openDailyEditor(event);
+            });
+            subActions.appendChild(editBtn);
+        }
+        if (event.can_delete && !event.expired) {
+            const deleteBtn = document.createElement("button");
+            deleteBtn.type = "button";
+            deleteBtn.className = "daily-btn daily-btn--danger";
+            deleteBtn.textContent = "Удалить";
+            deleteBtn.addEventListener("click", () => {
+                openDailyDeleteModal(event);
+            });
+            subActions.appendChild(deleteBtn);
+        }
+        body.appendChild(subActions);
+    }
+    card.appendChild(body);
+    return card;
+}
+
+function renderDailyPanel() {
+    if (!dailyList) {
+        return;
+    }
+    dailyList.innerHTML = "";
+    const allEvents = [...dailyUpcoming, ...dailyExpired];
+    if (Number(dailyEditingId) === 0 && dailyEditDraft) {
+        const draftEvent = normalizeDailyEvent({
+            id: 0,
+            chat_id: activeSelectedChatId,
+            creator_user_id: 0,
+            name: dailyEditDraft.name || "Новый дейлик",
+            description: dailyEditDraft.description || "",
+            link: dailyEditDraft.link || "",
+            cars: dailyEditDraft.cars ? "да" : "нет",
+            cars_enabled: Boolean(dailyEditDraft.cars),
+            date: "",
+            time: "",
+            datetime_local: dailyEditDraft.datetime || "",
+            datetime_iso: dailyEditDraft.datetime || "",
+            expired: false,
+            is_creator: true,
+            viewer_is_participant: false,
+            viewer_is_driver: false,
+            can_edit: true,
+            can_delete: false,
+            can_toggle_participation: false,
+            can_toggle_driver: false,
+            can_tag_participants: false,
+            participant_count: 0,
+            driver_count: 0,
+            driver_capacity: 0,
+            capacity_shortage: false,
+            participants: [],
+            drivers: [],
+            all_participants: [],
+        });
+        if (draftEvent) {
+            dailyList.appendChild(renderDailyCard(draftEvent));
+        }
+    }
+    allEvents.forEach((item) => {
+        dailyList.appendChild(renderDailyCard(item));
+    });
+    if (!allEvents.length && dailyEditingId !== 0) {
+        const empty = document.createElement("div");
+        empty.className = "daily-empty-state";
+        empty.textContent = "Дейликов пока нет. Нажмите «Добавить».";
+        dailyList.appendChild(empty);
+    }
+    if (dailyLoadOldBtn) {
+        const shouldShow = !dailyExpiredInitialLoaded || dailyExpiredHasMore;
+        dailyLoadOldBtn.classList.toggle("hidden", !shouldShow);
+        dailyLoadOldBtn.disabled = dailyLoadingExpired;
+        dailyLoadOldBtn.textContent = dailyLoadingExpired ? "Загрузка..." : "Загрузить старые";
+    }
+}
+
+async function saveDailyEditor(dailyId) {
+    if (!dailyEditDraft || dailySavingById.has(dailyId)) {
+        return;
+    }
+    const isNew = Number(dailyId) === 0;
+    const payload = {
+        name: String(dailyEditDraft.name || "").trim(),
+        description: String(dailyEditDraft.description || "").trim(),
+        datetime: String(dailyEditDraft.datetime || "").trim(),
+        link: String(dailyEditDraft.link || "").trim(),
+        cars: Boolean(dailyEditDraft.cars),
+    };
+    dailySavingById.add(dailyId);
+    dailyFieldErrors = {};
+    setDailyLoadHint("");
+    renderDailyPanel();
+    try {
+        const response = isNew
+            ? await dailyApi("/api/daily/events", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            })
+            : await dailyApi(`/api/daily/events/${Number(dailyId)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+        if (response && response.event) {
+            upsertDailyEvent(response.event);
+        }
+        closeDailyEditor();
+    } catch (error) {
+        const detail = error && error.payload && error.payload.detail && typeof error.payload.detail === "object"
+            ? error.payload.detail
+            : null;
+        const fieldErrors = detail && detail.field_errors && typeof detail.field_errors === "object"
+            ? detail.field_errors
+            : null;
+        if (fieldErrors) {
+            dailyFieldErrors = { ...fieldErrors };
+            renderDailyPanel();
+        }
+        setDailyLoadHint(error.message || "Не удалось сохранить дейлик", true);
+    } finally {
+        dailySavingById.delete(dailyId);
+        renderDailyPanel();
+    }
+}
+
+async function toggleDailyParticipation(dailyId) {
+    try {
+        const response = await dailyApi(`/api/daily/events/${Number(dailyId)}/toggle-participation`, {
+            method: "POST",
+        });
+        if (response && response.event) {
+            upsertDailyEvent(response.event);
+            renderDailyPanel();
+        }
+    } catch (error) {
+        setDailyLoadHint(error.message || "Не удалось изменить участие", true);
+    }
+}
+
+async function toggleDailyDriver(dailyId) {
+    try {
+        const response = await dailyApi(`/api/daily/events/${Number(dailyId)}/toggle-driver`, {
+            method: "POST",
+        });
+        if (response && response.event) {
+            upsertDailyEvent(response.event);
+            renderDailyPanel();
+        }
+    } catch (error) {
+        setDailyLoadHint(error.message || "Не удалось изменить статус водителя", true);
+    }
+}
+
+async function tagDailyParticipants(dailyId) {
+    try {
+        await dailyApi(`/api/daily/events/${Number(dailyId)}/tag-participants`, {
+            method: "POST",
+        });
+        setDailyLoadHint("Участники отмечены в Telegram.");
+    } catch (error) {
+        setDailyLoadHint(error.message || "Не удалось тегнуть участников", true);
+    }
+}
+
+function openDailyDeleteModal(event) {
+    if (!dailyDeleteModal || !event) {
+        return;
+    }
+    dailyDeleteTarget = { id: Number(event.id), name: String(event.name || "") };
+    dailyDeleteInFlight = false;
+    dailyDeleteModalOpen = true;
+    dailyDeleteModal.classList.remove("hidden");
+    dailyDeleteModal.setAttribute("aria-hidden", "false");
+    if (dailyDeleteModalBody) {
+        dailyDeleteModalBody.textContent = `Дейлик "${dailyDeleteTarget.name}" будет удалён без возможности восстановления.`;
+    }
+    if (dailyDeleteModalError) {
+        dailyDeleteModalError.textContent = "";
+        dailyDeleteModalError.classList.add("hidden");
+    }
+    if (dailyDeleteConfirmBtn) {
+        dailyDeleteConfirmBtn.disabled = false;
+    }
+}
+
+function closeDailyDeleteModal(options = {}) {
+    const silent = Boolean(options.silent);
+    if (!dailyDeleteModal) {
+        return;
+    }
+    dailyDeleteModalOpen = false;
+    dailyDeleteTarget = null;
+    dailyDeleteInFlight = false;
+    dailyDeleteModal.classList.add("hidden");
+    dailyDeleteModal.setAttribute("aria-hidden", "true");
+    if (dailyDeleteModalError) {
+        dailyDeleteModalError.textContent = "";
+        dailyDeleteModalError.classList.add("hidden");
+    }
+    if (dailyDeleteConfirmBtn) {
+        dailyDeleteConfirmBtn.disabled = false;
+    }
+    if (!silent) {
+        renderDailyPanel();
+    }
+}
+
+async function confirmDailyDelete() {
+    if (!dailyDeleteTarget || dailyDeleteInFlight) {
+        return;
+    }
+    dailyDeleteInFlight = true;
+    if (dailyDeleteConfirmBtn) {
+        dailyDeleteConfirmBtn.disabled = true;
+    }
+    if (dailyDeleteModalError) {
+        dailyDeleteModalError.textContent = "";
+        dailyDeleteModalError.classList.add("hidden");
+    }
+    try {
+        await dailyApi(`/api/daily/events/${dailyDeleteTarget.id}`, {
+            method: "DELETE",
+        });
+        removeDailyEventById(dailyDeleteTarget.id);
+        closeDailyDeleteModal();
+        renderDailyPanel();
+    } catch (error) {
+        if (dailyDeleteModalError) {
+            dailyDeleteModalError.textContent = error.message || "Не удалось удалить дейлик";
+            dailyDeleteModalError.classList.remove("hidden");
+        }
+    } finally {
+        dailyDeleteInFlight = false;
+        if (dailyDeleteConfirmBtn) {
+            dailyDeleteConfirmBtn.disabled = false;
+        }
+    }
+}
+
+function handleDailyListScroll() {
+    if (!dailyPanelOpen || !dailyList || !dailyExpiredInitialLoaded || !dailyExpiredHasMore || dailyLoadingExpired) {
+        return;
+    }
+    const remaining = dailyList.scrollHeight - dailyList.scrollTop - dailyList.clientHeight;
+    if (remaining < 90) {
+        void loadDailyExpiredPage({ reset: false, limit: 10 }).finally(() => {
+            renderDailyPanel();
+        });
+    }
+}
+
 function setActiveSidePanel(panelName) {
     if (settingsMenuOpen) {
         setSettingsMenuOpen(false);
     }
-    let normalized = panelName === "buildings" || panelName === "players" || panelName === "chat" ? panelName : null;
+    let normalized = panelName === "buildings" || panelName === "players" || panelName === "chat" || panelName === "daily"
+        ? panelName
+        : null;
     if (visitModeActive && normalized === "buildings") {
         normalized = null;
     }
@@ -3038,6 +3944,7 @@ function setActiveSidePanel(panelName) {
     buildingsPanelOpen = normalized === "buildings";
     playersPanelOpen = normalized === "players";
     webChatPanelOpen = normalized === "chat";
+    dailyPanelOpen = normalized === "daily";
 
     if (buildingsToggleBtn) {
         buildingsToggleBtn.classList.toggle("is-active", buildingsPanelOpen);
@@ -3051,6 +3958,10 @@ function setActiveSidePanel(panelName) {
         webChatToggleBtn.classList.toggle("is-active", webChatPanelOpen);
         webChatToggleBtn.setAttribute("aria-pressed", webChatPanelOpen ? "true" : "false");
     }
+    if (dailyToggleBtn) {
+        dailyToggleBtn.classList.toggle("is-active", dailyPanelOpen);
+        dailyToggleBtn.setAttribute("aria-pressed", dailyPanelOpen ? "true" : "false");
+    }
     if (buildingsPanel) {
         buildingsPanel.classList.toggle("hidden", !buildingsPanelOpen);
     }
@@ -3059,6 +3970,9 @@ function setActiveSidePanel(panelName) {
     }
     if (webChatPanel) {
         webChatPanel.classList.toggle("hidden", !webChatPanelOpen);
+    }
+    if (dailyPanel) {
+        dailyPanel.classList.toggle("hidden", !dailyPanelOpen);
     }
     if (webChatPanelOpen) {
         if (webChatInput) {
@@ -3078,6 +3992,10 @@ function setActiveSidePanel(panelName) {
             }, 0);
         }
         void ensureWebChatLoaded();
+    }
+    if (dailyPanelOpen) {
+        void ensureDailyLoaded({ force: false });
+        renderDailyPanel();
     }
 }
 
@@ -3571,11 +4489,14 @@ function renderState(state) {
         setHidden(buildingsPanel, true);
         setHidden(playersPanel, true);
         setHidden(webChatPanel, true);
+        setHidden(dailyPanel, true);
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
+        dailyPanelAutoOpened = false;
         closeChatModal();
         resetPlayersData();
         resetWebChatState();
+        resetDailyState();
         clearBuildingsPanel();
         clearSceneBuildings();
         setHidden(authCard, false);
@@ -3611,8 +4532,10 @@ function renderState(state) {
         closeTransferModal();
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
+        dailyPanelAutoOpened = false;
         resetPlayersData();
         resetWebChatState();
+        resetDailyState();
         clearBuildingsPanel();
         clearSceneBuildings();
         closeChatModal();
@@ -3642,8 +4565,10 @@ function renderState(state) {
         closeTransferModal();
         setActiveSidePanel(null);
         buildingsPanelAutoOpened = false;
+        dailyPanelAutoOpened = false;
         resetPlayersData();
         resetWebChatState();
+        resetDailyState();
         clearBuildingsPanel();
         clearSceneBuildings();
         setGeyserProgress(0, 10, { visitBlockedByOwner: false });
@@ -3670,6 +4595,7 @@ function renderState(state) {
         dismissedGroupEventToken = null;
         setHourlyIncomeMicrosits(0);
         resetWebChatState();
+        resetDailyState();
     }
     if (activeSelectedChatId === null || Number(activeSelectedChatId) !== selectedChatId) {
         resetPlayersData();
@@ -3701,6 +4627,7 @@ function renderState(state) {
             setActiveSidePanel(null);
         }
         buildingsPanelAutoOpened = true;
+        dailyPanelAutoOpened = false;
     }
     if (visitModeActive) {
         setHidden(buildingsPanel, true);
@@ -3741,6 +4668,7 @@ async function selectChat(chatId, options = {}) {
         setHourlyIncomeMicrosits(0);
         resetPlayersData();
         resetWebChatState();
+        resetDailyState();
         clearSceneBuildings();
         clearBuildingsPanel();
         const response = await fetch("/api/select-chat", {
@@ -3762,6 +4690,9 @@ async function selectChat(chatId, options = {}) {
             }
             if (webChatPanelOpen) {
                 await ensureWebChatLoaded({ force: true });
+            }
+            if (dailyPanelOpen) {
+                await ensureDailyLoaded({ force: true });
             }
         }
     } finally {
@@ -3873,6 +4804,19 @@ if (webChatToggleBtn) {
     });
 }
 
+if (dailyToggleBtn) {
+    dailyToggleBtn.addEventListener("click", () => {
+        if (activeSelectedChatId == null) {
+            setActiveSidePanel(null);
+            return;
+        }
+        setActiveSidePanel(dailyPanelOpen ? null : "daily");
+        if (!dailyPanelOpen) {
+            void ensureDailyLoaded({ force: false });
+        }
+    });
+}
+
 if (chatPreviewBtn) {
     chatPreviewBtn.addEventListener("click", () => {
         if (activeSelectedChatId == null) {
@@ -3898,6 +4842,60 @@ if (webChatForm) {
     webChatForm.addEventListener("submit", (event) => {
         event.preventDefault();
         void submitWebChatMessage();
+    });
+}
+
+if (dailyAddBtn) {
+    dailyAddBtn.addEventListener("click", () => {
+        startCreateDaily();
+    });
+}
+
+if (dailyLoadOldBtn) {
+    dailyLoadOldBtn.addEventListener("click", () => {
+        if (!dailyExpiredInitialLoaded) {
+            void loadDailyExpiredPage({ reset: true, limit: 10 }).finally(() => {
+                renderDailyPanel();
+            });
+            return;
+        }
+        if (dailyExpiredHasMore) {
+            void loadDailyExpiredPage({ reset: false, limit: 10 }).finally(() => {
+                renderDailyPanel();
+            });
+        }
+    });
+}
+
+if (dailyList) {
+    dailyList.addEventListener("scroll", () => {
+        handleDailyListScroll();
+    });
+}
+
+if (dailyDeleteCancelBtn) {
+    dailyDeleteCancelBtn.addEventListener("click", () => {
+        closeDailyDeleteModal();
+    });
+}
+
+if (dailyDeleteModalScrim) {
+    dailyDeleteModalScrim.addEventListener("click", () => {
+        closeDailyDeleteModal();
+    });
+}
+
+if (dailyDeleteModal) {
+    dailyDeleteModal.addEventListener("click", (event) => {
+        if (event.target === dailyDeleteModal) {
+            closeDailyDeleteModal();
+        }
+    });
+}
+
+if (dailyDeleteConfirmBtn) {
+    dailyDeleteConfirmBtn.addEventListener("click", () => {
+        void confirmDailyDelete();
     });
 }
 
@@ -4067,6 +5065,9 @@ window.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && groupModalOpen) {
         void closeGroupModal();
     }
+    if (event.key === "Escape" && dailyDeleteModalOpen) {
+        closeDailyDeleteModal();
+    }
     if (event.key === "Escape" && settingsMenuOpen) {
         setSettingsMenuOpen(false);
     }
@@ -4142,6 +5143,7 @@ window.addEventListener("resize", () => {
 });
 
 closeTransferModal();
+resetDailyState();
 setWebSettings(webSettings);
 setSettingsMenuOpen(false);
 setGroupEventState(createDefaultGroupEventState(), { silent: true });

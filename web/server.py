@@ -11,10 +11,12 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta
+from html import escape
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import urlopen
+from zoneinfo import ZoneInfo
 
 from auth_code import (
     AuthCodeConflictError,
@@ -31,6 +33,12 @@ from pydantic import BaseModel, Field
 from sits import normalize_sits
 from group_event_engine import EVENT_COST, GroupEventEngine, JOIN_COST
 from masturbate_store import MasturbateStore
+from google_calendar_integration import (
+    TARGET_CHAT_ID,
+    create_calendar_event,
+    delete_calendar_event,
+    update_calendar_event,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -66,11 +74,29 @@ GROUP_JOIN_ANNOUNCE_MESSAGES = [
     '{name} аккуратно протискивается между диваном и столом со словами "Можно я тут?"',
     "{name} появляется с тарелкой печенья и моментально становится душой компании",
 ]
+DAILY_TIMEZONE = ZoneInfo("Asia/Yekaterinburg")
+DAILY_EXPIRED_PAGE_SIZE_DEFAULT = 10
+DAILY_EXPIRED_PAGE_SIZE_MAX = 50
+ADMIN_IDS_DEFAULT = {6010666986, 884940984, 749027951}
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
 SESSION_SECRET = os.getenv("WEB_SESSION_SECRET", "").strip()
 logger = logging.getLogger(__name__)
+ADMIN_IDS_SET = set(ADMIN_IDS_DEFAULT)
+admin_ids_raw = os.getenv("ADMIN_IDS", "").strip()
+if admin_ids_raw:
+    parsed_admin_ids: set[int] = set()
+    for chunk in admin_ids_raw.replace(";", ",").split(","):
+        token = chunk.strip()
+        if not token:
+            continue
+        try:
+            parsed_admin_ids.add(int(token))
+        except ValueError:
+            logger.warning("Skipping invalid ADMIN_IDS value: %s", token)
+    if parsed_admin_ids:
+        ADMIN_IDS_SET = parsed_admin_ids
 idle_income_task: asyncio.Task[None] | None = None
 idle_catalog_ready = False
 idle_catalog_lock = threading.Lock()
@@ -123,6 +149,14 @@ class GroupEventActionRequest(BaseModel):
 
 class ChatMessageRequest(BaseModel):
     text: str = ""
+
+
+class DailyEventUpsertRequest(BaseModel):
+    name: str = ""
+    description: str | None = None
+    datetime: str | None = None
+    link: str | None = None
+    cars: Any = False
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -1049,6 +1083,18 @@ def _enqueue_group_text(chat_id: int, text: str, thread_id: int | None = None) -
     )
 
 
+def _enqueue_group_html_text(chat_id: int, text: str, thread_id: int | None = None) -> None:
+    group_store.enqueue_outbox(
+        chat_id=chat_id,
+        kind="send_html_text",
+        payload={
+            "text": str(text),
+            "thread_id": int(thread_id) if thread_id is not None else None,
+            "disable_preview": True,
+        },
+    )
+
+
 def _enqueue_group_start_flow(chat_id: int) -> None:
     group_store.enqueue_outbox(chat_id=chat_id, kind="start_event_flow", payload={})
 
@@ -1060,6 +1106,258 @@ def _sanitize_web_chat_text(value: Any) -> str:
     if len(text) > 1000:
         raise HTTPException(status_code=400, detail="Сообщение не должно быть длиннее 1000 символов")
     return text
+
+
+def _daily_validation_error(field_errors: dict[str, str], message: str = "Проверьте заполнение полей") -> None:
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "code": "VALIDATION_ERROR",
+            "message": message,
+            "field_errors": field_errors,
+        },
+    )
+
+
+def _normalize_daily_cars(value: Any) -> str:
+    if isinstance(value, bool):
+        return "да" if value else "нет"
+    raw = str(value or "").strip().lower()
+    if raw in {"1", "true", "yes", "y", "да", "д"}:
+        return "да"
+    return "нет"
+
+
+def _daily_cars_enabled(value: Any) -> bool:
+    return _normalize_daily_cars(value) == "да"
+
+
+def _normalize_daily_link(raw_link: Any) -> str | None:
+    text = str(raw_link or "").strip()
+    if not text:
+        return None
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        _daily_validation_error({"link": "Укажите корректную ссылку (http/https)"}, "Некорректная ссылка")
+    return text
+
+
+def _parse_daily_datetime_input(raw_value: Any) -> datetime:
+    text = str(raw_value or "").strip()
+    if not text:
+        _daily_validation_error({"datetime": "Укажите дату и время"})
+    normalized = text.replace(" ", "T")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "VALIDATION_ERROR",
+                "message": "Некорректный формат даты и времени",
+                "field_errors": {"datetime": "Используйте формат ДД.ММ.ГГГГ ЧЧ:ММ или ISO"},
+            },
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=DAILY_TIMEZONE)
+    else:
+        parsed = parsed.astimezone(DAILY_TIMEZONE)
+    return parsed
+
+
+def _combine_daily_datetime_from_row(row: sqlite3.Row | dict[str, Any]) -> datetime:
+    date_value = str(row["date"] or "").strip()
+    time_value = str(row["time"] or "").strip()
+    parsed = datetime.strptime(f"{date_value} {time_value}", "%Y-%m-%d %H:%M")
+    return parsed.replace(tzinfo=DAILY_TIMEZONE)
+
+
+def _is_daily_expired(row: sqlite3.Row | dict[str, Any], now_dt: datetime | None = None) -> bool:
+    current = now_dt or datetime.now(DAILY_TIMEZONE)
+    return _combine_daily_datetime_from_row(row) < current
+
+
+def _daily_can_manage_event(user_id: int, creator_user_id: int) -> bool:
+    return int(user_id) == int(creator_user_id) or int(user_id) in ADMIN_IDS_SET
+
+
+def _parse_daily_cursor(cursor_raw: str | None) -> tuple[str, int] | None:
+    if not cursor_raw:
+        return None
+    raw = str(cursor_raw).strip()
+    if not raw:
+        return None
+    if "|" not in raw:
+        raise HTTPException(status_code=400, detail="Некорректный курсор")
+    dt_part, id_part = raw.rsplit("|", 1)
+    try:
+        cursor_id = int(id_part)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Некорректный курсор") from exc
+    dt_key = dt_part.strip()
+    if len(dt_key) < 16:
+        raise HTTPException(status_code=400, detail="Некорректный курсор")
+    return dt_key, cursor_id
+
+
+def _daily_cursor_from_row(row: sqlite3.Row) -> str:
+    dt_key = f"{row['date']} {row['time']}"
+    return f"{dt_key}|{int(row['id'])}"
+
+
+def _fetch_daily_event_row(cur: sqlite3.Cursor, chat_id: int, daily_id: int) -> sqlite3.Row | None:
+    cur.execute(
+        """
+        SELECT *
+        FROM daily_events
+        WHERE id = ? AND chat_id = ?
+        LIMIT 1
+        """,
+        (daily_id, chat_id),
+    )
+    return cur.fetchone()
+
+
+def _get_daily_participants_map(chat_id: int, daily_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    if not daily_ids:
+        return {}
+    placeholders = ",".join("?" for _ in daily_ids)
+    params: list[Any] = [chat_id, *daily_ids]
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT
+                p.daily_id AS daily_id,
+                p.user_id AS user_id,
+                COALESCE(p.is_driver, 0) AS is_driver,
+                COALESCE(u.name, '') AS name,
+                COALESCE(u.nick, '') AS nick
+            FROM daily_participants p
+            LEFT JOIN users u
+              ON u.user_id = p.user_id
+             AND u.chat_id = ?
+            WHERE p.daily_id IN ({placeholders})
+            ORDER BY p.daily_id ASC, COALESCE(p.is_driver, 0) DESC, p.user_id ASC
+            """,
+            tuple(params),
+        )
+        rows = cur.fetchall()
+
+    result: dict[int, list[dict[str, Any]]] = {daily_id: [] for daily_id in daily_ids}
+    for row in rows:
+        daily_id = int(row["daily_id"])
+        user_id = int(row["user_id"])
+        name = str(row["name"] or "").strip()
+        nick_raw = str(row["nick"] or "").strip()
+        nick = nick_raw.lstrip("@")
+        display_name = name or (f"@{nick}" if nick else f"Игрок {user_id}")
+        mention_html = f"@{nick}" if nick else f'<a href="tg://user?id={user_id}">{escape(display_name)}</a>'
+        result.setdefault(daily_id, []).append(
+            {
+                "user_id": user_id,
+                "name": display_name,
+                "nick": nick,
+                "is_driver": bool(int(row["is_driver"] or 0)),
+                "mention_html": mention_html,
+            }
+        )
+    return result
+
+
+def _serialize_daily_event(
+    row: sqlite3.Row,
+    viewer_user_id: int,
+    participants: list[dict[str, Any]],
+    now_dt: datetime | None = None,
+) -> dict[str, Any]:
+    current = now_dt or datetime.now(DAILY_TIMEZONE)
+    dt_local = _combine_daily_datetime_from_row(row)
+    expired = dt_local < current
+    cars_enabled = _daily_cars_enabled(row["cars"])
+    participant_ids = {int(item["user_id"]) for item in participants}
+    viewer_participant = viewer_user_id in participant_ids
+    viewer_driver = any(int(item["user_id"]) == viewer_user_id and bool(item["is_driver"]) for item in participants)
+    can_manage = _daily_can_manage_event(viewer_user_id, int(row["creator_user_id"]))
+    can_interact = not expired
+    can_toggle_driver = can_interact and cars_enabled and viewer_participant
+
+    participant_count = len(participants)
+    drivers = [item for item in participants if bool(item["is_driver"])]
+    non_drivers = [item for item in participants if not bool(item["is_driver"])]
+    driver_count = len(drivers)
+    driver_capacity = driver_count * 5 if cars_enabled else None
+    capacity_shortage = bool(cars_enabled and participant_count > (driver_capacity or 0))
+
+    return {
+        "id": int(row["id"]),
+        "chat_id": int(row["chat_id"]),
+        "creator_user_id": int(row["creator_user_id"]),
+        "name": str(row["name"] or ""),
+        "description": str(row["description"] or ""),
+        "link": str(row["link"] or ""),
+        "cars": "да" if cars_enabled else "нет",
+        "cars_enabled": cars_enabled,
+        "date": str(row["date"] or ""),
+        "time": str(row["time"] or ""),
+        "datetime_local": dt_local.strftime("%Y-%m-%dT%H:%M"),
+        "datetime_iso": dt_local.isoformat(),
+        "expired": expired,
+        "is_creator": int(row["creator_user_id"]) == viewer_user_id,
+        "viewer_is_participant": viewer_participant,
+        "viewer_is_driver": viewer_driver,
+        "can_edit": bool(can_interact and can_manage),
+        "can_delete": bool(can_interact and can_manage),
+        "can_toggle_participation": bool(can_interact),
+        "can_toggle_driver": bool(can_toggle_driver),
+        "can_tag_participants": bool(can_interact and viewer_participant),
+        "participant_count": participant_count,
+        "driver_count": driver_count,
+        "driver_capacity": driver_capacity,
+        "capacity_shortage": capacity_shortage,
+        "participants": non_drivers,
+        "drivers": drivers,
+        "all_participants": participants,
+    }
+
+
+def _ensure_daily_schema_compatibility() -> None:
+    required_daily_events_columns = {
+        "id",
+        "chat_id",
+        "creator_user_id",
+        "name",
+        "description",
+        "date",
+        "time",
+        "cars",
+        "link",
+    }
+    required_participants_columns = {
+        "daily_id",
+        "user_id",
+        "is_driver",
+    }
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        if not _table_exists(cur, "daily_events"):
+            logger.error("daily_events table is missing")
+            return
+        if not _table_exists(cur, "daily_participants"):
+            logger.error("daily_participants table is missing")
+            return
+
+        cur.execute("PRAGMA table_info(daily_events)")
+        daily_events_columns = {str(row["name"]).lower() for row in cur.fetchall()}
+        missing_daily_events = sorted(required_daily_events_columns - daily_events_columns)
+        if missing_daily_events:
+            logger.error("daily_events is missing required columns: %s", ", ".join(missing_daily_events))
+
+        cur.execute("PRAGMA table_info(daily_participants)")
+        participants_columns = {str(row["name"]).lower() for row in cur.fetchall()}
+        missing_participants = sorted(required_participants_columns - participants_columns)
+        if missing_participants:
+            logger.error("daily_participants is missing required columns: %s", ", ".join(missing_participants))
 
 
 def _format_chat_message(row: sqlite3.Row) -> dict[str, Any]:
@@ -2262,6 +2560,7 @@ async def startup_idle_income_worker() -> None:
     _ensure_idle_service_tables()
     _ensure_geyser_tables()
     _ensure_web_settings_table()
+    _ensure_daily_schema_compatibility()
     try:
         _catch_up_idle_income()
     except Exception:
@@ -2558,6 +2857,427 @@ def chat_message_send(request: Request, data: ChatMessageRequest) -> JSONRespons
             "chat_id": chat_id,
             "user_id": user_id,
             "queued": True,
+        }
+    )
+
+
+def _get_serialized_daily_event_or_404(chat_id: int, daily_id: int, viewer_user_id: int) -> dict[str, Any]:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        row = _fetch_daily_event_row(cur, chat_id=chat_id, daily_id=daily_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Дейлик не найден")
+    participants_map = _get_daily_participants_map(chat_id=chat_id, daily_ids=[daily_id])
+    participants = participants_map.get(daily_id, [])
+    return _serialize_daily_event(row=row, viewer_user_id=viewer_user_id, participants=participants)
+
+
+@app.get("/api/daily/upcoming")
+def daily_upcoming(request: Request) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    now_dt = datetime.now(DAILY_TIMEZONE)
+    now_key = now_dt.strftime("%Y-%m-%d %H:%M")
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT *
+            FROM daily_events
+            WHERE chat_id = ?
+              AND (date || ' ' || time) >= ?
+            ORDER BY date || ' ' || time ASC, id ASC
+            """,
+            (chat_id, now_key),
+        )
+        rows = cur.fetchall()
+
+    daily_ids = [int(row["id"]) for row in rows]
+    participants_map = _get_daily_participants_map(chat_id=chat_id, daily_ids=daily_ids)
+    events = [
+        _serialize_daily_event(
+            row=row,
+            viewer_user_id=user_id,
+            participants=participants_map.get(int(row["id"]), []),
+            now_dt=now_dt,
+        )
+        for row in rows
+    ]
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "events": events,
+        }
+    )
+
+
+@app.get("/api/daily/expired")
+def daily_expired(request: Request, cursor: str | None = None, limit: int = DAILY_EXPIRED_PAGE_SIZE_DEFAULT) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    page_size = max(1, min(int(limit or DAILY_EXPIRED_PAGE_SIZE_DEFAULT), DAILY_EXPIRED_PAGE_SIZE_MAX))
+    parsed_cursor = _parse_daily_cursor(cursor)
+    now_dt = datetime.now(DAILY_TIMEZONE)
+    now_key = now_dt.strftime("%Y-%m-%d %H:%M")
+
+    params: list[Any] = [chat_id, now_key]
+    cursor_clause = ""
+    if parsed_cursor:
+        cursor_key, cursor_id = parsed_cursor
+        cursor_clause = " AND ((date || ' ' || time) < ? OR ((date || ' ' || time) = ? AND id < ?)) "
+        params.extend([cursor_key, cursor_key, cursor_id])
+    params.append(page_size + 1)
+
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT *
+            FROM daily_events
+            WHERE chat_id = ?
+              AND (date || ' ' || time) < ?
+              {cursor_clause}
+            ORDER BY date || ' ' || time DESC, id DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        )
+        rows = cur.fetchall()
+
+    has_more = len(rows) > page_size
+    page_rows = rows[:page_size]
+    daily_ids = [int(row["id"]) for row in page_rows]
+    participants_map = _get_daily_participants_map(chat_id=chat_id, daily_ids=daily_ids)
+    events = [
+        _serialize_daily_event(
+            row=row,
+            viewer_user_id=user_id,
+            participants=participants_map.get(int(row["id"]), []),
+            now_dt=now_dt,
+        )
+        for row in page_rows
+    ]
+    next_cursor = _daily_cursor_from_row(page_rows[-1]) if has_more and page_rows else None
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "events": events,
+            "next_cursor": next_cursor,
+        }
+    )
+
+
+@app.post("/api/daily/events")
+async def daily_create_event(request: Request, data: DailyEventUpsertRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    name = str(data.name or "").strip()
+    if not name:
+        _daily_validation_error({"name": "Укажите название дейлика"})
+
+    parsed_datetime = _parse_daily_datetime_input(data.datetime)
+    if parsed_datetime < datetime.now(DAILY_TIMEZONE):
+        _daily_validation_error({"datetime": "Дата и время уже в прошлом"})
+    date_value = parsed_datetime.strftime("%Y-%m-%d")
+    time_value = parsed_datetime.strftime("%H:%M")
+    description = str(data.description or "").strip()
+    link = _normalize_daily_link(data.link)
+    cars = _normalize_daily_cars(data.cars)
+
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO daily_events (
+                chat_id,
+                creator_user_id,
+                name,
+                description,
+                date,
+                time,
+                cars,
+                link
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (chat_id, user_id, name, description, date_value, time_value, cars, link),
+        )
+        daily_id = int(cur.lastrowid)
+        conn.commit()
+
+    calendar_event_id: str | None = None
+    try:
+        calendar_event_id = await create_calendar_event(
+            chat_id=chat_id,
+            daily_name=name,
+            daily_description=description,
+            daily_datetime=parsed_datetime,
+            daily_link=link,
+            daily_id=daily_id,
+            bot_instance=None,
+        )
+    except Exception:
+        logger.exception("Daily create calendar sync failed for daily_id=%s", daily_id)
+    if calendar_event_id:
+        try:
+            with _get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE daily_events SET calendar_event_id = ? WHERE id = ? AND chat_id = ?",
+                    (calendar_event_id, daily_id, chat_id),
+                )
+                conn.commit()
+        except sqlite3.OperationalError:
+            logger.exception("daily_events has no calendar_event_id column, skipping persistence")
+
+    if chat_id == TARGET_CHAT_ID:
+        if calendar_event_id:
+            _enqueue_group_html_text(chat_id, f"✅ Веб: дейлик <b>{escape(name)}</b> добавлен в Google Календарь.")
+        else:
+            _enqueue_group_html_text(chat_id, f"⚠️ Веб: не удалось синхронизировать дейлик <b>{escape(name)}</b> с Google Календарём.")
+
+    event_payload = _get_serialized_daily_event_or_404(chat_id=chat_id, daily_id=daily_id, viewer_user_id=user_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "event": event_payload,
+        }
+    )
+
+
+@app.patch("/api/daily/events/{daily_id}")
+async def daily_update_event(request: Request, daily_id: int, data: DailyEventUpsertRequest) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        row = _fetch_daily_event_row(cur, chat_id=chat_id, daily_id=daily_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Дейлик не найден")
+        if not _daily_can_manage_event(user_id=user_id, creator_user_id=int(row["creator_user_id"])):
+            raise HTTPException(status_code=403, detail="Недостаточно прав для редактирования")
+        if _is_daily_expired(row):
+            raise HTTPException(status_code=409, detail="Прошедший дейлик доступен только для просмотра")
+
+        updates: dict[str, Any] = {}
+        if data.name is not None:
+            name = str(data.name or "").strip()
+            if not name:
+                _daily_validation_error({"name": "Укажите название дейлика"})
+            updates["name"] = name
+        if data.description is not None:
+            updates["description"] = str(data.description or "").strip()
+        if data.datetime is not None:
+            parsed_datetime = _parse_daily_datetime_input(data.datetime)
+            if parsed_datetime < datetime.now(DAILY_TIMEZONE):
+                _daily_validation_error({"datetime": "Дата и время уже в прошлом"})
+            updates["date"] = parsed_datetime.strftime("%Y-%m-%d")
+            updates["time"] = parsed_datetime.strftime("%H:%M")
+        if data.link is not None:
+            updates["link"] = _normalize_daily_link(data.link)
+        if data.cars is not None:
+            updates["cars"] = _normalize_daily_cars(data.cars)
+
+        if updates:
+            set_sql = ", ".join(f"{key} = ?" for key in updates.keys())
+            cur.execute(
+                f"UPDATE daily_events SET {set_sql} WHERE id = ? AND chat_id = ?",
+                (*updates.values(), daily_id, chat_id),
+            )
+            conn.commit()
+
+        updated_row = _fetch_daily_event_row(cur, chat_id=chat_id, daily_id=daily_id)
+        if not updated_row:
+            raise HTTPException(status_code=404, detail="Дейлик не найден")
+
+    updated_name = str(updated_row["name"] or "")
+    calendar_event_id = str(updated_row["calendar_event_id"] or "").strip() if "calendar_event_id" in updated_row.keys() else ""
+    if calendar_event_id:
+        try:
+            await update_calendar_event(
+                calendar_event_id=calendar_event_id,
+                chat_id=chat_id,
+                daily_name=str(updated_row["name"] or ""),
+                daily_description=str(updated_row["description"] or ""),
+                daily_datetime=_combine_daily_datetime_from_row(updated_row),
+                daily_link=str(updated_row["link"] or "") or None,
+                daily_id=int(updated_row["id"]),
+                bot_instance=None,
+            )
+            if chat_id == TARGET_CHAT_ID:
+                _enqueue_group_html_text(chat_id, f"✅ Веб: дейлик <b>{escape(updated_name)}</b> обновлён в Google Календаре.")
+        except Exception:
+            logger.exception("Daily update calendar sync failed for daily_id=%s", daily_id)
+            if chat_id == TARGET_CHAT_ID:
+                _enqueue_group_html_text(chat_id, f"⚠️ Веб: ошибка синхронизации дейлика <b>{escape(updated_name)}</b> с Google Календарём.")
+
+    event_payload = _get_serialized_daily_event_or_404(chat_id=chat_id, daily_id=daily_id, viewer_user_id=user_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "event": event_payload,
+        }
+    )
+
+
+@app.delete("/api/daily/events/{daily_id}")
+async def daily_delete_event(request: Request, daily_id: int) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    calendar_event_id = ""
+    daily_name = ""
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        row = _fetch_daily_event_row(cur, chat_id=chat_id, daily_id=daily_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Дейлик не найден")
+        if not _daily_can_manage_event(user_id=user_id, creator_user_id=int(row["creator_user_id"])):
+            raise HTTPException(status_code=403, detail="Недостаточно прав для удаления")
+        if _is_daily_expired(row):
+            raise HTTPException(status_code=409, detail="Прошедший дейлик доступен только для просмотра")
+
+        daily_name = str(row["name"] or "")
+        calendar_event_id = str(row["calendar_event_id"] or "").strip() if "calendar_event_id" in row.keys() else ""
+        cur.execute("DELETE FROM daily_participants WHERE daily_id = ?", (daily_id,))
+        cur.execute("DELETE FROM daily_events WHERE id = ? AND chat_id = ?", (daily_id, chat_id))
+        conn.commit()
+
+    if calendar_event_id:
+        try:
+            await delete_calendar_event(
+                calendar_event_id=calendar_event_id,
+                chat_id=chat_id,
+                bot_instance=None,
+            )
+            if chat_id == TARGET_CHAT_ID:
+                _enqueue_group_html_text(chat_id, f"🗑️ Веб: дейлик <b>{escape(daily_name)}</b> удалён из Google Календаря.")
+        except Exception:
+            logger.exception("Daily delete calendar sync failed for daily_id=%s", daily_id)
+            if chat_id == TARGET_CHAT_ID:
+                _enqueue_group_html_text(chat_id, f"⚠️ Веб: ошибка удаления дейлика <b>{escape(daily_name)}</b> из Google Календаря.")
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "deleted_id": daily_id,
+        }
+    )
+
+
+@app.post("/api/daily/events/{daily_id}/toggle-participation")
+def daily_toggle_participation(request: Request, daily_id: int) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        row = _fetch_daily_event_row(cur, chat_id=chat_id, daily_id=daily_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Дейлик не найден")
+        if _is_daily_expired(row):
+            raise HTTPException(status_code=409, detail="Прошедший дейлик доступен только для просмотра")
+
+        cur.execute(
+            "SELECT 1 FROM daily_participants WHERE daily_id = ? AND user_id = ? LIMIT 1",
+            (daily_id, user_id),
+        )
+        exists = cur.fetchone() is not None
+        if exists:
+            cur.execute(
+                "DELETE FROM daily_participants WHERE daily_id = ? AND user_id = ?",
+                (daily_id, user_id),
+            )
+            participant_state = False
+        else:
+            cur.execute(
+                "INSERT INTO daily_participants (daily_id, user_id, is_driver) VALUES (?, ?, 0)",
+                (daily_id, user_id),
+            )
+            participant_state = True
+        conn.commit()
+
+    event_payload = _get_serialized_daily_event_or_404(chat_id=chat_id, daily_id=daily_id, viewer_user_id=user_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "viewer_is_participant": participant_state,
+            "event": event_payload,
+        }
+    )
+
+
+@app.post("/api/daily/events/{daily_id}/toggle-driver")
+def daily_toggle_driver(request: Request, daily_id: int) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        row = _fetch_daily_event_row(cur, chat_id=chat_id, daily_id=daily_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Дейлик не найден")
+        if _is_daily_expired(row):
+            raise HTTPException(status_code=409, detail="Прошедший дейлик доступен только для просмотра")
+        if not _daily_cars_enabled(row["cars"]):
+            raise HTTPException(status_code=409, detail="Для этого дейлика режим водителя недоступен")
+
+        cur.execute(
+            "SELECT COALESCE(is_driver, 0) AS is_driver FROM daily_participants WHERE daily_id = ? AND user_id = ? LIMIT 1",
+            (daily_id, user_id),
+        )
+        participant_row = cur.fetchone()
+        if not participant_row:
+            raise HTTPException(status_code=409, detail="Сначала присоединитесь к дейлику")
+
+        next_driver_state = 0 if bool(int(participant_row["is_driver"] or 0)) else 1
+        cur.execute(
+            "UPDATE daily_participants SET is_driver = ? WHERE daily_id = ? AND user_id = ?",
+            (next_driver_state, daily_id, user_id),
+        )
+        conn.commit()
+
+    event_payload = _get_serialized_daily_event_or_404(chat_id=chat_id, daily_id=daily_id, viewer_user_id=user_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "viewer_is_driver": bool(next_driver_state),
+            "event": event_payload,
+        }
+    )
+
+
+@app.post("/api/daily/events/{daily_id}/tag-participants")
+def daily_tag_participants(request: Request, daily_id: int) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    event_payload = _get_serialized_daily_event_or_404(chat_id=chat_id, daily_id=daily_id, viewer_user_id=user_id)
+    if bool(event_payload["expired"]):
+        raise HTTPException(status_code=409, detail="Прошедший дейлик доступен только для просмотра")
+    if not bool(event_payload["viewer_is_participant"]):
+        raise HTTPException(status_code=403, detail="Тегнуть участников может только участник дейлика")
+
+    all_participants = list(event_payload["all_participants"] or [])
+    if not all_participants:
+        raise HTTPException(status_code=409, detail="В этом дейлике пока нет участников")
+
+    clicked_profile = _get_user_profile(chat_id, user_id)
+    clicked_name = str(clicked_profile["name"] or f"Игрок {user_id}")
+    mentions = [str(item["mention_html"]) for item in all_participants]
+    message_text = (
+        f"{escape(clicked_name)} тегает всех участников дейлика <b>{escape(str(event_payload['name']))}</b>:\n\n"
+        f"{', '.join(mentions)}"
+    )
+    _enqueue_group_html_text(chat_id=chat_id, text=message_text)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "tagged_count": len(mentions),
         }
     )
 

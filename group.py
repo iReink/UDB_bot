@@ -220,6 +220,17 @@ async def _outbox_worker(bot: Bot) -> None:
                     text = str(payload.get("text") or "")
                     if text:
                         await bot.send_message(chat_id, text, **send_kwargs)
+                elif kind == "send_html_text":
+                    text = str(payload.get("text") or "")
+                    disable_preview = bool(payload.get("disable_preview", True))
+                    if text:
+                        await bot.send_message(
+                            chat_id,
+                            text,
+                            parse_mode="HTML",
+                            disable_web_page_preview=disable_preview,
+                            **send_kwargs,
+                        )
                 elif kind == "send_web_chat_message":
                     text = str(payload.get("text") or "").strip()
                     user_id = int(payload.get("user_id") or 0)

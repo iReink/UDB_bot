@@ -63,6 +63,18 @@
                 <path d="M4 5.5A3.5 3.5 0 0 1 7.5 2h9A3.5 3.5 0 0 1 20 5.5v7A3.5 3.5 0 0 1 16.5 16H10l-4.3 4.1A1 1 0 0 1 4 19.4V5.5Zm3.5-1.4A1.4 1.4 0 0 0 6.1 5.5v11.6l3.1-2.9c.2-.2.4-.3.7-.3h6.6a1.4 1.4 0 0 0 1.4-1.4v-7a1.4 1.4 0 0 0-1.4-1.4h-9Z"></path>
             </svg>
         </button>
+        <button
+            id="dailyToggleBtn"
+            class="tool-toggle-btn"
+            type="button"
+            aria-label="Дейлики"
+            aria-pressed="false"
+            title="Дейлики"
+        >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1.5A2.5 2.5 0 0 1 22 6.5v13a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 19.5v-13A2.5 2.5 0 0 1 4.5 4H6V3a1 1 0 0 1 1-1Zm13 8H4v9.5c0 .3.2.5.5.5h15a.5.5 0 0 0 .5-.5V10ZM4.5 6a.5.5 0 0 0-.5.5V8h16V6.5a.5.5 0 0 0-.5-.5h-15Z"></path>
+            </svg>
+        </button>
         <button id="chatPreviewBtn" class="chat-preview hidden" type="button" aria-label="Открыть чат">
             <div class="chat-preview-viewport">
                 <div class="chat-preview-track" id="chatPreviewTrack">
@@ -198,6 +210,20 @@
     </div>
 </section>
 
+<section class="daily-panel hidden" id="dailyPanel">
+    <div class="daily-panel-inner">
+        <div class="daily-panel-head">
+            <h2 class="daily-panel-title">Дейли</h2>
+        </div>
+        <div class="daily-panel-controls">
+            <button id="dailyAddBtn" class="daily-add-btn" type="button">Добавить</button>
+        </div>
+        <div class="daily-list" id="dailyList"></div>
+        <button id="dailyLoadOldBtn" class="daily-load-old-btn hidden" type="button">Загрузить старые</button>
+        <div id="dailyLoadHint" class="daily-load-hint hidden"></div>
+    </div>
+</section>
+
 <main class="app-main">
     <section class="auth-card hidden" id="authCard">
         <h1>Сит-авторизация</h1>
@@ -288,6 +314,19 @@
         <div class="group-modal-result hidden" id="groupModalResult"></div>
         <div class="group-modal-actions" id="groupModalActions"></div>
         <div class="group-modal-message" id="groupModalMessage"></div>
+    </div>
+</div>
+
+<div class="daily-delete-modal hidden" id="dailyDeleteModal" aria-hidden="true">
+    <div class="daily-delete-modal-scrim" id="dailyDeleteModalScrim"></div>
+    <div class="daily-delete-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="dailyDeleteModalTitle" aria-describedby="dailyDeleteModalBody">
+        <h3 class="daily-delete-modal-title" id="dailyDeleteModalTitle">Удалить дейлик?</h3>
+        <p class="daily-delete-modal-body" id="dailyDeleteModalBody"></p>
+        <div class="daily-delete-modal-error hidden" id="dailyDeleteModalError"></div>
+        <div class="daily-delete-modal-actions">
+            <button class="daily-delete-cancel-btn" id="dailyDeleteCancelBtn" type="button">Отмена</button>
+            <button class="daily-delete-confirm-btn" id="dailyDeleteConfirmBtn" type="button">Удалить</button>
+        </div>
     </div>
 </div>
 
