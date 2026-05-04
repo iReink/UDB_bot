@@ -3239,6 +3239,52 @@ function getDailyPeopleText(list) {
     return list.map((item) => String(item.name || `Игрок ${item.user_id}`)).join(", ");
 }
 
+function getDailyParticipantProfileUrl(person) {
+    if (!person || typeof person !== "object") {
+        return "";
+    }
+    const nick = String(person.nick || "").trim().replace(/^@+/, "");
+    if (nick) {
+        return `https://t.me/${encodeURIComponent(nick)}`;
+    }
+    const userId = Number(person.user_id || 0);
+    if (userId > 0) {
+        return `tg://user?id=${userId}`;
+    }
+    return "";
+}
+
+function appendDailyPeopleList(targetNode, list) {
+    if (!targetNode) {
+        return;
+    }
+    if (!Array.isArray(list) || !list.length) {
+        targetNode.textContent = "никого";
+        return;
+    }
+    list.forEach((person, index) => {
+        if (index > 0) {
+            targetNode.appendChild(document.createTextNode(", "));
+        }
+        const label = String(person && person.name ? person.name : `Игрок ${person && person.user_id ? person.user_id : "?"}`);
+        const profileUrl = getDailyParticipantProfileUrl(person);
+        if (profileUrl) {
+            const link = document.createElement("a");
+            link.className = "daily-person-link";
+            link.href = profileUrl;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = label;
+            link.addEventListener("click", (domEvent) => {
+                domEvent.stopPropagation();
+            });
+            targetNode.appendChild(link);
+        } else {
+            targetNode.appendChild(document.createTextNode(label));
+        }
+    });
+}
+
 function formatDailyDateTime(event) {
     const raw = String(event.datetime_local || "");
     if (!raw.includes("T")) {
@@ -3384,7 +3430,7 @@ async function ensureDailyLoaded({ force = false } = {}) {
     }
 }
 
-function renderDailyInputField({ labelText, key, type = "text", placeholder = "", required = false, isTextarea = false }) {
+function renderDailyInputField({ labelText, key, type = "text", placeholder = "", required = false, isTextarea = false, showLabel = true }) {
     const wrap = document.createElement("div");
     wrap.className = "daily-row";
     const label = document.createElement("label");
@@ -3422,7 +3468,9 @@ function renderDailyInputField({ labelText, key, type = "text", placeholder = ""
             renderDailyPanel();
         }
     });
-    wrap.appendChild(label);
+    if (showLabel) {
+        wrap.appendChild(label);
+    }
     wrap.appendChild(input);
     if (fieldError) {
         const err = document.createElement("div");
@@ -3479,6 +3527,7 @@ function renderDailyCard(event) {
     }
     const isEditing = Number(dailyEditingId) === dailyId;
     const isOpened = isEditing || dailyOpenCards.has(dailyId);
+    card.classList.toggle("is-open", isOpened);
 
     const head = document.createElement("button");
     head.type = "button";
@@ -3495,7 +3544,7 @@ function renderDailyCard(event) {
     titleWrap.appendChild(title);
     const chevron = document.createElement("span");
     chevron.className = "daily-card-chevron";
-    chevron.textContent = isOpened ? "⌃" : "⌄";
+    chevron.innerHTML = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M6 9l6 6 6-6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
     head.appendChild(titleWrap);
     head.appendChild(chevron);
     head.addEventListener("click", () => {
@@ -3535,13 +3584,15 @@ function renderDailyCard(event) {
         grid.appendChild(renderDailyInputField({
             labelText: "Описание",
             key: "description",
-            placeholder: "Описание (необязательно)",
+            placeholder: "Сочное описание",
             isTextarea: true,
+            showLabel: false,
         }));
         grid.appendChild(renderDailyInputField({
             labelText: "Ссылка",
             key: "link",
-            placeholder: "https://...",
+            placeholder: "Ссылка на информацию (не обязательно)",
+            showLabel: false,
         }));
 
         const carsRow = document.createElement("div");
@@ -3568,6 +3619,17 @@ function renderDailyCard(event) {
         });
         carsRow.appendChild(carsLabel);
         carsRow.appendChild(carsInput);
+        carsRow.addEventListener("click", (domEvent) => {
+            if (domEvent.target === carsInput || carsInput.contains(domEvent.target)) {
+                return;
+            }
+            consumeDailyActionClick(domEvent);
+            if (!dailyEditDraft) {
+                return;
+            }
+            dailyEditDraft.cars = !dailyEditDraft.cars;
+            renderDailyPanel();
+        });
         grid.appendChild(carsRow);
         body.appendChild(grid);
 
@@ -3577,7 +3639,7 @@ function renderDailyCard(event) {
         const cancelBtn = document.createElement("button");
         cancelBtn.type = "button";
         cancelBtn.className = "daily-btn daily-btn--secondary";
-        cancelBtn.textContent = "Отменить редактирование";
+        cancelBtn.textContent = dailyId > 0 ? "Отменить редактирование" : "Отменить создание";
         cancelBtn.disabled = dailySavingById.has(dailyId);
         cancelBtn.addEventListener("click", (domEvent) => {
             consumeDailyActionClick(domEvent);
@@ -3605,7 +3667,7 @@ function renderDailyCard(event) {
         const saveBtn = document.createElement("button");
         saveBtn.type = "button";
         saveBtn.className = "daily-btn";
-        saveBtn.textContent = "Сохранить";
+        saveBtn.textContent = dailyId > 0 ? "Сохранить" : "Создать дейлик";
         saveBtn.disabled = dailySavingById.has(dailyId);
         saveBtn.addEventListener("click", (domEvent) => {
             consumeDailyActionClick(domEvent);
@@ -3644,35 +3706,26 @@ function renderDailyCard(event) {
         }
         body.appendChild(dateRow);
 
-        if (event.description) {
-            const descRow = document.createElement("div");
-            descRow.className = "daily-row";
-            const descLabel = document.createElement("div");
-            descLabel.className = "daily-label";
-            descLabel.textContent = "Описание";
+        if (event.description || event.link) {
             const descValue = document.createElement("div");
-            descValue.className = "daily-value";
+            descValue.className = "daily-description";
             descValue.textContent = String(event.description || "");
-            descRow.appendChild(descLabel);
-            descRow.appendChild(descValue);
-            body.appendChild(descRow);
-        }
-
-        if (event.link) {
-            const linkRow = document.createElement("div");
-            linkRow.className = "daily-row";
-            const linkLabel = document.createElement("div");
-            linkLabel.className = "daily-label";
-            linkLabel.textContent = "Ссылка";
-            const link = document.createElement("a");
-            link.className = "daily-link";
-            link.href = String(event.link);
-            link.target = "_blank";
-            link.rel = "noopener noreferrer";
-            link.textContent = "Открыть";
-            linkRow.appendChild(linkLabel);
-            linkRow.appendChild(link);
-            body.appendChild(linkRow);
+            if (event.link) {
+                if (event.description) {
+                    descValue.appendChild(document.createTextNode(" "));
+                }
+                const link = document.createElement("a");
+                link.className = "daily-link-inline";
+                link.href = String(event.link);
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.textContent = "Информация →";
+                link.addEventListener("click", (domEvent) => {
+                    domEvent.stopPropagation();
+                });
+                descValue.appendChild(link);
+            }
+            body.appendChild(descValue);
         }
 
         const peopleGrid = document.createElement("div");
@@ -3687,7 +3740,7 @@ function renderDailyCard(event) {
         participantsLabel.textContent = "Участники";
         const participantsValue = document.createElement("div");
         participantsValue.className = "daily-people-list";
-        participantsValue.textContent = getDailyPeopleText(event.participants);
+        appendDailyPeopleList(participantsValue, event.participants);
         participantsCol.appendChild(participantsLabel);
         participantsCol.appendChild(participantsValue);
         peopleGrid.appendChild(participantsCol);
@@ -3700,7 +3753,7 @@ function renderDailyCard(event) {
             driversLabel.textContent = "Водители";
             const driversValue = document.createElement("div");
             driversValue.className = "daily-people-list";
-            driversValue.textContent = getDailyPeopleText(event.drivers);
+            appendDailyPeopleList(driversValue, event.drivers);
             driversCol.appendChild(driversLabel);
             driversCol.appendChild(driversValue);
             peopleGrid.appendChild(driversCol);
@@ -3716,9 +3769,6 @@ function renderDailyCard(event) {
 
         const actions = document.createElement("div");
         actions.className = "daily-actions";
-        if (!event.cars_enabled) {
-            actions.classList.add("single");
-        }
         const joinBtn = document.createElement("button");
         joinBtn.type = "button";
         joinBtn.className = "daily-btn";
@@ -3728,8 +3778,6 @@ function renderDailyCard(event) {
             consumeDailyActionClick(domEvent);
             void toggleDailyParticipation(dailyId);
         });
-        actions.appendChild(joinBtn);
-
         if (event.cars_enabled) {
             const driverBtn = document.createElement("button");
             driverBtn.type = "button";
@@ -3741,11 +3789,12 @@ function renderDailyCard(event) {
                 void toggleDailyDriver(dailyId);
             });
             actions.appendChild(driverBtn);
+        } else {
+            actions.classList.add("single");
         }
-        body.appendChild(actions);
 
         const subActions = document.createElement("div");
-        subActions.className = "daily-admin-actions";
+        subActions.className = "daily-actions-right";
         const tagBtn = document.createElement("button");
         tagBtn.type = "button";
         tagBtn.className = "daily-btn daily-btn--secondary";
@@ -3756,18 +3805,9 @@ function renderDailyCard(event) {
             void tagDailyParticipants(dailyId);
         });
         subActions.appendChild(tagBtn);
-
-        if (event.can_delete && !event.expired) {
-            const deleteBtn = document.createElement("button");
-            deleteBtn.type = "button";
-            deleteBtn.className = "daily-btn daily-btn--danger";
-            deleteBtn.textContent = "Удалить";
-            deleteBtn.addEventListener("click", () => {
-                openDailyDeleteModal(event);
-            });
-            subActions.appendChild(deleteBtn);
-        }
-        body.appendChild(subActions);
+        subActions.appendChild(joinBtn);
+        actions.appendChild(subActions);
+        body.appendChild(actions);
     }
     card.appendChild(body);
     return card;
