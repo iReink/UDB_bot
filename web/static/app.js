@@ -100,7 +100,7 @@ const BUILDING_SCENE_POINTS = {
     sitvolny_zavod: { x: 900, y: 397 },
 };
 const MASTUR_HALL_SCENE_POINT = { x: 1226, y: 692 };
-const DAILY_STAGECOACH_SCENE_POINT = { x: 500, y: 620 };
+const DAILY_STAGECOACH_SCENE_POINT = { x: 350, y: 500 };
 const DAILY_STAGECOACH_ASSET = "/static/assets/daily/stagecoach.png";
 
 const SCENE_ITEM_STYLE_KEYS = [
