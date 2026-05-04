@@ -800,7 +800,7 @@ body.is-visit-mode .visit-home-wrap {
 
 .daily-panel-inner {
     display: grid;
-    grid-template-rows: auto auto minmax(220px, 1fr) auto auto;
+    grid-template-rows: auto auto minmax(0, 1fr);
     gap: 10px;
     max-height: 60vh;
 }
@@ -1061,11 +1061,12 @@ a.web-chat-author:hover {
 }
 
 .daily-list {
-    min-height: 220px;
-    max-height: calc(60vh - 172px);
+    min-height: 0;
+    max-height: 100%;
     overflow: auto;
-    display: grid;
-    align-content: start;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
     padding-right: 4px;
 }
@@ -1096,6 +1097,8 @@ a.web-chat-author:hover {
     line-height: 1;
     font-weight: 500;
     cursor: pointer;
+    margin: 0;
+    flex: 0 0 auto;
 }
 
 .daily-load-old-btn:hover:not(:disabled) {
@@ -1124,6 +1127,7 @@ a.web-chat-author:hover {
     border: 1px solid rgba(104, 64, 125, 0.2);
     background: var(--panel-row);
     overflow: hidden;
+    flex: 0 0 auto;
 }
 
 .daily-card.is-expired {
@@ -1136,9 +1140,9 @@ a.web-chat-author:hover {
     background: transparent;
     color: #16141d;
     font: inherit;
-    font-size: 16px;
+    font-size: 14px;
     line-height: 1.2;
-    font-weight: 600;
+    font-weight: 500;
     text-align: left;
     padding: 10px 12px;
     cursor: pointer;
@@ -1168,7 +1172,7 @@ a.web-chat-author:hover {
     border-top: 1px solid rgba(104, 64, 125, 0.16);
     padding: 10px 12px 12px;
     display: grid;
-    gap: 10px;
+    gap: 8px;
 }
 
 .daily-row {
@@ -1234,11 +1238,11 @@ a.web-chat-author:hover {
 }
 
 .daily-btn {
-    min-height: 34px;
+    min-height: 32px;
     border: 1px solid transparent;
     border-radius: 6px;
     padding: 0 10px;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.2;
     font-weight: 500;
     cursor: pointer;
@@ -1274,10 +1278,10 @@ a.web-chat-author:hover {
 .daily-input,
 .daily-textarea {
     width: 100%;
-    border-radius: 8px;
-    border: 1px solid rgba(104, 64, 125, 0.18);
-    background: rgba(255, 255, 255, 0.9);
-    color: #191822;
+    border-radius: 10px;
+    border: 1px solid rgba(185, 120, 200, 0.42);
+    background: rgba(242, 239, 245, 0.88);
+    color: #ef31bf;
     font: inherit;
     font-size: 14px;
     line-height: 1.3;
@@ -1286,11 +1290,11 @@ a.web-chat-author:hover {
 }
 
 .daily-input {
-    height: 36px;
+    height: 32px;
 }
 
 .daily-textarea {
-    min-height: 84px;
+    min-height: 44px;
     resize: vertical;
 }
 
@@ -2509,7 +2513,7 @@ a.web-chat-author:hover {
         max-height: none;
         min-height: 0;
         height: calc(100dvh - var(--app-header-height, 64px) - 16px);
-        grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+        grid-template-rows: auto auto minmax(0, 1fr);
     }
 
     .web-chat-messages {

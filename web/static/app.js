@@ -3740,17 +3740,26 @@ function renderDailyPanel() {
     allEvents.forEach((item) => {
         dailyList.appendChild(renderDailyCard(item));
     });
-    if (!allEvents.length && dailyEditingId !== 0) {
-        const empty = document.createElement("div");
-        empty.className = "daily-empty-state";
-        empty.textContent = "Дейликов пока нет. Нажмите «Добавить».";
-        dailyList.appendChild(empty);
-    }
+
     if (dailyLoadOldBtn) {
         const shouldShow = !dailyExpiredInitialLoaded || dailyExpiredHasMore;
         dailyLoadOldBtn.classList.toggle("hidden", !shouldShow);
         dailyLoadOldBtn.disabled = dailyLoadingExpired;
         dailyLoadOldBtn.textContent = dailyLoadingExpired ? "Загрузка..." : "Загрузить старые";
+        if (shouldShow) {
+            dailyList.appendChild(dailyLoadOldBtn);
+        }
+    }
+
+    if (dailyLoadHint && !dailyLoadHint.classList.contains("hidden")) {
+        dailyList.appendChild(dailyLoadHint);
+    }
+
+    if (!allEvents.length && dailyEditingId !== 0) {
+        const empty = document.createElement("div");
+        empty.className = "daily-empty-state";
+        empty.textContent = "Дейликов пока нет. Нажмите «Добавить».";
+        dailyList.appendChild(empty);
     }
 }
 
