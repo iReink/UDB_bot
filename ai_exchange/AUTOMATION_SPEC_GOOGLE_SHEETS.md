@@ -1,34 +1,65 @@
-# UDB Daily Summary Automation (Google Sheets)
+# Автоматизация ежедневной сводки UDB (Google Sheets)
 
-## Source
-- Spreadsheet ID: `1LpC-l0AFgraofQzjHb165B_08p5Bs4q4P3-Vex9R-FY`
-- Log sheet: `log`
-- Summary sheet: `summary`
+## Источник
+- ID таблицы: `1LpC-l0AFgraofQzjHb165B_08p5Bs4q4P3-Vex9R-FY`
+- Лист логов: `log`
+- Лист сводки: `summary`
+- Лист памяти: `legacy`
 
-## Log sheet format
-Header row is always:
+## Формат листа `log`
+Заголовок всегда:
 
 `date_key | chat_id | author | text | message_datetime | window_start | window_end`
 
-Bot rewrites this sheet daily and keeps only current day window.
+Бот ежедневно перезаписывает лист `log` и оставляет только окно текущего дня.
 
-## Summary sheet format (must be written by automation)
-Header row:
+## Формат листа `summary` (заполняется автоматизацией)
+Заголовок:
 
 `date_key | chat_id | bullet_order | bullet_text`
 
-Rules:
-1. Use only rows with today `date_key` from `log`.
-2. Build summary per `chat_id`.
-3. Write 4-8 bullets per chat.
-4. Tone: slightly sarcastic, a bit cheeky, humorous; no toxicity, insults, discrimination.
-5. Facts only from log rows; no invented details.
-6. Clear sheet `summary` first, then write header + rows for current day.
+## Формат листа `legacy` (заполняется автоматизацией)
+Заголовок:
 
-## Row example
-`2026_05_01 | -1002730880821 | 1 | Сегодня чат уверенно спорил о планах на выходные...`
+`date_key | chat_id | legacy_fact | ref_bullet_order | confidence`
 
-## Operational constraints
-- Do not modify `log` sheet.
-- Do not append to previous days.
-- Keep only current day output in `summary`.
+Пояснения:
+- `legacy_fact`: 1 очень короткий и яркий факт дня (до 160 символов), только по данным `log`.
+- `ref_bullet_order`: номер пункта из `summary`, из которого взят факт.
+- `confidence`: число `0.0..1.0` (насколько факт явно подтвержден логом).
+
+## Основные правила
+1. Использовать только строки `log` за текущий `date_key`.
+2. Формировать сводку отдельно для каждого `chat_id`.
+3. Писать 4-8 пунктов на каждый `chat_id`.
+4. Целевой размер пункта: 200-250 символов (допустимо немного короче).
+5. Тон: слегка саркастичный, немного дерзкий, с юмором; без токсичности, оскорблений и дискриминации.
+6. Факты брать только из `log`; ничего не выдумывать.
+7. Контент и служебные формулировки писать на русском языке.
+
+## Использование `legacy` в новой сводке
+1. Перед генерацией прочитать лист `legacy`.
+2. Для каждого `chat_id` можно сделать не более 1-2 отсылок к прошлым дням.
+3. Отсылка допустима только если есть смысловая связь с текущими событиями дня.
+4. Отсылка должна быть краткой, без перегруза датами и без ломки главной мысли пункта.
+5. Нельзя подменять факты текущего дня фактами из `legacy`.
+
+## Порядок записи данных (строго)
+1. Прочитать `log` и `legacy`.
+2. Полностью очистить `summary`.
+3. Записать заголовок `summary`.
+4. Записать новые строки `summary` только за текущий день.
+5. Полностью очистить `legacy`.
+6. Записать заголовок `legacy`.
+7. Записать по 1 строке `legacy` на каждый `chat_id` за текущий день.
+
+## Примеры строк
+`summary`: `2026_05_01 | -1002730880821 | 1 | Сегодня чат бодро устроил консилиум по планам на выходные и внезапно ушел в философию бытовых подвигов...`
+
+`legacy`: `2026_05_01 | -1002730880821 | Чат снова вернулся к вечной теме вылазки, но в этот раз с конкретикой и дедлайном. | 2 | 0.86`
+
+## Операционные ограничения
+- Не изменять лист `log`.
+- Не хранить в `summary` старые дни: только текущий день.
+- Если `summary` не пуст, удалять старое содержимое перед записью нового.
+- Если `legacy` не пуст, удалять старое содержимое перед записью нового.
