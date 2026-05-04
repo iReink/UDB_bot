@@ -1063,7 +1063,8 @@ a.web-chat-author:hover {
 .daily-list {
     min-height: 0;
     max-height: 100%;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -1116,6 +1117,7 @@ a.web-chat-author:hover {
     font-size: 12px;
     line-height: 1.2;
     color: #6a637b;
+    flex: 0 0 auto;
 }
 
 .daily-load-hint.is-error {
@@ -1163,6 +1165,17 @@ a.web-chat-author:hover {
     white-space: nowrap;
 }
 
+.daily-card-title-wrap {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.daily-card-emoji {
+    flex: 0 0 auto;
+}
+
 .daily-card-chevron {
     font-size: 14px;
     color: #6a637b;
@@ -1173,6 +1186,58 @@ a.web-chat-author:hover {
     padding: 10px 12px 12px;
     display: grid;
     gap: 8px;
+}
+
+.daily-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.daily-meta-date {
+    min-width: 0;
+    display: inline-flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.daily-meta-date-value {
+    color: #17151f;
+    font-size: 15px;
+    line-height: 1.35;
+}
+
+.daily-meta-remaining {
+    color: rgba(18, 18, 21, 0.8);
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.daily-icon-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #1a1a1f;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    flex: 0 0 auto;
+}
+
+.daily-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.34);
+}
+
+.daily-icon-btn svg {
+    width: 18px;
+    height: 18px;
+    display: block;
 }
 
 .daily-row {
@@ -1237,6 +1302,18 @@ a.web-chat-author:hover {
     gap: 8px;
 }
 
+.daily-edit-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+}
+
+.daily-edit-action-spacer {
+    width: 1px;
+    height: 1px;
+}
+
 .daily-btn {
     min-height: 32px;
     border: 1px solid transparent;
@@ -1268,6 +1345,23 @@ a.web-chat-author:hover {
     background: rgba(206, 46, 118, 0.12);
     border-color: rgba(206, 46, 118, 0.34);
     color: #7b1545;
+}
+
+.daily-text-danger-btn {
+    border: none;
+    background: transparent;
+    color: var(--danger-text);
+    font-size: 22px;
+    line-height: 1;
+    font-weight: 500;
+    padding: 0 10px;
+    min-height: 32px;
+    cursor: pointer;
+}
+
+.daily-text-danger-btn:disabled {
+    opacity: 0.56;
+    cursor: not-allowed;
 }
 
 .daily-edit-grid {
@@ -1309,6 +1403,53 @@ a.web-chat-author:hover {
 .daily-textarea.is-error {
     border-color: rgba(206, 46, 118, 0.72);
     box-shadow: 0 0 0 1px rgba(206, 46, 118, 0.22) inset;
+}
+
+.daily-cars-toggle-row {
+    min-height: 50px;
+    border-radius: 8px;
+    border: 1px solid rgba(104, 64, 125, 0.18);
+    background: rgba(255, 255, 255, 0.72);
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.daily-cars-toggle-label {
+    min-width: 0;
+    color: #de33b5;
+    font-size: 18px;
+    line-height: 1.2;
+}
+
+.daily-cars-toggle {
+    width: 44px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid #de33b5;
+    background: rgba(255, 255, 255, 0.86);
+    position: relative;
+    padding: 2px;
+    cursor: pointer;
+    display: inline-flex;
+    justify-content: flex-start;
+    align-items: center;
+    flex: 0 0 auto;
+}
+
+.daily-cars-toggle.is-on {
+    justify-content: flex-end;
+    background: #ff47d1;
+}
+
+.daily-cars-toggle-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
 }
 
 .daily-field-error {

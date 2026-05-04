@@ -3204,11 +3204,13 @@ function findDailyEventById(dailyId) {
         || null;
 }
 
-function removeDailyEventById(dailyId) {
+function removeDailyEventById(dailyId, { preserveOpen = false } = {}) {
     const id = Number(dailyId);
     dailyUpcoming = dailyUpcoming.filter((item) => Number(item.id) !== id);
     dailyExpired = dailyExpired.filter((item) => Number(item.id) !== id);
-    dailyOpenCards.delete(id);
+    if (!preserveOpen) {
+        dailyOpenCards.delete(id);
+    }
 }
 
 function upsertDailyEvent(event) {
@@ -3216,13 +3218,18 @@ function upsertDailyEvent(event) {
     if (!normalized) {
         return;
     }
-    removeDailyEventById(normalized.id);
+    const normalizedId = Number(normalized.id);
+    const wasOpened = dailyOpenCards.has(normalizedId);
+    removeDailyEventById(normalizedId, { preserveOpen: true });
     if (normalized.expired) {
         dailyExpired.push(normalized);
     } else {
         dailyUpcoming.push(normalized);
     }
     sortDailyCollections();
+    if (wasOpened) {
+        dailyOpenCards.add(normalizedId);
+    }
 }
 
 function getDailyPeopleText(list) {
@@ -3426,6 +3433,43 @@ function renderDailyInputField({ labelText, key, type = "text", placeholder = ""
     return wrap;
 }
 
+function consumeDailyActionClick(domEvent) {
+    if (!domEvent) {
+        return;
+    }
+    domEvent.preventDefault();
+    domEvent.stopPropagation();
+}
+
+function getDailyRemainingText(event) {
+    if (!event || event.expired) {
+        return "";
+    }
+    if (typeof event.time_left_text === "string" && event.time_left_text.trim()) {
+        return event.time_left_text.trim();
+    }
+    const raw = String(event.datetime_local || "");
+    if (!raw) {
+        return "";
+    }
+    const deadline = new Date(raw);
+    if (Number.isNaN(deadline.getTime())) {
+        return "";
+    }
+    const now = getServerNowDate();
+    const diffMs = deadline.getTime() - now.getTime();
+    if (diffMs <= 0) {
+        return "";
+    }
+    const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    if (days <= 0) {
+        return `Осталось ${hours}ч`;
+    }
+    return `Осталось ${days}д ${hours}ч`;
+}
+
 function renderDailyCard(event) {
     const dailyId = Number(event.id);
     const card = document.createElement("article");
@@ -3439,13 +3483,20 @@ function renderDailyCard(event) {
     const head = document.createElement("button");
     head.type = "button";
     head.className = "daily-card-head";
+    const titleWrap = document.createElement("span");
+    titleWrap.className = "daily-card-title-wrap";
+    const emoji = document.createElement("span");
+    emoji.className = "daily-card-emoji";
+    emoji.textContent = "🎉";
     const title = document.createElement("span");
     title.className = "daily-card-title";
     title.textContent = String(event.name || "Новый дейлик");
+    titleWrap.appendChild(emoji);
+    titleWrap.appendChild(title);
     const chevron = document.createElement("span");
     chevron.className = "daily-card-chevron";
-    chevron.textContent = isOpened ? "▴" : "▾";
-    head.appendChild(title);
+    chevron.textContent = isOpened ? "⌃" : "⌄";
+    head.appendChild(titleWrap);
     head.appendChild(chevron);
     head.addEventListener("click", () => {
         if (isEditing) {
@@ -3493,18 +3544,26 @@ function renderDailyCard(event) {
             placeholder: "https://...",
         }));
 
-        const carsRow = document.createElement("label");
-        carsRow.className = "daily-row";
+        const carsRow = document.createElement("div");
+        carsRow.className = "daily-cars-toggle-row";
         const carsLabel = document.createElement("span");
-        carsLabel.className = "daily-label";
-        carsLabel.textContent = "Нужны машины";
-        const carsInput = document.createElement("input");
-        carsInput.className = "daily-input";
-        carsInput.type = "checkbox";
-        carsInput.checked = Boolean(dailyEditDraft && dailyEditDraft.cars);
-        carsInput.addEventListener("change", (event) => {
+        carsLabel.className = "daily-cars-toggle-label";
+        carsLabel.textContent = "Автомобильный дейлик";
+        const carsInput = document.createElement("button");
+        carsInput.className = "daily-cars-toggle";
+        carsInput.type = "button";
+        const isCarsEnabled = Boolean(dailyEditDraft && dailyEditDraft.cars);
+        carsInput.classList.toggle("is-on", isCarsEnabled);
+        carsInput.setAttribute("aria-pressed", isCarsEnabled ? "true" : "false");
+        carsInput.setAttribute("aria-label", "Автомобильный дейлик");
+        const carsThumb = document.createElement("span");
+        carsThumb.className = "daily-cars-toggle-thumb";
+        carsInput.appendChild(carsThumb);
+        carsInput.addEventListener("click", (domEvent) => {
+            consumeDailyActionClick(domEvent);
             if (dailyEditDraft) {
-                dailyEditDraft.cars = Boolean(event.target.checked);
+                dailyEditDraft.cars = !dailyEditDraft.cars;
+                renderDailyPanel();
             }
         });
         carsRow.appendChild(carsLabel);
@@ -3513,14 +3572,15 @@ function renderDailyCard(event) {
         body.appendChild(grid);
 
         const actions = document.createElement("div");
-        actions.className = "daily-admin-actions";
+        actions.className = "daily-edit-actions";
 
         const cancelBtn = document.createElement("button");
         cancelBtn.type = "button";
         cancelBtn.className = "daily-btn daily-btn--secondary";
-        cancelBtn.textContent = "Отмена";
+        cancelBtn.textContent = "Отменить редактирование";
         cancelBtn.disabled = dailySavingById.has(dailyId);
-        cancelBtn.addEventListener("click", () => {
+        cancelBtn.addEventListener("click", (domEvent) => {
+            consumeDailyActionClick(domEvent);
             closeDailyEditor();
         });
         actions.appendChild(cancelBtn);
@@ -3528,13 +3588,18 @@ function renderDailyCard(event) {
         if (dailyId > 0) {
             const deleteBtn = document.createElement("button");
             deleteBtn.type = "button";
-            deleteBtn.className = "daily-btn daily-btn--danger";
+            deleteBtn.className = "daily-text-danger-btn";
             deleteBtn.textContent = "Удалить";
             deleteBtn.disabled = dailySavingById.has(dailyId);
-            deleteBtn.addEventListener("click", () => {
+            deleteBtn.addEventListener("click", (domEvent) => {
+                consumeDailyActionClick(domEvent);
                 openDailyDeleteModal(event);
             });
             actions.appendChild(deleteBtn);
+        } else {
+            const deleteSpacer = document.createElement("span");
+            deleteSpacer.className = "daily-edit-action-spacer";
+            actions.appendChild(deleteSpacer);
         }
 
         const saveBtn = document.createElement("button");
@@ -3542,22 +3607,41 @@ function renderDailyCard(event) {
         saveBtn.className = "daily-btn";
         saveBtn.textContent = "Сохранить";
         saveBtn.disabled = dailySavingById.has(dailyId);
-        saveBtn.addEventListener("click", () => {
+        saveBtn.addEventListener("click", (domEvent) => {
+            consumeDailyActionClick(domEvent);
             void saveDailyEditor(dailyId);
         });
         actions.appendChild(saveBtn);
         body.appendChild(actions);
     } else {
         const dateRow = document.createElement("div");
-        dateRow.className = "daily-row";
-        const dateLabel = document.createElement("div");
-        dateLabel.className = "daily-label";
-        dateLabel.textContent = "Дата и время";
-        const dateValue = document.createElement("div");
-        dateValue.className = "daily-value";
-        dateValue.textContent = formatDailyDateTime(event);
-        dateRow.appendChild(dateLabel);
-        dateRow.appendChild(dateValue);
+        dateRow.className = "daily-meta-row";
+        const dateWrap = document.createElement("div");
+        dateWrap.className = "daily-meta-date";
+        const dateValue = document.createElement("span");
+        dateValue.className = "daily-meta-date-value";
+        dateValue.textContent = `\uD83D\uDCC6 ${formatDailyDateTime(event)}`;
+        dateWrap.appendChild(dateValue);
+        const remainingText = getDailyRemainingText(event);
+        if (remainingText) {
+            const remaining = document.createElement("span");
+            remaining.className = "daily-meta-remaining";
+            remaining.textContent = remainingText;
+            dateWrap.appendChild(remaining);
+        }
+        dateRow.appendChild(dateWrap);
+        if (event.can_edit && !event.expired) {
+            const editBtn = document.createElement("button");
+            editBtn.type = "button";
+            editBtn.className = "daily-icon-btn";
+            editBtn.setAttribute("aria-label", "Редактировать");
+            editBtn.innerHTML = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Zm2.92 2.33H5v-.92l9.06-9.06.92.92L5.92 19.58ZM20.71 7.04a1.003 1.003 0 0 0 0-1.42L18.37 3.29a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.83Z\" fill=\"currentColor\"/></svg>";
+            editBtn.addEventListener("click", (domEvent) => {
+                consumeDailyActionClick(domEvent);
+                openDailyEditor(event);
+            });
+            dateRow.appendChild(editBtn);
+        }
         body.appendChild(dateRow);
 
         if (event.description) {
@@ -3640,7 +3724,8 @@ function renderDailyCard(event) {
         joinBtn.className = "daily-btn";
         joinBtn.textContent = event.viewer_is_participant ? "Отказаться" : "Присоединиться";
         joinBtn.disabled = !event.can_toggle_participation || event.expired;
-        joinBtn.addEventListener("click", () => {
+        joinBtn.addEventListener("click", (domEvent) => {
+            consumeDailyActionClick(domEvent);
             void toggleDailyParticipation(dailyId);
         });
         actions.appendChild(joinBtn);
@@ -3651,7 +3736,8 @@ function renderDailyCard(event) {
             driverBtn.className = "daily-btn daily-btn--secondary";
             driverBtn.textContent = event.viewer_is_driver ? "Я не водитель" : "Я водитель";
             driverBtn.disabled = !event.can_toggle_driver || event.expired;
-            driverBtn.addEventListener("click", () => {
+            driverBtn.addEventListener("click", (domEvent) => {
+                consumeDailyActionClick(domEvent);
                 void toggleDailyDriver(dailyId);
             });
             actions.appendChild(driverBtn);
@@ -3665,21 +3751,12 @@ function renderDailyCard(event) {
         tagBtn.className = "daily-btn daily-btn--secondary";
         tagBtn.textContent = "Тегнуть участников";
         tagBtn.disabled = !event.can_tag_participants || event.expired;
-        tagBtn.addEventListener("click", () => {
+        tagBtn.addEventListener("click", (domEvent) => {
+            consumeDailyActionClick(domEvent);
             void tagDailyParticipants(dailyId);
         });
         subActions.appendChild(tagBtn);
 
-        if (event.can_edit && !event.expired) {
-            const editBtn = document.createElement("button");
-            editBtn.type = "button";
-            editBtn.className = "daily-btn";
-            editBtn.textContent = "Редактировать";
-            editBtn.addEventListener("click", () => {
-                openDailyEditor(event);
-            });
-            subActions.appendChild(editBtn);
-        }
         if (event.can_delete && !event.expired) {
             const deleteBtn = document.createElement("button");
             deleteBtn.type = "button";
