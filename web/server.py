@@ -1280,7 +1280,7 @@ def _serialize_daily_event(
     viewer_driver = any(int(item["user_id"]) == viewer_user_id and bool(item["is_driver"]) for item in participants)
     can_manage = _daily_can_manage_event(viewer_user_id, int(row["creator_user_id"]))
     can_interact = not expired
-    can_toggle_driver = can_interact and cars_enabled and viewer_participant
+    can_toggle_driver = can_interact and cars_enabled
 
     participant_count = len(participants)
     drivers = [item for item in participants if bool(item["is_driver"])]
@@ -3081,6 +3081,12 @@ async def daily_update_event(request: Request, daily_id: int, data: DailyEventUp
             updates["cars"] = _normalize_daily_cars(data.cars)
 
         if updates:
+            # If car mode is turned off, keep all drivers as participants.
+            if updates.get("cars") == "нет":
+                cur.execute(
+                    "UPDATE daily_participants SET is_driver = 0 WHERE daily_id = ? AND COALESCE(is_driver, 0) != 0",
+                    (daily_id,),
+                )
             set_sql = ", ".join(f"{key} = ?" for key in updates.keys())
             cur.execute(
                 f"UPDATE daily_events SET {set_sql} WHERE id = ? AND chat_id = ?",
@@ -3230,13 +3236,17 @@ def daily_toggle_driver(request: Request, daily_id: int) -> JSONResponse:
         )
         participant_row = cur.fetchone()
         if not participant_row:
-            raise HTTPException(status_code=409, detail="Сначала присоединитесь к дейлику")
-
-        next_driver_state = 0 if bool(int(participant_row["is_driver"] or 0)) else 1
-        cur.execute(
-            "UPDATE daily_participants SET is_driver = ? WHERE daily_id = ? AND user_id = ?",
-            (next_driver_state, daily_id, user_id),
-        )
+            next_driver_state = 1
+            cur.execute(
+                "INSERT INTO daily_participants (daily_id, user_id, is_driver) VALUES (?, ?, ?)",
+                (daily_id, user_id, next_driver_state),
+            )
+        else:
+            next_driver_state = 0 if bool(int(participant_row["is_driver"] or 0)) else 1
+            cur.execute(
+                "UPDATE daily_participants SET is_driver = ? WHERE daily_id = ? AND user_id = ?",
+                (next_driver_state, daily_id, user_id),
+            )
         conn.commit()
 
     event_payload = _get_serialized_daily_event_or_404(chat_id=chat_id, daily_id=daily_id, viewer_user_id=user_id)
