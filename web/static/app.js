@@ -44,6 +44,8 @@ const webChatSendBtn = document.getElementById("webChatSendBtn");
 const dailyPanel = document.getElementById("dailyPanel");
 const dailyList = document.getElementById("dailyList");
 const dailyAddBtn = document.getElementById("dailyAddBtn");
+const dailyOnlyMineRow = document.getElementById("dailyOnlyMineRow");
+const dailyOnlyMineSwitch = document.getElementById("dailyOnlyMineSwitch");
 const dailyLoadOldBtn = document.getElementById("dailyLoadOldBtn");
 const dailyLoadHint = document.getElementById("dailyLoadHint");
 const dailyDeleteModal = document.getElementById("dailyDeleteModal");
@@ -214,6 +216,7 @@ let dailyPanelAutoOpened = false;
 let dailyDeleteModalOpen = false;
 let dailyDeleteTarget = null;
 let dailyDeleteInFlight = false;
+let dailyOnlyMineFilter = false;
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
@@ -3813,12 +3816,32 @@ function renderDailyCard(event) {
     return card;
 }
 
+function isDailyVisibleByFilter(event) {
+    if (!dailyOnlyMineFilter) {
+        return true;
+    }
+    if (!event || Number(event.id) === 0) {
+        return true;
+    }
+    return Boolean(event.viewer_is_participant) || Boolean(event.viewer_is_driver);
+}
+
+function syncDailyOnlyMineSwitchUi() {
+    if (!dailyOnlyMineSwitch) {
+        return;
+    }
+    dailyOnlyMineSwitch.classList.toggle("is-on", dailyOnlyMineFilter);
+    dailyOnlyMineSwitch.setAttribute("aria-pressed", dailyOnlyMineFilter ? "true" : "false");
+}
+
 function renderDailyPanel() {
     if (!dailyList) {
         return;
     }
+    syncDailyOnlyMineSwitchUi();
     dailyList.innerHTML = "";
     const allEvents = [...dailyUpcoming, ...dailyExpired];
+    const visibleEvents = allEvents.filter((item) => isDailyVisibleByFilter(item));
     if (Number(dailyEditingId) === 0 && dailyEditDraft) {
         const draftEvent = normalizeDailyEvent({
             id: 0,
@@ -3854,7 +3877,7 @@ function renderDailyPanel() {
             dailyList.appendChild(renderDailyCard(draftEvent));
         }
     }
-    allEvents.forEach((item) => {
+    visibleEvents.forEach((item) => {
         dailyList.appendChild(renderDailyCard(item));
     });
 
@@ -3872,10 +3895,12 @@ function renderDailyPanel() {
         dailyList.appendChild(dailyLoadHint);
     }
 
-    if (!allEvents.length && dailyEditingId !== 0) {
+    if (!visibleEvents.length && dailyEditingId !== 0) {
         const empty = document.createElement("div");
         empty.className = "daily-empty-state";
-        empty.textContent = "Дейликов пока нет. Нажмите «Добавить».";
+        empty.textContent = dailyOnlyMineFilter
+            ? "Нет дейликов, где вы участвуете."
+            : "Дейликов пока нет. Нажмите «Добавить».";
         dailyList.appendChild(empty);
     }
 }
@@ -4974,6 +4999,25 @@ if (webChatForm) {
 if (dailyAddBtn) {
     dailyAddBtn.addEventListener("click", () => {
         startCreateDaily();
+    });
+}
+
+if (dailyOnlyMineSwitch) {
+    dailyOnlyMineSwitch.addEventListener("click", (event) => {
+        consumeDailyActionClick(event);
+        dailyOnlyMineFilter = !dailyOnlyMineFilter;
+        renderDailyPanel();
+    });
+}
+
+if (dailyOnlyMineRow) {
+    dailyOnlyMineRow.addEventListener("click", (event) => {
+        if (dailyOnlyMineSwitch && (event.target === dailyOnlyMineSwitch || dailyOnlyMineSwitch.contains(event.target))) {
+            return;
+        }
+        consumeDailyActionClick(event);
+        dailyOnlyMineFilter = !dailyOnlyMineFilter;
+        renderDailyPanel();
     });
 }
 

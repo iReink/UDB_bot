@@ -1023,6 +1023,7 @@ a.web-chat-author:hover {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    padding-right: 4px;
 }
 
 .daily-panel-title {
@@ -1033,9 +1034,11 @@ a.web-chat-author:hover {
     color: #1a1a1f;
 }
 
-.daily-panel-controls {
+.daily-panel-actions {
     display: flex;
     align-items: center;
+    margin-left: auto;
+    gap: 12px;
 }
 
 .daily-add-btn {
@@ -1050,6 +1053,25 @@ a.web-chat-author:hover {
     font-weight: 500;
     padding: 0 12px;
     cursor: pointer;
+}
+
+.daily-filter-row {
+    min-height: 33px;
+    border-radius: 8px;
+    border: 1px solid rgba(104, 64, 125, 0.18);
+    background: rgba(255, 255, 255, 0.72);
+    padding: 4px 8px 4px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.daily-filter-label {
+    color: #1a1a1f;
+    font-size: 13px;
+    line-height: 1.2;
 }
 
 .daily-add-btn:hover:not(:disabled) {

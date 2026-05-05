@@ -214,7 +214,15 @@
     <div class="daily-panel-inner">
         <div class="daily-panel-head">
             <h2 class="daily-panel-title">Дейли</h2>
-            <button id="dailyAddBtn" class="daily-add-btn" type="button">Добавить</button>
+            <div class="daily-panel-actions">
+                <label class="daily-filter-row" id="dailyOnlyMineRow">
+                    <span class="daily-filter-label">Только где я участвую</span>
+                    <button id="dailyOnlyMineSwitch" class="settings-switch" type="button" aria-pressed="false" aria-label="Только где я участвую">
+                        <span class="settings-switch-thumb"></span>
+                    </button>
+                </label>
+                <button id="dailyAddBtn" class="daily-add-btn" type="button">Добавить</button>
+            </div>
         </div>
         <div class="daily-list" id="dailyList">
             <button id="dailyLoadOldBtn" class="daily-load-old-btn hidden" type="button">Загрузить старые</button>
