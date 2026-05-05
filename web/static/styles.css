@@ -1066,6 +1066,7 @@ a.web-chat-author:hover {
     max-height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
+    scrollbar-gutter: stable;
     display: flex;
     flex-direction: column;
     align-items: stretch;
