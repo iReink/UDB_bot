@@ -2607,7 +2607,8 @@ async function submitTransferSits() {
         return;
     }
 
-    if (parsed.amountSits + 1e-9 > transferSenderBalance) {
+    const senderBalanceMillisits = sitsToMillisits(transferSenderBalance);
+    if (parsed.amountMillisits > senderBalanceMillisits) {
         setTransferMessageError(
             `Нельзя передать ${formatMicrosits(parsed.amountMillisits)} миллисит, у вас только ${formatMicrosits(sitsToMillisits(transferSenderBalance))}.`,
             { showFillBalance: true },
@@ -2620,7 +2621,8 @@ async function submitTransferSits() {
     updateTransferSubmitState();
 
     try {
-        const payload = await sendSitsToPlayer(transferRecipientPlayer.user_id, parsed.amountSits);
+        const amountSitsRaw = (parsed.amountMillisits / 1000).toFixed(3);
+        const payload = await sendSitsToPlayer(transferRecipientPlayer.user_id, amountSitsRaw);
         if (payload && payload.balance !== undefined) {
             transferSenderBalance = normalizeSits(payload.balance);
             setHeaderBalance(payload.balance);

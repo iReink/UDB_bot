@@ -1475,6 +1475,15 @@ def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw
                 "message": "Можно передать минимум 0,001 сит",
             },
         )
+    amount_millisits = _to_microsits(amount)
+    if amount_millisits <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "ZERO_AMOUNT",
+                "message": "Можно передать минимум 0,001 сит",
+            },
+        )
 
     if receiver_user_id == user_id:
         raise HTTPException(
@@ -1526,21 +1535,26 @@ def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw
             )
 
         sender_balance = float(sender_row["sits"] or 0)
-        if sender_balance + 1e-9 < amount:
+        sender_balance_millisits = _to_microsits(sender_balance)
+        if sender_balance_millisits < amount_millisits:
             conn.rollback()
             raise HTTPException(
                 status_code=409,
                 detail={
                     "code": "INSUFFICIENT_FUNDS",
                     "message": "Недостаточно сита",
-                    "balance": normalize_sits(sender_balance),
-                    "requested": normalize_sits(amount),
+                    "balance": normalize_sits(sender_balance_millisits / IDLE_MICROSITS_IN_SIT),
+                    "requested": normalize_sits(amount_millisits / IDLE_MICROSITS_IN_SIT),
                 },
             )
 
         receiver_balance = float(receiver_row["sits"] or 0)
-        new_sender_balance = normalize_sits(sender_balance - amount)
-        new_receiver_balance = normalize_sits(receiver_balance + amount)
+        receiver_balance_millisits = _to_microsits(receiver_balance)
+        new_sender_balance_millisits = sender_balance_millisits - amount_millisits
+        new_receiver_balance_millisits = receiver_balance_millisits + amount_millisits
+        transferred_sits = normalize_sits(amount_millisits / IDLE_MICROSITS_IN_SIT)
+        new_sender_balance = normalize_sits(new_sender_balance_millisits / IDLE_MICROSITS_IN_SIT)
+        new_receiver_balance = normalize_sits(new_receiver_balance_millisits / IDLE_MICROSITS_IN_SIT)
 
         cur.execute(
             """
@@ -1567,14 +1581,14 @@ def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw
                 INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (date_value, time_value, chat_id, user_id, sender_name, -amount),
+                (date_value, time_value, chat_id, user_id, sender_name, -transferred_sits),
             )
             cur.execute(
                 """
                 INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (date_value, time_value, chat_id, receiver_user_id, receiver_name, amount),
+                (date_value, time_value, chat_id, receiver_user_id, receiver_name, transferred_sits),
             )
 
         conn.commit()
@@ -1583,7 +1597,7 @@ def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw
         "chat_id": chat_id,
         "sender_user_id": user_id,
         "receiver_user_id": receiver_user_id,
-        "transferred": normalize_sits(amount),
+        "transferred": transferred_sits,
         "balance": new_sender_balance,
     }
 
