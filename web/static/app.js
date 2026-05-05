@@ -209,6 +209,7 @@ let dailyLoading = false;
 let dailyLoadingExpired = false;
 let dailySavingById = new Set();
 let dailyOpenCards = new Set();
+let dailyLastOpenStates = new Map();
 let dailyEditingId = null;
 let dailyEditDraft = null;
 let dailyFieldErrors = {};
@@ -216,6 +217,7 @@ let dailyPanelAutoOpened = false;
 let dailyDeleteModalOpen = false;
 let dailyDeleteTarget = null;
 let dailyDeleteInFlight = false;
+let dailyCreateRevealPending = false;
 let dailyOnlyMineFilter = false;
 const GEYSER_CHECK_INTERVAL_MS = 20000;
 const GEYSER_SPAWN_CHANCE = 0.4;
@@ -3120,9 +3122,11 @@ function resetDailyState() {
     dailyLoadingExpired = false;
     dailySavingById = new Set();
     dailyOpenCards = new Set();
+    dailyLastOpenStates = new Map();
     dailyEditingId = null;
     dailyEditDraft = null;
     dailyFieldErrors = {};
+    dailyCreateRevealPending = false;
     closeDailyDeleteModal({ silent: true });
     renderDailyPanel();
 }
@@ -3344,6 +3348,7 @@ function startCreateDaily() {
     dailyEditingId = 0;
     dailyFieldErrors = {};
     dailyEditDraft = getDefaultDailyDraft();
+    dailyCreateRevealPending = true;
     dailyOpenCards.add(0);
     renderDailyPanel();
 }
@@ -3353,6 +3358,7 @@ function closeDailyEditor() {
     dailyEditDraft = null;
     dailyFieldErrors = {};
     dailyOpenCards.delete(0);
+    dailyCreateRevealPending = false;
     renderDailyPanel();
 }
 
@@ -3521,10 +3527,13 @@ function getDailyRemainingText(event) {
     return `Осталось ${days}д ${hours}ч`;
 }
 
-function renderDailyCard(event) {
+function renderDailyCard(event, options = {}) {
+    const wasOpen = Boolean(options.wasOpen);
+    const createReveal = Boolean(options.createReveal);
     const dailyId = Number(event.id);
     const card = document.createElement("article");
     card.className = "daily-card";
+    card.dataset.dailyId = String(dailyId);
     if (event.expired) {
         card.classList.add("is-expired");
     }
@@ -3569,6 +3578,12 @@ function renderDailyCard(event) {
 
     const body = document.createElement("div");
     body.className = "daily-card-body";
+    if (isOpened && !wasOpen) {
+        body.classList.add("is-accordion-enter");
+    }
+    if (createReveal) {
+        card.classList.add("is-create-reveal");
+    }
     if (isEditing) {
         const grid = document.createElement("div");
         grid.className = "daily-edit-grid";
@@ -3839,6 +3854,9 @@ function renderDailyPanel() {
         return;
     }
     syncDailyOnlyMineSwitchUi();
+    const prevOpenStates = dailyLastOpenStates;
+    const nextOpenStates = new Map();
+    let draftRevealUsed = false;
     dailyList.innerHTML = "";
     const allEvents = [...dailyUpcoming, ...dailyExpired];
     const visibleEvents = allEvents.filter((item) => isDailyVisibleByFilter(item));
@@ -3874,11 +3892,30 @@ function renderDailyPanel() {
             all_participants: [],
         });
         if (draftEvent) {
-            dailyList.appendChild(renderDailyCard(draftEvent));
+            const draftId = Number(draftEvent.id);
+            const wasOpen = Boolean(prevOpenStates.get(draftId));
+            dailyList.appendChild(renderDailyCard(draftEvent, {
+                wasOpen,
+                createReveal: Boolean(dailyCreateRevealPending),
+            }));
+            if (dailyOpenCards.has(draftId)) {
+                nextOpenStates.set(draftId, true);
+            }
+            if (dailyCreateRevealPending) {
+                draftRevealUsed = true;
+            }
         }
     }
     visibleEvents.forEach((item) => {
-        dailyList.appendChild(renderDailyCard(item));
+        const dailyId = Number(item.id);
+        const isOpened = Number(dailyEditingId) === dailyId || dailyOpenCards.has(dailyId);
+        dailyList.appendChild(renderDailyCard(item, {
+            wasOpen: Boolean(prevOpenStates.get(dailyId)),
+            createReveal: false,
+        }));
+        if (isOpened) {
+            nextOpenStates.set(dailyId, true);
+        }
     });
 
     if (dailyLoadOldBtn) {
@@ -3902,6 +3939,10 @@ function renderDailyPanel() {
             ? "Нет дейликов, где вы участвуете."
             : "Дейликов пока нет. Нажмите «Добавить».";
         dailyList.appendChild(empty);
+    }
+    dailyLastOpenStates = nextOpenStates;
+    if (draftRevealUsed) {
+        dailyCreateRevealPending = false;
     }
 }
 
@@ -4037,6 +4078,32 @@ function closeDailyDeleteModal(options = {}) {
     }
 }
 
+function playDailyDeleteSnapAnimation(dailyId) {
+    if (!dailyList) {
+        return Promise.resolve();
+    }
+    const card = dailyList.querySelector(`.daily-card[data-daily-id="${Number(dailyId)}"]`);
+    if (!card) {
+        return Promise.resolve();
+    }
+    card.classList.add("is-delete-snap");
+    return new Promise((resolve) => {
+        let finished = false;
+        const finish = () => {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            resolve();
+        };
+        const timeoutId = window.setTimeout(finish, 680);
+        card.addEventListener("animationend", () => {
+            window.clearTimeout(timeoutId);
+            finish();
+        }, { once: true });
+    });
+}
+
 async function confirmDailyDelete() {
     if (!dailyDeleteTarget || dailyDeleteInFlight) {
         return;
@@ -4050,11 +4117,13 @@ async function confirmDailyDelete() {
         dailyDeleteModalError.classList.add("hidden");
     }
     try {
-        await dailyApi(`/api/daily/events/${dailyDeleteTarget.id}`, {
+        const deleteId = Number(dailyDeleteTarget.id);
+        await dailyApi(`/api/daily/events/${deleteId}`, {
             method: "DELETE",
         });
-        removeDailyEventById(dailyDeleteTarget.id);
-        closeDailyDeleteModal();
+        closeDailyDeleteModal({ silent: true });
+        await playDailyDeleteSnapAnimation(deleteId);
+        removeDailyEventById(deleteId);
         renderDailyPanel();
     } catch (error) {
         if (dailyDeleteModalError) {
