@@ -101,8 +101,8 @@ const BUILDING_SCENE_POINTS = {
     masitskaya: { x: 452, y: 340 },
     sitvolny_zavod: { x: 900, y: 397 },
 };
-const MASTUR_HALL_SCENE_POINT = { x: 1226, y: 692 };
-const DAILY_STAGECOACH_SCENE_POINT = { x: 350, y: 500 };
+const MASTUR_HALL_SCENE_POINT = { x: 1186, y: 652 };
+const DAILY_STAGECOACH_SCENE_POINT = { x: 326, y: 476 };
 const DAILY_STAGECOACH_ASSET = "/static/assets/daily/stagecoach.png";
 const DAILY_STAGECOACH_GLOW_ASSET = "/static/assets/daily/stagecoach_glow.png";
 
