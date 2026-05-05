@@ -1058,8 +1058,8 @@ a.web-chat-author:hover {
 .daily-filter-row {
     min-height: 33px;
     border-radius: 8px;
-    border: 1px solid rgba(104, 64, 125, 0.18);
-    background: rgba(255, 255, 255, 0.72);
+    border: none;
+    background: transparent;
     padding: 4px 8px 4px 10px;
     display: inline-flex;
     align-items: center;
