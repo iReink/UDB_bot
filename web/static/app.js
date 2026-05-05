@@ -104,6 +104,7 @@ const BUILDING_SCENE_POINTS = {
 const MASTUR_HALL_SCENE_POINT = { x: 1226, y: 692 };
 const DAILY_STAGECOACH_SCENE_POINT = { x: 350, y: 500 };
 const DAILY_STAGECOACH_ASSET = "/static/assets/daily/stagecoach.png";
+const DAILY_STAGECOACH_GLOW_ASSET = "/static/assets/daily/stagecoach_glow.png";
 
 const SCENE_ITEM_STYLE_KEYS = [
     "left",
@@ -734,6 +735,14 @@ function renderDailyStagecoach(layerNode, scale) {
     node.style.transform = `scale(${scale})`;
     node.dataset.buildingCode = "daily-stagecoach";
 
+    const glow = document.createElement("img");
+    glow.className = "scene-building-glow";
+    glow.src = DAILY_STAGECOACH_GLOW_ASSET;
+    glow.alt = "";
+    glow.decoding = "async";
+    glow.loading = "lazy";
+    glow.setAttribute("aria-hidden", "true");
+
     const image = document.createElement("img");
     image.className = "scene-building-image";
     image.src = DAILY_STAGECOACH_ASSET;
@@ -757,6 +766,7 @@ function renderDailyStagecoach(layerNode, scale) {
         }
     });
 
+    node.appendChild(glow);
     node.appendChild(image);
     layerNode.appendChild(node);
     sceneBuildingNodes.push(node);
