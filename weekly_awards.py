@@ -44,7 +44,7 @@ async def process_weekly_awards():
         cur = conn.cursor()
 
         # Получаем список всех chat_id
-        cur.execute("SELECT DISTINCT chat_id FROM users")
+        cur.execute("SELECT DISTINCT chat_id FROM users WHERE chat_id < 0")
         chat_ids = [row["chat_id"] for row in cur.fetchall()]
 
         for chat_id in chat_ids:

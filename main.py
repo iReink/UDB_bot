@@ -56,11 +56,29 @@ from sosalsa import daily_regeneration_task, bot as daily_bot
 from new_year import run_new_year
 
 
-from aiogram.exceptions import TelegramNetworkError, TelegramServerError
+from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError, TelegramServerError
 
 # from daily import daily_reminder_loop
 
 dp = Dispatcher()
+
+
+@dp.errors()
+async def handle_forbidden_error(event: types.ErrorEvent) -> bool:
+    if isinstance(event.exception, TelegramForbiddenError):
+        method = getattr(event.exception, "method", None)
+        chat_id = getattr(method, "chat_id", None)
+        method_name = method.__class__.__name__ if method is not None else "unknown"
+        logging.warning(
+            "Telegram forbidden while handling update for %s chat_id=%s: %s",
+            method_name,
+            chat_id,
+            event.exception.message,
+        )
+        return True
+    return False
+
+
 import fight_club
 fight_club.register_fight_club_handlers(dp) # Регистрируем хэндлеры бойцовского клуба
 
@@ -114,6 +132,23 @@ TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=TOKEN)
 sticker_manager.bot = bot
+
+
+async def ignore_forbidden_request(make_request, bot_instance, method):
+    try:
+        return await make_request(bot_instance, method)
+    except TelegramForbiddenError as e:
+        chat_id = getattr(method, "chat_id", None)
+        logging.warning(
+            "Telegram forbidden for %s chat_id=%s: %s",
+            method.__class__.__name__,
+            chat_id,
+            e.message,
+        )
+        return None
+
+
+bot.session.middleware(ignore_forbidden_request)
 
 
 STATS_FILE = "stats.json"
@@ -380,7 +415,7 @@ async def daily_punish_task():
 
         with closing(get_connection()) as conn:
             cur = conn.cursor()
-            cur.execute("SELECT user_id, chat_id FROM users WHERE punished=1")
+            cur.execute("SELECT user_id, chat_id FROM users WHERE punished=1 AND chat_id < 0")
             punished_users = cur.fetchall()
 
         punish_report_by_chat: dict[int, list[str]] = {}

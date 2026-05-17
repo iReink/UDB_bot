@@ -99,11 +99,14 @@ def get_chat_users(chat_id: int) -> List[sqlite3.Row]:
         cur.execute("SELECT * FROM users WHERE chat_id=?", (chat_id,))
         return cur.fetchall()
 
-def get_all_chats() -> list[int]:
+def get_all_chats(include_private: bool = False) -> list[int]:
     """Возвращает список всех chat_id, в которых есть пользователи"""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
-        cur.execute("SELECT DISTINCT chat_id FROM users")
+        if include_private:
+            cur.execute("SELECT DISTINCT chat_id FROM users")
+        else:
+            cur.execute("SELECT DISTINCT chat_id FROM users WHERE chat_id < 0")
         return [row[0] for row in cur.fetchall()]
 
 
