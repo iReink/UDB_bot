@@ -14,6 +14,7 @@ from settings import get_setting # Для проверки включения г
 GEYSER_MESSAGE = "Гейзер с ситом рванул!"
 GEYSER_BUTTON_TEXT = "Подставить ведёрко"
 GEYSER_TIMEOUT = timedelta(minutes=10)
+GEYSER_SEND_GRACE = timedelta(minutes=2)
 GEYSER_SIT_REWARD_MIN = -5
 GEYSER_SIT_REWARD_MAX = 10
 
@@ -51,6 +52,7 @@ def increment_geyser_count(chat_id: int, date_str: str):
 async def _plan_geysers_for_date(bot: Bot, target_date: date):
     """Планирует гейзеры на указанную дату для всех включенных чатов."""
     target_date_str = target_date.isoformat()
+    now = datetime.now()
     chats = get_all_chats() # Получаем все чаты из БД
 
     for chat_id in chats:
@@ -58,7 +60,13 @@ async def _plan_geysers_for_date(bot: Bot, target_date: date):
             # Проверяем, были ли уже запланированы гейзеры на эту дату для этого чата
             with closing(get_connection()) as conn:
                 cur = conn.cursor()
-                cur.execute("SELECT COUNT(*) FROM geyser_events WHERE chat_id=? AND date=? AND status IN ('pending', 'sent')", (chat_id, target_date_str))
+                cur.execute("""
+                    SELECT COUNT(*)
+                    FROM geyser_events
+                    WHERE chat_id = ?
+                      AND date = ?
+                      AND scheduled_time IS NOT NULL
+                """, (chat_id, target_date_str))
                 existing_geysers_count = cur.fetchone()[0]
             
             if existing_geysers_count == 0: # Если нет запланированных гейзеров на эту дату
@@ -83,9 +91,18 @@ async def _plan_geysers_for_date(bot: Bot, target_date: date):
                             break
                 
                 scheduled_times.sort()
+                if target_date == now.date():
+                    min_scheduled_at = now + GEYSER_SEND_GRACE
+                    scheduled_times = [
+                        t for t in scheduled_times
+                        if datetime.combine(target_date, t) >= min_scheduled_at
+                    ]
                 for t in scheduled_times:
                     add_geyser_event(chat_id, target_date_str, t.strftime("%H:%M"), 'pending')
-                logging.info(f"[Geyser] Запланированы гейзеры для чата {chat_id} на {target_date_str}: {[t.strftime('%H:%M') for t in scheduled_times]}")
+                if scheduled_times:
+                    logging.info(f"[Geyser] Запланированы гейзеры для чата {chat_id} на {target_date_str}: {[t.strftime('%H:%M') for t in scheduled_times]}")
+                else:
+                    logging.info("[Geyser] Нет будущих окон для планирования гейзеров в чате %s на %s", chat_id, target_date_str)
 
 
 async def schedule_daily_geysers(bot: Bot):
@@ -245,13 +262,25 @@ async def geyser_loop_task(bot: Bot):
     while True:
         today_str = date.today().isoformat()
         pending_events = get_pending_geyser_events(today_str)
-        now = datetime.now().time()
+        now = datetime.now()
 
         for event in pending_events:
             scheduled_time = datetime.strptime(event["scheduled_time"], "%H:%M").time()
-            if now >= scheduled_time: # Если время пришло
-                logging.info(f"[Geyser Loop] Запускаю гейзер {event["id"]} в чате {event["chat_id"]} по расписанию {event["scheduled_time"]}")
-                await send_geyser_event(bot, event["chat_id"], event["id"]) # Передаем event_id
+            scheduled_at = datetime.combine(now.date(), scheduled_time)
+            if now < scheduled_at:
+                continue
+            if now - scheduled_at > GEYSER_SEND_GRACE:
+                logging.warning(
+                    "[Geyser Loop] Пропускаю просроченный гейзер %s в чате %s по расписанию %s",
+                    event["id"],
+                    event["chat_id"],
+                    event["scheduled_time"],
+                )
+                update_geyser_event_status(event["id"], "missed")
+                continue
+
+            logging.info(f"[Geyser Loop] Запускаю гейзер {event["id"]} в чате {event["chat_id"]} по расписанию {event["scheduled_time"]}")
+            await send_geyser_event(bot, event["chat_id"], event["id"]) # Передаем event_id
         
         await asyncio.sleep(30) # Проверяем каждые 30 секунд
 
