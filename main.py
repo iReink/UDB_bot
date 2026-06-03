@@ -13,6 +13,7 @@ import logging
 from aiogram import types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import ReactionTypeEmoji
 from aiogram.types import FSInputFile, CallbackQuery, BufferedInputFile
 import aiocron
 import math
@@ -56,7 +57,7 @@ from sosalsa import daily_regeneration_task, bot as daily_bot
 from new_year import run_new_year
 
 
-from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError, TelegramServerError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramServerError
 
 # from daily import daily_reminder_loop
 
@@ -116,6 +117,7 @@ import chat_summary
 dashboard.register_dashboard_handlers(dp)
 
 from profanity import count_profanity
+from bot_word_reactions import choose_bot_word_reaction
 from auth_code import issue_auth_code
 from sits import (
     format_sits,
@@ -1510,6 +1512,27 @@ async def cmd_deleteme(message: types.Message):
 # ------------------------------
 # ------------------------------
 # Когда новое сообщение
+async def maybe_react_to_bot_word_message(message: types.Message) -> None:
+    emoji = choose_bot_word_reaction(message.text)
+    if not emoji:
+        return
+
+    try:
+        await bot.set_message_reaction(
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            reaction=[ReactionTypeEmoji(emoji=emoji)],
+        )
+    except TelegramBadRequest as e:
+        logging.warning(
+            "Failed to set %s reaction for message %s in chat %s: %s",
+            emoji,
+            message.message_id,
+            message.chat.id,
+            e,
+        )
+
+
 @dp.message()
 async def handle_message(message: types.Message):
 
@@ -1519,6 +1542,9 @@ async def handle_message(message: types.Message):
     if not (
             message.text or message.sticker or message.photo or message.video or message.voice or message.animation or message.video_note):
         return
+
+    if message.text:
+        asyncio.create_task(maybe_react_to_bot_word_message(message))
 
     chat_name = message.chat.title if message.chat.type in ["group", "supergroup"] else message.chat.id
 
@@ -1562,6 +1588,8 @@ async def on_reaction(event: MessageReactionUpdated):
     chat_id = event.chat.id
     msg_id = event.message_id
     user_id = event.user.id if event.user else None
+    if event.user and event.user.is_bot:
+        return
 
     old = [r.type for r in event.old_reaction] if event.old_reaction else []
     new = [r.type for r in event.new_reaction] if event.new_reaction else []
