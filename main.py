@@ -118,7 +118,11 @@ dashboard.register_dashboard_handlers(dp)
 
 from profanity import count_profanity
 from bot_word_reactions import choose_bot_word_reaction
-from ai_tasks import create_text_to_sql_task, get_text_to_sql_cooldown
+from ai_tasks import (
+    create_profile_update_tasks,
+    create_text_to_sql_task,
+    get_text_to_sql_cooldown,
+)
 from auth_code import issue_auth_code
 from sits import (
     format_sits,
@@ -567,6 +571,48 @@ async def db_text_to_sql_command(message: types.Message, command: CommandObject)
         return
 
     await message.reply(f"Принял запрос к базе. Задача #{task_id} в очереди.")
+
+
+async def run_profile_update_for_date(profile_date: date, chat_id: int | None = None) -> None:
+    try:
+        result = await asyncio.to_thread(
+            create_profile_update_tasks,
+            profile_date=profile_date,
+            chat_id=chat_id,
+        )
+        logging.info(
+            "profile_update queued: date=%s chat_id=%s candidates=%s created=%s skipped=%s",
+            result["profile_date"],
+            result["chat_id"],
+            result["candidates"],
+            result["created"],
+            result["skipped"],
+        )
+    except Exception as e:
+        logging.exception("Failed to queue profile_update tasks: %s", e)
+
+
+@dp.message(Command("profile_update"))
+async def profile_update_command(message: types.Message):
+    if not message.from_user or message.from_user.id not in ADMIN_IDS:
+        await message.reply("Команда доступна только администраторам.")
+        return
+
+    await message.answer("Обновление запущено")
+    profile_date = date.today() - timedelta(days=1)
+    asyncio.create_task(run_profile_update_for_date(profile_date, chat_id=int(message.chat.id)))
+
+
+async def profile_update_scheduler_task() -> None:
+    while True:
+        now = datetime.now()
+        next_run = now.replace(hour=1, minute=0, second=0, microsecond=0)
+        if next_run <= now:
+            next_run += timedelta(days=1)
+        await asyncio.sleep(max(1, (next_run - now).total_seconds()))
+
+        profile_date = date.today() - timedelta(days=1)
+        await run_profile_update_for_date(profile_date)
 
 
 @dp.message(Command("thread"))
@@ -2190,6 +2236,7 @@ async def main():
     asyncio.create_task(new_year_scheduler(bot))
     asyncio.create_task(chat_summary.export_daily_chatlogs_task(bot))
     asyncio.create_task(chat_summary.publish_daily_summary_task(bot))
+    asyncio.create_task(profile_update_scheduler_task())
 
     # Цикл polling с автоперезапуском при ошибках
     while True:

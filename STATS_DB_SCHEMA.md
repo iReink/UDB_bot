@@ -27,23 +27,46 @@
 | Поле | Тип | Описание |
 |---|---:|---|
 | `id` | INTEGER | ID AI-задачи. |
-| `task_type` | TEXT | Тип задачи; в MVP используется `text_to_sql`. |
+| `task_type` | TEXT | Тип задачи: `text_to_sql` для запросов к БД или `profile_update` для обновления AI-профиля. |
 | `status` | TEXT | Статус: `pending`, `processing`, `done`, `failed`. |
 | `priority` | INTEGER | Приоритет выбора задачи; большее значение важнее. |
 | `model` | TEXT | Модель, которую worker должен вызвать в Ollama. |
 | `prompt` | TEXT | Полный prompt, который worker передает в LLM. |
 | `payload_json` | TEXT | JSON с исходными параметрами задачи. |
-| `result_text` | TEXT | Итоговый текст результата; для `text_to_sql` хранится SQL. |
+| `result_text` | TEXT | Итоговый текст результата; для `text_to_sql` хранится SQL, для `profile_update` - JSON профиля. |
 | `error_text` | TEXT | Последняя ошибка обработки задачи. |
 | `chat_id` | INTEGER | Чат, из которого создана задача. |
 | `user_id` | INTEGER | Пользователь, создавший задачу. |
-| `request_message_id` | INTEGER | ID исходного сообщения Telegram с запросом. |
-| `response_message_id` | INTEGER | ID сообщения Telegram с ответом бота. |
+| `request_message_id` | INTEGER | ID исходного сообщения Telegram с запросом; для фоновых задач может быть `0`. |
+| `response_message_id` | INTEGER | ID сообщения Telegram с ответом бота; у фоновых profile-задач обычно `NULL`. |
 | `attempt` | INTEGER | Номер попытки обработки, начиная с `0`. |
 | `lease_until` | TEXT | Время, до которого задача закреплена за worker. |
 | `created_at` | TEXT | Дата-время создания задачи. |
 | `updated_at` | TEXT | Дата-время последнего обновления задачи. |
 | `finished_at` | TEXT | Дата-время завершения задачи. |
+
+### `ai_profiles`
+
+Дневная история AI-профилей пользователей в конкретных чатах. Профиль всегда относится к паре `user_id` + `chat_id`; один и тот же человек в разных чатах получает разные профили. Для будущей персонализации брать последнюю запись со `status = 'done'` по `(user_id, chat_id)`.
+
+Ключ: `PRIMARY KEY (user_id, chat_id, profile_date)`. Связь: `task_id -> ai_tasks.id`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `user_id` | INTEGER | Telegram ID пользователя, для которого собран профиль. |
+| `chat_id` | INTEGER | Telegram ID чата, внутри которого действует профиль. |
+| `profile_date` | TEXT | День сообщений, по которым обновлялся профиль, формат `YYYY-MM-DD`. |
+| `status` | TEXT | Статус обработки профиля: `pending`, `done`, `failed`. |
+| `profile_json` | TEXT | Строгий JSON профиля от LLM: стиль общения, интересы, предпочтения, текущие темы, факты и краткое резюме. |
+| `summary_text` | TEXT | Короткое резюме профиля из `profile_json.short_summary`, пригодное для будущих prompt-ов. |
+| `message_count` | INTEGER | Количество сообщений пользователя за окно, прошедших фильтр длины. |
+| `window_start` | TEXT | Начало анализируемого окна, обычно `YYYY-MM-DDT00:00:00`. |
+| `window_end` | TEXT | Конец анализируемого окна, обычно следующий день `YYYY-MM-DDT00:00:00`. |
+| `model` | TEXT | LLM-модель, которая строила профиль. |
+| `task_id` | INTEGER | ID задачи `profile_update` в `ai_tasks`. |
+| `error_text` | TEXT | Последняя ошибка обработки профиля, если задача упала или ушла на retry. |
+| `created_at` | TEXT | Дата-время создания placeholder профиля. |
+| `updated_at` | TEXT | Дата-время последнего обновления записи профиля. |
 
 ### `users`
 
