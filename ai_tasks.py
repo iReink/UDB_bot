@@ -224,10 +224,16 @@ def build_text_to_sql_prompt(
     user_query: str,
     chat_id: int,
     *,
+    requester_user_id: int | None = None,
+    requester_name: str | None = None,
+    requester_nick: str | None = None,
     previous_sql: str | None = None,
     previous_error: str | None = None,
 ) -> str:
     schema = read_schema_markdown()
+    requester_user_id_text = str(requester_user_id) if requester_user_id is not None else "unknown"
+    requester_name_text = (requester_name or "").strip() or "unknown"
+    requester_nick_text = (requester_nick or "").strip() or "unknown"
     retry_block = ""
     if previous_sql or previous_error:
         retry_block = f"""
@@ -247,6 +253,11 @@ SQL прошлой попытки:
 Пользователь оставил запрос:
 {user_query}
 
+Запросивший пользователь:
+- requester_user_id: {requester_user_id_text}
+- requester_name: {requester_name_text}
+- requester_nick: {requester_nick_text}
+
 Текущий chat_id: {chat_id}
 Текущая дата: {date.today().isoformat()}
 
@@ -261,6 +272,7 @@ SQL прошлой попытки:
 - Если нужен топ или список, добавь разумный LIMIT.
 - Если используешь дату "сегодня", сравнивай с '{date.today().isoformat()}'.
 - Если запрос за период, используй поля date/date_taken/created_at согласно схеме.
+- Если в запросе есть "я", "мой", "мне", "меня", "мои" или другой личный контекст, это означает requester_user_id = {requester_user_id_text}; добавь фильтр по user_id = {requester_user_id_text}.
 {retry_block}
 Схема БД:
 {schema}
@@ -295,14 +307,24 @@ def create_text_to_sql_task(
     user_id: int,
     request_message_id: int,
     user_query: str,
+    requester_name: str | None = None,
+    requester_nick: str | None = None,
 ) -> int:
     ensure_ai_tasks_table()
-    prompt = build_text_to_sql_prompt(user_query=user_query, chat_id=chat_id)
+    prompt = build_text_to_sql_prompt(
+        user_query=user_query,
+        chat_id=chat_id,
+        requester_user_id=user_id,
+        requester_name=requester_name,
+        requester_nick=requester_nick,
+    )
     payload = {
         "user_query": user_query,
         "chat_id": chat_id,
         "request_message_id": request_message_id,
         "created_by_user_id": user_id,
+        "requester_name": requester_name,
+        "requester_nick": requester_nick,
     }
     created_at = now_iso()
     with closing(get_connection()) as conn:
@@ -796,6 +818,9 @@ def requeue_or_fail_task(task_id: int, *, previous_sql: str | None, error_text: 
         retry_prompt = build_text_to_sql_prompt(
             user_query=user_query,
             chat_id=int(task["chat_id"]),
+            requester_user_id=int(payload.get("created_by_user_id") or task["user_id"]),
+            requester_name=str(payload.get("requester_name") or ""),
+            requester_nick=str(payload.get("requester_nick") or ""),
             previous_sql=previous_sql,
             previous_error=error_text,
         )

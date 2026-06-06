@@ -564,6 +564,8 @@ async def db_text_to_sql_command(message: types.Message, command: CommandObject)
             user_id=message.from_user.id,
             request_message_id=message.message_id,
             user_query=user_query,
+            requester_name=message.from_user.full_name,
+            requester_nick=f"@{message.from_user.username}" if message.from_user.username else None,
         )
     except Exception as e:
         logging.exception("Failed to create text_to_sql task: %s", e)
