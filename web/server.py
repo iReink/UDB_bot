@@ -15,9 +15,20 @@ from html import escape
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
-from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
 from zoneinfo import ZoneInfo
 
+from ai_tasks import (
+    TASK_STATUS_PROCESSING,
+    claim_next_task,
+    execute_readonly_sql,
+    format_sql_result_for_telegram,
+    get_task,
+    mark_task_done,
+    requeue_or_fail_task,
+    validate_text_to_sql,
+)
 from auth_code import (
     AuthCodeConflictError,
     AuthCodeExpiredError,
@@ -82,6 +93,7 @@ ADMIN_IDS_DEFAULT = {6010666986, 884940984, 749027951}
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
 SESSION_SECRET = os.getenv("WEB_SESSION_SECRET", "").strip()
+AI_WORKER_TOKEN = os.getenv("AI_WORKER_TOKEN", "").strip()
 logger = logging.getLogger(__name__)
 ADMIN_IDS_SET = set(ADMIN_IDS_DEFAULT)
 admin_ids_raw = os.getenv("ADMIN_IDS", "").strip()
@@ -149,6 +161,11 @@ class GroupEventActionRequest(BaseModel):
 
 class ChatMessageRequest(BaseModel):
     text: str = ""
+
+
+class AiTaskResultRequest(BaseModel):
+    output: str = ""
+    error: str = ""
 
 
 class DailyEventUpsertRequest(BaseModel):
@@ -2325,6 +2342,52 @@ def _clear_session_cookie(response: JSONResponse) -> None:
     response.delete_cookie(COOKIE_NAME)
 
 
+def _require_ai_worker(request: Request) -> None:
+    if not AI_WORKER_TOKEN:
+        raise HTTPException(status_code=503, detail="AI worker API is not configured")
+    auth_header = request.headers.get("authorization", "")
+    prefix = "Bearer "
+    if not auth_header.startswith(prefix):
+        raise HTTPException(status_code=401, detail="Missing worker token")
+    token = auth_header[len(prefix):].strip()
+    if not hmac.compare_digest(token, AI_WORKER_TOKEN):
+        raise HTTPException(status_code=401, detail="Invalid worker token")
+
+
+def _send_telegram_message(chat_id: int, text: str, *, reply_to_message_id: int | None = None) -> int | None:
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not configured")
+
+    payload: dict[str, Any] = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    if reply_to_message_id is not None:
+        payload["reply_to_message_id"] = reply_to_message_id
+        payload["allow_sending_without_reply"] = True
+
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = UrlRequest(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=10) as resp:
+            response_data = json.loads(resp.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Telegram sendMessage failed: {exc}") from exc
+
+    if not response_data.get("ok"):
+        raise RuntimeError(f"Telegram sendMessage returned error: {response_data}")
+    result = response_data.get("result") or {}
+    message_id = result.get("message_id")
+    return int(message_id) if message_id is not None else None
+
+
 def _require_session(request: Request) -> dict[str, Any]:
     payload = _read_payload(request.cookies.get(COOKIE_NAME))
     if not payload:
@@ -3496,3 +3559,92 @@ def group_event_clear_result(request: Request, _: GroupEventActionRequest) -> JS
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/ai/tasks/next")
+def ai_task_next(request: Request) -> JSONResponse:
+    _require_ai_worker(request)
+    task = claim_next_task()
+    return JSONResponse({"ok": True, "task": task})
+
+
+@app.post("/api/ai/tasks/{task_id}/result")
+def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) -> JSONResponse:
+    _require_ai_worker(request)
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task["status"] != TASK_STATUS_PROCESSING:
+        raise HTTPException(status_code=409, detail=f"Task is not processing: {task['status']}")
+
+    raw_output = (data.output or "").strip()
+    worker_error = (data.error or "").strip()
+    sql_for_retry: str | None = raw_output or None
+    failure_reason: str | None = None
+
+    if worker_error:
+        failure_reason = f"Worker/Ollama error: {worker_error}"
+    else:
+        try:
+            sql = validate_text_to_sql(raw_output, chat_id=int(task["chat_id"]))
+            sql_for_retry = sql
+            columns, rows, truncated = execute_readonly_sql(sql)
+            message_text = format_sql_result_for_telegram(columns, rows, truncated=truncated)
+        except Exception as exc:
+            logger.warning("AI task %s failed during SQL validation/execution: %s", task_id, exc)
+            failure_reason = str(exc)
+        else:
+            try:
+                response_message_id = _send_telegram_message(
+                    int(task["chat_id"]),
+                    message_text,
+                    reply_to_message_id=int(task["request_message_id"]),
+                )
+            except Exception as exc:
+                logger.exception("AI task %s failed to send Telegram response", task_id)
+                failure_reason = str(exc)
+            else:
+                mark_task_done(task_id, sql=sql, response_message_id=response_message_id)
+                return JSONResponse(
+                    {
+                        "ok": True,
+                        "status": "done",
+                        "task_id": task_id,
+                        "response_message_id": response_message_id,
+                    }
+                )
+
+    assert failure_reason is not None
+    requeued, updated_task = requeue_or_fail_task(
+        task_id,
+        previous_sql=sql_for_retry,
+        error_text=failure_reason,
+    )
+    if requeued:
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "retry",
+                "task_id": task_id,
+                "attempt": int(updated_task["attempt"] or 0) if updated_task else None,
+            }
+        )
+
+    error_message = html.escape(failure_reason[:1200])
+    try:
+        _send_telegram_message(
+            int(task["chat_id"]),
+            f"Не удалось выполнить запрос к базе после повторной попытки.\n<pre>{error_message}</pre>",
+            reply_to_message_id=int(task["request_message_id"]),
+        )
+    except Exception:
+        logger.exception("AI task %s failed to send final error message", task_id)
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "status": "failed",
+            "task_id": task_id,
+            "error": failure_reason,
+        }
+    )

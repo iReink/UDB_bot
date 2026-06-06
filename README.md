@@ -159,3 +159,28 @@ UDB_SHEETS_HTTP_TIMEOUT_SECONDS=30
 ```bash
 pip install google-api-python-client google-auth google-auth-httplib2 httplib2
 ```
+
+## Text2SQL MVP через локальную Ollama
+
+Команда `/db текст запроса` создаёт задачу `text_to_sql`; локальный `ai_worker.py` забирает её с VPS, отправляет prompt в Ollama и возвращает SQL `SELECT` в backend. Backend валидирует SQL, выполняет его read-only в `stats.db` и отвечает в Telegram reply на исходное сообщение.
+
+### VPS env
+
+В `/root/UDB_bot/.env.web` должен быть общий секрет для worker:
+
+```bash
+AI_WORKER_TOKEN=change_me_to_random_worker_secret
+```
+
+После изменения env перезапустить web-сервис:
+
+```bash
+systemctl restart udb-web
+```
+
+### Локальный worker Windows
+
+1. Скопировать `ai_worker.local.example.bat` в `ai_worker.local.bat`.
+2. Вписать тот же `AI_WORKER_TOKEN`, что на VPS.
+3. Убедиться, что Ollama доступна на `http://localhost:11434` и модель `gemma4:e4b` установлена.
+4. Запустить `run_ai_worker.bat`.

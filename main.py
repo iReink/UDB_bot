@@ -118,6 +118,7 @@ dashboard.register_dashboard_handlers(dp)
 
 from profanity import count_profanity
 from bot_word_reactions import choose_bot_word_reaction
+from ai_tasks import create_text_to_sql_task, get_text_to_sql_cooldown
 from auth_code import issue_auth_code
 from sits import (
     format_sits,
@@ -524,6 +525,48 @@ async def web_info_command(message: types.Message):
         "Для доступа к web-версии бота перейди с десктопа по адресу "
         "http://94.183.184.65:8080/. Для авторизации на сайте напиши мне личку /auth"
     )
+
+
+@dp.message(Command("db"))
+async def db_text_to_sql_command(message: types.Message, command: CommandObject):
+    if not message.from_user:
+        await message.reply("Не удалось определить пользователя.")
+        return
+
+    user_query = (command.args or "").strip()
+    if not user_query:
+        await message.reply("Напиши запрос после команды: /db кто сегодня написал больше всех сообщений?")
+        return
+
+    chat_id = int(message.chat.id)
+    cooldown_left = get_text_to_sql_cooldown(chat_id)
+    if cooldown_left > 0:
+        minutes = cooldown_left // 60
+        seconds = cooldown_left % 60
+        wait_text = f"{minutes} мин {seconds} сек" if minutes else f"{seconds} сек"
+        await message.reply(f"Запрос к базе можно отправлять раз в 2 минуты. Попробуй ещё через {wait_text}.")
+        return
+
+    add_or_update_user(
+        user_id=message.from_user.id,
+        chat_id=chat_id,
+        name=message.from_user.full_name,
+        nick=f"@{message.from_user.username}" if message.from_user.username else None,
+    )
+
+    try:
+        task_id = create_text_to_sql_task(
+            chat_id=chat_id,
+            user_id=message.from_user.id,
+            request_message_id=message.message_id,
+            user_query=user_query,
+        )
+    except Exception as e:
+        logging.exception("Failed to create text_to_sql task: %s", e)
+        await message.reply("Не удалось поставить запрос в очередь. Попробуй позже.")
+        return
+
+    await message.reply(f"Принял запрос к базе. Задача #{task_id} в очереди.")
 
 
 @dp.message(Command("thread"))
