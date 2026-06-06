@@ -74,6 +74,9 @@ CHAT_SCOPED_TABLES = {
     "web_geyser_daily_catches",
     "web_settings",
     "summary_publish_log",
+}
+
+FORBIDDEN_TEXT_TO_SQL_TABLES = {
     "ai_profiles",
 }
 
@@ -1041,6 +1044,14 @@ def validate_text_to_sql(raw_output: str | None, *, chat_id: int) -> str:
     bad_words = sorted(words & DANGEROUS_SQL_WORDS)
     if bad_words:
         raise TextToSqlError(f"SQL содержит запрещенные операции: {', '.join(bad_words)}.")
+
+    forbidden_tables = sorted(
+        table
+        for table in FORBIDDEN_TEXT_TO_SQL_TABLES
+        if re.search(rf"\b{re.escape(table.lower())}\b", lowered)
+    )
+    if forbidden_tables:
+        raise TextToSqlError("SQL обращается к закрытым для /db таблицам.")
 
     if lowered.startswith("with") and not re.search(r"\bselect\b", lowered):
         raise TextToSqlError("WITH-запрос должен содержать SELECT.")

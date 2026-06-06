@@ -164,7 +164,7 @@ pip install google-api-python-client google-auth google-auth-httplib2 httplib2
 
 Команда `/db текст запроса` создаёт задачу `text_to_sql`; локальный `ai_worker.py` забирает её с VPS, отправляет prompt в Ollama и возвращает SQL `SELECT` в backend. Backend валидирует SQL, выполняет его read-only в `stats.db` и отвечает в Telegram reply на исходное сообщение.
 
-Команда `/profile_update` доступна только `ADMIN_IDS`: она сразу отвечает `Обновление запущено` и ставит в очередь `profile_update` для текущего чата за предыдущий календарный день. Ночной scheduler делает то же для всех чатов каждый день в 01:00 по локальному времени сервера. Worker остаётся тем же: backend передаёт prompt, worker возвращает JSON, backend валидирует его и сохраняет дневной профиль в `ai_profiles`.
+Команда `/profile_update` доступна только `ADMIN_IDS`: она сразу отвечает `Обновление запущено` и ставит в очередь `profile_update` для текущего чата за предыдущий календарный день. Ночной scheduler делает то же для всех чатов каждый день в 01:00 по локальному времени сервера. Worker остаётся тем же: backend передаёт prompt, worker возвращает JSON, backend валидирует его и сохраняет дневной профиль в закрытое хранилище профилей, недоступное для `/db`.
 
 ### VPS env
 
