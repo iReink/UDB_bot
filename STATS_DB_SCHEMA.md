@@ -27,13 +27,13 @@
 | Поле | Тип | Описание |
 |---|---:|---|
 | `id` | INTEGER | ID AI-задачи. |
-| `task_type` | TEXT | Тип задачи: `text_to_sql` для запросов к БД или `profile_update` для обновления AI-профиля. |
+| `task_type` | TEXT | Тип задачи: `text_to_sql` для запросов к БД, `profile_update` для AI-профиля или `chat_summary` для короткого саммари чата. |
 | `status` | TEXT | Статус: `pending`, `processing`, `done`, `failed`. |
 | `priority` | INTEGER | Приоритет выбора задачи; большее значение важнее. |
 | `model` | TEXT | Модель, которую worker должен вызвать в Ollama. |
 | `prompt` | TEXT | Полный prompt, который worker передает в LLM. |
 | `payload_json` | TEXT | JSON с исходными параметрами задачи. |
-| `result_text` | TEXT | Итоговый текст результата; для `text_to_sql` хранится SQL, для `profile_update` - JSON профиля. |
+| `result_text` | TEXT | Итоговый текст результата; для `text_to_sql` хранится SQL, для `profile_update` - JSON профиля, для `chat_summary` - короткое саммари. |
 | `error_text` | TEXT | Последняя ошибка обработки задачи. |
 | `chat_id` | INTEGER | Чат, из которого создана задача. |
 | `user_id` | INTEGER | Пользователь, создавший задачу. |
@@ -44,6 +44,28 @@
 | `created_at` | TEXT | Дата-время создания задачи. |
 | `updated_at` | TEXT | Дата-время последнего обновления задачи. |
 | `finished_at` | TEXT | Дата-время завершения задачи. |
+
+### `ai_summary`
+
+Короткие AI-саммари сообщений чата за период между успешными сжатиями. Таблица доступна для `/db`, но запросы должны фильтровать `chat_id`.
+
+Ключ: `id`. Уникальность: `UNIQUE(chat_id, window_start, window_end)`. Связь: `task_id -> ai_tasks.id`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `id` | INTEGER | ID записи саммари. |
+| `chat_id` | INTEGER | Чат, для которого собрано саммари. |
+| `task_id` | INTEGER | ID задачи `chat_summary` в `ai_tasks`. |
+| `status` | TEXT | Статус обработки: `pending`, `done`, `failed`. |
+| `summary_text` | TEXT | Короткое саммари переписки за окно, до 150 символов. |
+| `message_count` | INTEGER | Количество сообщений, попавших в prompt после фильтра длины. |
+| `window_start` | TEXT | Начало окна сообщений, обычно ISO datetime. |
+| `window_end` | TEXT | Конец окна сообщений, обычно ISO datetime. |
+| `model` | TEXT | LLM-модель, которая строила саммари. |
+| `error_text` | TEXT | Последняя ошибка обработки, если задача упала или ушла на retry. |
+| `created_at` | TEXT | Дата-время создания placeholder саммари. |
+| `updated_at` | TEXT | Дата-время последнего обновления записи. |
+| `finished_at` | TEXT | Дата-время успешного или неуспешного завершения обработки. |
 
 ### `users`
 

@@ -119,6 +119,7 @@ dashboard.register_dashboard_handlers(dp)
 from profanity import count_profanity
 from bot_word_reactions import choose_bot_word_reaction
 from ai_tasks import (
+    create_due_chat_summary_tasks,
     create_profile_update_tasks,
     create_text_to_sql_task,
     get_text_to_sql_cooldown,
@@ -615,6 +616,29 @@ async def profile_update_scheduler_task() -> None:
 
         profile_date = date.today() - timedelta(days=1)
         await run_profile_update_for_date(profile_date)
+
+
+def _queue_due_chat_summaries() -> dict:
+    chat_ids = get_all_chats(include_private=False)
+    return create_due_chat_summary_tasks(chat_ids=chat_ids)
+
+
+async def ai_summary_scheduler_task() -> None:
+    while True:
+        try:
+            result = await asyncio.to_thread(_queue_due_chat_summaries)
+            if result.get("created"):
+                logging.info(
+                    "chat_summary queued: checked=%s created=%s task_ids=%s skipped=%s queue_busy=%s",
+                    result.get("checked"),
+                    result.get("created"),
+                    result.get("task_ids"),
+                    result.get("skipped"),
+                    result.get("queue_busy"),
+                )
+        except Exception as e:
+            logging.exception("Failed to queue chat_summary tasks: %s", e)
+        await asyncio.sleep(60)
 
 
 @dp.message(Command("thread"))
@@ -2239,6 +2263,7 @@ async def main():
     asyncio.create_task(chat_summary.export_daily_chatlogs_task(bot))
     asyncio.create_task(chat_summary.publish_daily_summary_task(bot))
     asyncio.create_task(profile_update_scheduler_task())
+    asyncio.create_task(ai_summary_scheduler_task())
 
     # Цикл polling с автоперезапуском при ошибках
     while True:

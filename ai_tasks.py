@@ -17,6 +17,7 @@ SCHEMA_FILE = BASE_DIR / "STATS_DB_SCHEMA.md"
 
 TASK_TYPE_TEXT_TO_SQL = "text_to_sql"
 TASK_TYPE_PROFILE_UPDATE = "profile_update"
+TASK_TYPE_CHAT_SUMMARY = "chat_summary"
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_PROCESSING = "processing"
 TASK_STATUS_DONE = "done"
@@ -33,6 +34,13 @@ PROFILE_MIN_MESSAGE_LENGTH = 10
 PROFILE_MIN_MESSAGES = 5
 PROFILE_MAX_MESSAGES = 120
 PROFILE_MESSAGES_CHAR_LIMIT = 12_000
+CHAT_SUMMARY_MODEL = "gemma4:e4b"
+CHAT_SUMMARY_PRIORITY = 1
+CHAT_SUMMARY_MAX_RETRY_ATTEMPT = 1
+CHAT_SUMMARY_MIN_MESSAGE_LENGTH = 10
+CHAT_SUMMARY_TARGET_SECONDS = 2 * 60 * 60
+CHAT_SUMMARY_FORCE_SECONDS = 4 * 60 * 60
+CHAT_SUMMARY_MAX_CHARS = 150
 AI_TASK_LEASE_SECONDS = 180
 
 PROFILE_ARRAY_LIMITS = {
@@ -74,6 +82,7 @@ CHAT_SCOPED_TABLES = {
     "web_geyser_daily_catches",
     "web_settings",
     "summary_publish_log",
+    "ai_summary",
 }
 
 FORBIDDEN_TEXT_TO_SQL_TABLES = {
@@ -208,9 +217,48 @@ def ensure_ai_profiles_table() -> None:
         conn.commit()
 
 
+def ensure_ai_summary_table() -> None:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_summary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                task_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                summary_text TEXT,
+                message_count INTEGER NOT NULL DEFAULT 0,
+                window_start TEXT NOT NULL,
+                window_end TEXT NOT NULL,
+                model TEXT NOT NULL,
+                error_text TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                finished_at TEXT,
+                UNIQUE(chat_id, window_start, window_end)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_summary_chat_window
+            ON ai_summary(chat_id, window_end DESC)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_summary_task_id
+            ON ai_summary(task_id)
+            """
+        )
+        conn.commit()
+
+
 def ensure_ai_tables() -> None:
     ensure_ai_tasks_table()
     ensure_ai_profiles_table()
+    ensure_ai_summary_table()
 
 
 def read_schema_markdown() -> str:
@@ -721,6 +769,328 @@ def create_profile_update_tasks(
     }
 
 
+def local_now() -> datetime:
+    return datetime.now().replace(microsecond=0)
+
+
+def _summary_dt(value: datetime | str | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(microsecond=0)
+    return parse_iso(str(value))
+
+
+def _summary_iso(value: datetime) -> str:
+    return value.replace(microsecond=0).isoformat()
+
+
+def has_non_summary_ai_backlog() -> bool:
+    ensure_ai_tasks_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT 1
+            FROM ai_tasks
+            WHERE status IN (?, ?)
+              AND task_type != ?
+            LIMIT 1
+            """,
+            (TASK_STATUS_PENDING, TASK_STATUS_PROCESSING, TASK_TYPE_CHAT_SUMMARY),
+        )
+        return cur.fetchone() is not None
+
+
+def has_pending_chat_summary(chat_id: int) -> bool:
+    ensure_ai_tables()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT 1
+            FROM ai_summary
+            WHERE chat_id = ? AND status IN (?, ?)
+            LIMIT 1
+            """,
+            (chat_id, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING),
+        )
+        return cur.fetchone() is not None
+
+
+def get_latest_done_chat_summary(chat_id: int) -> sqlite3.Row | None:
+    ensure_ai_summary_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT *
+            FROM ai_summary
+            WHERE chat_id = ? AND status = ?
+            ORDER BY window_end DESC, id DESC
+            LIMIT 1
+            """,
+            (chat_id, TASK_STATUS_DONE),
+        )
+        return cur.fetchone()
+
+
+def get_chat_summary_window(chat_id: int, *, now_dt: datetime | None = None) -> tuple[datetime, datetime, float]:
+    now_dt = _summary_dt(now_dt) or local_now()
+    latest = get_latest_done_chat_summary(chat_id)
+    if latest and latest["window_end"]:
+        window_start = _summary_dt(latest["window_end"]) or (now_dt - timedelta(seconds=CHAT_SUMMARY_FORCE_SECONDS))
+        elapsed_seconds = max(0.0, (now_dt - window_start).total_seconds())
+    else:
+        window_start = now_dt - timedelta(seconds=CHAT_SUMMARY_FORCE_SECONDS)
+        elapsed_seconds = float(CHAT_SUMMARY_FORCE_SECONDS)
+    return window_start, now_dt, elapsed_seconds
+
+
+def get_chat_summary_messages(
+    *,
+    chat_id: int,
+    window_start: datetime | str,
+    window_end: datetime | str,
+) -> list[dict[str, Any]]:
+    ensure_ai_tasks_table()
+    start_iso = _summary_iso(_summary_dt(window_start) or local_now())
+    end_iso = _summary_iso(_summary_dt(window_end) or local_now())
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                mr.message_id,
+                mr.user_id,
+                mr.message_text,
+                mr.date,
+                COALESCE(u.name, '') AS name,
+                COALESCE(u.nick, '') AS nick
+            FROM messages_reactions mr
+            LEFT JOIN users u
+              ON u.user_id = mr.user_id AND u.chat_id = mr.chat_id
+            WHERE mr.chat_id = ?
+              AND mr.date > ?
+              AND mr.date <= ?
+              AND LENGTH(TRIM(COALESCE(mr.message_text, ''))) >= ?
+            ORDER BY mr.date ASC, mr.message_id ASC
+            """,
+            (chat_id, start_iso, end_iso, CHAT_SUMMARY_MIN_MESSAGE_LENGTH),
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "message_id": int(row["message_id"]),
+            "user_id": int(row["user_id"]),
+            "date": row["date"],
+            "name": row["name"],
+            "nick": row["nick"],
+            "text": str(row["message_text"] or "").strip(),
+        }
+        for row in rows
+    ]
+
+
+def build_chat_summary_prompt(
+    *,
+    chat_id: int,
+    window_start: str,
+    window_end: str,
+    messages: list[dict[str, Any]],
+    previous_response: str | None = None,
+    previous_error: str | None = None,
+) -> str:
+    retry_block = ""
+    if previous_response or previous_error:
+        retry_block = f"""
+
+Предыдущая попытка была неудачной.
+Ответ модели в прошлый раз:
+{previous_response or "(пусто)"}
+
+Ошибка:
+{previous_error or "(не указана)"}
+
+Исправь ответ и строго уложись в контракт.
+"""
+
+    message_lines = []
+    for item in messages:
+        text = str(item["text"]).replace("\r", " ").replace("\n", " ").strip()
+        name = str(item.get("name") or "").strip() or "unknown"
+        nick = str(item.get("nick") or "").strip() or ""
+        message_lines.append(
+            f"- [{item['date']}] user_id={item['user_id']} name={name} nick={nick}: {text}"
+        )
+    messages_block = "\n".join(message_lines)
+
+    return f"""Ты сжимаешь короткий период переписки Telegram-чата в компактное summary для долговременной памяти бота.
+
+Контекст:
+- chat_id: {chat_id}
+- window_start: {window_start}
+- window_end: {window_end}
+- сообщений после фильтра: {len(messages)}
+
+Контракт ответа:
+- Верни только короткое summary на русском языке.
+- Максимум {CHAT_SUMMARY_MAX_CHARS} символов.
+- Без markdown, кавычек, списков, code fence и пояснений.
+- Не перечисляй user_id.
+- Если уместно, используй имена людей.
+- Сожми главную тему, событие или настроение периода.
+- Не выдумывай факты и не добавляй деталей, которых нет в сообщениях.
+{retry_block}
+Сообщения:
+{messages_block}
+"""
+
+
+def create_chat_summary_task_for_chat(
+    *,
+    chat_id: int,
+    now_dt: datetime | None = None,
+    queue_busy: bool | None = None,
+) -> dict[str, Any]:
+    ensure_ai_tables()
+    if chat_id >= 0:
+        return {"chat_id": chat_id, "created": 0, "skipped_reason": "not_group_chat"}
+    if has_pending_chat_summary(chat_id):
+        return {"chat_id": chat_id, "created": 0, "skipped_reason": "summary_already_pending"}
+
+    window_start_dt, window_end_dt, elapsed_seconds = get_chat_summary_window(chat_id, now_dt=now_dt)
+    if elapsed_seconds < CHAT_SUMMARY_TARGET_SECONDS:
+        return {"chat_id": chat_id, "created": 0, "skipped_reason": "too_early"}
+
+    queue_busy = has_non_summary_ai_backlog() if queue_busy is None else bool(queue_busy)
+    if queue_busy and elapsed_seconds < CHAT_SUMMARY_FORCE_SECONDS:
+        return {"chat_id": chat_id, "created": 0, "skipped_reason": "queue_busy"}
+
+    window_start = _summary_iso(window_start_dt)
+    window_end = _summary_iso(window_end_dt)
+    messages = get_chat_summary_messages(
+        chat_id=chat_id,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    if not messages:
+        return {"chat_id": chat_id, "created": 0, "skipped_reason": "no_messages"}
+
+    prompt = build_chat_summary_prompt(
+        chat_id=chat_id,
+        window_start=window_start,
+        window_end=window_end,
+        messages=messages,
+    )
+    payload = {
+        "chat_id": chat_id,
+        "window_start": window_start,
+        "window_end": window_end,
+        "message_count": len(messages),
+        "source": "messages_reactions",
+    }
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute(
+                """
+                SELECT 1
+                FROM ai_summary
+                WHERE chat_id = ? AND status IN (?, ?)
+                LIMIT 1
+                """,
+                (chat_id, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING),
+            )
+            if cur.fetchone():
+                conn.rollback()
+                return {"chat_id": chat_id, "created": 0, "skipped_reason": "summary_already_pending"}
+            cur.execute(
+                """
+                INSERT INTO ai_tasks (
+                    task_type, status, priority, model, prompt, payload_json,
+                    chat_id, user_id, request_message_id, attempt, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
+                """,
+                (
+                    TASK_TYPE_CHAT_SUMMARY,
+                    TASK_STATUS_PENDING,
+                    CHAT_SUMMARY_PRIORITY,
+                    CHAT_SUMMARY_MODEL,
+                    prompt,
+                    json.dumps(payload, ensure_ascii=False),
+                    chat_id,
+                    now,
+                    now,
+                ),
+            )
+            task_id = int(cur.lastrowid)
+            cur.execute(
+                """
+                INSERT INTO ai_summary (
+                    chat_id, task_id, status, summary_text, message_count,
+                    window_start, window_end, model, error_text,
+                    created_at, updated_at, finished_at
+                )
+                VALUES (?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?, ?, NULL)
+                """,
+                (
+                    chat_id,
+                    task_id,
+                    TASK_STATUS_PENDING,
+                    len(messages),
+                    window_start,
+                    window_end,
+                    CHAT_SUMMARY_MODEL,
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return {"chat_id": chat_id, "created": 0, "skipped_reason": "duplicate_window"}
+
+    return {
+        "chat_id": chat_id,
+        "created": 1,
+        "task_id": task_id,
+        "message_count": len(messages),
+        "window_start": window_start,
+        "window_end": window_end,
+    }
+
+
+def create_due_chat_summary_tasks(
+    *,
+    chat_ids: list[int],
+    now_dt: datetime | None = None,
+) -> dict[str, Any]:
+    ensure_ai_tables()
+    now_dt = _summary_dt(now_dt) or local_now()
+    queue_busy = has_non_summary_ai_backlog()
+    results = [
+        create_chat_summary_task_for_chat(chat_id=int(chat_id), now_dt=now_dt, queue_busy=queue_busy)
+        for chat_id in chat_ids
+        if int(chat_id) < 0
+    ]
+    created_task_ids = [int(item["task_id"]) for item in results if item.get("created")]
+    skipped: dict[str, int] = {}
+    for item in results:
+        reason = str(item.get("skipped_reason") or "created")
+        skipped[reason] = skipped.get(reason, 0) + (0 if item.get("created") else 1)
+    return {
+        "checked": len(results),
+        "created": len(created_task_ids),
+        "task_ids": created_task_ids,
+        "queue_busy": queue_busy,
+        "skipped": skipped,
+    }
+
+
 def claim_next_task() -> dict[str, Any] | None:
     ensure_ai_tasks_table()
     now = now_iso()
@@ -1038,6 +1408,138 @@ def requeue_or_fail_profile_task(
             WHERE task_id = ?
             """,
             (TASK_STATUS_FAILED, error_text, now, task_id),
+        )
+        conn.commit()
+    return False, get_task(task_id)
+
+
+def validate_chat_summary_output(raw_output: str | None) -> str:
+    text = (raw_output or "").strip()
+    if not text:
+        raise ValueError("LLM вернула пустой summary.")
+    if text.startswith("```") or text.endswith("```"):
+        raise ValueError("Summary не должно содержать markdown/code fence.")
+    if "\n" in text or "\r" in text:
+        raise ValueError("Summary должно быть одной строкой.")
+    if text.startswith(("-", "*", "1.", "1)")):
+        raise ValueError("Summary не должно быть списком.")
+    if (text.startswith('"') and text.endswith('"')) or (text.startswith("«") and text.endswith("»")):
+        raise ValueError("Summary не должно быть обёрнуто в кавычки.")
+    if len(text) > CHAT_SUMMARY_MAX_CHARS:
+        raise ValueError(f"Summary длиннее {CHAT_SUMMARY_MAX_CHARS} символов.")
+    return text
+
+
+def mark_chat_summary_task_done(task_id: int, *, summary_text: str) -> None:
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            UPDATE ai_summary
+            SET status = ?, summary_text = ?, error_text = NULL,
+                updated_at = ?, finished_at = ?
+            WHERE task_id = ?
+            """,
+            (TASK_STATUS_DONE, summary_text, now, now, task_id),
+        )
+        cur.execute(
+            """
+            UPDATE ai_tasks
+            SET status = ?, result_text = ?, error_text = NULL, lease_until = NULL,
+                updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_DONE, summary_text, now, now, task_id),
+        )
+        conn.commit()
+
+
+def _rebuild_chat_summary_retry_prompt(
+    task: sqlite3.Row,
+    *,
+    previous_response: str | None,
+    previous_error: str,
+) -> str:
+    payload = json.loads(task["payload_json"] or "{}")
+    chat_id = int(payload.get("chat_id") or task["chat_id"])
+    window_start = str(payload.get("window_start") or "")
+    window_end = str(payload.get("window_end") or "")
+    messages = get_chat_summary_messages(
+        chat_id=chat_id,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    return build_chat_summary_prompt(
+        chat_id=chat_id,
+        window_start=window_start,
+        window_end=window_end,
+        messages=messages,
+        previous_response=previous_response,
+        previous_error=previous_error,
+    )
+
+
+def requeue_or_fail_chat_summary_task(
+    task_id: int,
+    *,
+    previous_response: str | None,
+    error_text: str,
+) -> tuple[bool, sqlite3.Row | None]:
+    task = get_task(task_id)
+    if not task:
+        return False, None
+
+    attempt = int(task["attempt"] or 0)
+    now = now_iso()
+    if attempt < CHAT_SUMMARY_MAX_RETRY_ATTEMPT:
+        retry_prompt = _rebuild_chat_summary_retry_prompt(
+            task,
+            previous_response=previous_response,
+            previous_error=error_text,
+        )
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute(
+                """
+                UPDATE ai_tasks
+                SET status = ?, prompt = ?, error_text = ?, attempt = attempt + 1,
+                    lease_until = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (TASK_STATUS_PENDING, retry_prompt, error_text, now, task_id),
+            )
+            cur.execute(
+                """
+                UPDATE ai_summary
+                SET status = ?, error_text = ?, updated_at = ?
+                WHERE task_id = ?
+                """,
+                (TASK_STATUS_PENDING, error_text, now, task_id),
+            )
+            conn.commit()
+        return True, get_task(task_id)
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            UPDATE ai_tasks
+            SET status = ?, error_text = ?, lease_until = NULL, updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_FAILED, error_text, now, now, task_id),
+        )
+        cur.execute(
+            """
+            UPDATE ai_summary
+            SET status = ?, error_text = ?, updated_at = ?, finished_at = ?
+            WHERE task_id = ?
+            """,
+            (TASK_STATUS_FAILED, error_text, now, now, task_id),
         )
         conn.commit()
     return False, get_task(task_id)
