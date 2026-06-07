@@ -66,6 +66,12 @@ TYPE_CHECK_ALLOWED_RESULTS = {
     TYPE_CHECK_RESULT_IGNORE,
     TYPE_CHECK_RESULT_WEB_SEARCH,
 }
+SEARCH_PLAN_MODEL = os.getenv("AI_CLASSIFIER_MODEL", "gemma4:e4b")
+SEARCH_PLAN_LEASE_SECONDS = 90
+SEARCH_PLAN_MAX_RETRY_ATTEMPT = 1
+SEARCH_PLAN_MAX_QUERIES = 3
+SEARCH_PLAN_MAX_FACTS = 5
+WEB_CONTEXT_CHAR_LIMIT = 6_000
 
 PROFILE_ARRAY_LIMITS = {
     "stable_interests": 5,
@@ -138,6 +144,10 @@ class ProfileUpdateError(ValueError):
 
 
 class TypeCheckError(ValueError):
+    pass
+
+
+class SearchPlanError(ValueError):
     pass
 
 
@@ -246,6 +256,47 @@ def ensure_ai_type_checks_table() -> None:
         conn.commit()
 
 
+def ensure_ai_search_plans_table() -> None:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_search_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                model TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                message_text TEXT NOT NULL,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                request_message_id INTEGER NOT NULL,
+                trigger_reason TEXT NOT NULL,
+                result_json TEXT,
+                error_text TEXT,
+                attempt INTEGER NOT NULL DEFAULT 0,
+                lease_until TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                finished_at TEXT,
+                UNIQUE(chat_id, request_message_id)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_search_plans_queue
+            ON ai_search_plans(status, created_at ASC)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_search_plans_message
+            ON ai_search_plans(chat_id, request_message_id)
+            """
+        )
+        conn.commit()
+
+
 def ensure_ai_profiles_table() -> None:
     with closing(get_connection()) as conn:
         cur = conn.cursor()
@@ -325,6 +376,8 @@ def ensure_ai_summary_table() -> None:
 
 def ensure_ai_tables() -> None:
     ensure_ai_tasks_table()
+    ensure_ai_type_checks_table()
+    ensure_ai_search_plans_table()
     ensure_ai_profiles_table()
     ensure_ai_summary_table()
 
@@ -425,9 +478,10 @@ def build_type_check_prompt(*, message_text: str, trigger_reason: str) -> str:
 response — обычный разговорный ответ бота;
 text_to_sql — пользователь просит статистику, аналитику, подсчёт, топ, сравнение или факт из базы данных чата;
 ignore — сообщение адресовано боту, но не требует ответа или действия;
-web_search — нужен актуальный интернет-контекст; в MVP не используй, если можно ответить как response.
+web_search — нужен внешний интернет-контекст: актуальные события, новости, текущие данные или научные/справочные факты.
 
 Выбирай text_to_sql только если нужен запрос к истории/статистике чата.
+Выбирай web_search, если для ответа нужны факты из внешнего мира или свежая информация.
 Выбирай response для шуток, мнений, обычных вопросов и разговорных обращений.
 Не добавляй пояснения, markdown или JSON.
 
@@ -511,6 +565,122 @@ def create_type_check_task(
                 (
                     TASK_STATUS_PENDING,
                     TYPE_CHECK_MODEL,
+                    prompt,
+                    message_text,
+                    chat_id,
+                    user_id,
+                    request_message_id,
+                    trigger_reason,
+                    now,
+                    now,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return None
+        task_id = int(cur.lastrowid)
+        conn.commit()
+    return task_id
+
+
+def build_search_plan_prompt(
+    *,
+    message_text: str,
+    trigger_reason: str,
+    previous_response: str | None = None,
+    previous_error: str | None = None,
+) -> str:
+    clean_text = message_text.replace("\r", " ").strip()
+    retry_block = ""
+    if previous_response or previous_error:
+        retry_block = f"""
+
+Предыдущая попытка была неудачной.
+Ответ модели:
+{previous_response or "(пусто)"}
+
+Ошибка:
+{previous_error or "(не указана)"}
+
+Верни исправленный JSON строго по контракту.
+"""
+
+    return f"""Составь план веб-поиска для ответа Telegram-бота.
+
+Текущая дата: {date.today().isoformat()}
+trigger_reason: {trigger_reason}
+
+Сообщение пользователя:
+{clean_text}
+
+Верни только JSON без markdown, code fence и пояснений:
+{{
+  "queries": ["1-3 коротких поисковых запроса"],
+  "needed_facts": ["1-5 фактов, которые нужно проверить"],
+  "answer_strategy": "короткая инструкция на русском, как собрать ответ"
+}}
+
+Правила:
+- queries должны быть конкретными поисковыми запросами, а не пересказом сообщения.
+- Если вопрос требует расчёта, ищи исходные величины отдельными запросами.
+- Для актуальных событий добавляй год или слова "сейчас", "сегодня", если это помогает.
+- Не придумывай факты, только планируй что искать.
+
+Пример:
+Сообщение: сколько комаров нужно чтобы высосать человека
+JSON:
+{{
+  "queries": ["сколько крови в организме взрослого человека", "сколько крови выпивает комар за один укус"],
+  "needed_facts": ["объём крови взрослого человека", "объём крови за один укус комара"],
+  "answer_strategy": "Найти обе величины, привести их к одним единицам и разделить объём крови человека на объём крови за укус."
+}}
+{retry_block}
+"""
+
+
+def create_search_plan_task(
+    *,
+    chat_id: int,
+    user_id: int,
+    request_message_id: int,
+    message_text: str,
+    trigger_reason: str,
+) -> int | None:
+    ensure_ai_search_plans_table()
+    if chat_id >= 0:
+        return None
+
+    prompt = build_search_plan_prompt(message_text=message_text, trigger_reason=trigger_reason)
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            SELECT 1
+            FROM ai_search_plans
+            WHERE chat_id = ?
+              AND request_message_id = ?
+              AND status IN (?, ?)
+            LIMIT 1
+            """,
+            (chat_id, request_message_id, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING),
+        )
+        if cur.fetchone():
+            conn.rollback()
+            return None
+        try:
+            cur.execute(
+                """
+                INSERT INTO ai_search_plans (
+                    status, model, prompt, message_text, chat_id, user_id,
+                    request_message_id, trigger_reason, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    TASK_STATUS_PENDING,
+                    SEARCH_PLAN_MODEL,
                     prompt,
                     message_text,
                     chat_id,
@@ -1393,6 +1563,7 @@ def build_response_prompt(
     short_memory: list[dict[str, Any]],
     long_memory: list[dict[str, Any]],
     profile_json: str | None,
+    web_context: str | None = None,
     previous_response: str | None = None,
     previous_error: str | None = None,
 ) -> str:
@@ -1429,6 +1600,13 @@ def build_response_prompt(
     summary_block = "\n".join(summary_lines) or "(нет долгосрочных summary)"
     requester_nick_text = (requester_nick or "").strip() or "unknown"
     clean_message = message_text.replace("\r", " ").replace("\n", " ").strip()
+    web_context_block = ""
+    if web_context:
+        web_context_block = f"""
+
+Актуальный веб-контекст:
+{web_context[:WEB_CONTEXT_CHAR_LIMIT]}
+"""
 
     return f"""Ты — живой участник Telegram-чата и отвечаешь от лица бота.
 
@@ -1451,6 +1629,7 @@ def build_response_prompt(
 
 Короткая память, последние сообщения перед текущим:
 {short_block}
+{web_context_block}
 {retry_block}
 
 Правила ответа:
@@ -1473,6 +1652,7 @@ def create_response_task(
     requester_name: str,
     requester_nick: str | None,
     trigger_reason: str,
+    web_context: str | None = None,
 ) -> int | None:
     ensure_ai_tables()
     if chat_id >= 0:
@@ -1494,6 +1674,7 @@ def create_response_task(
         short_memory=short_memory,
         long_memory=long_memory,
         profile_json=profile_json,
+        web_context=web_context,
     )
     payload = {
         "chat_id": chat_id,
@@ -1506,6 +1687,8 @@ def create_response_task(
         "short_memory_count": len(short_memory),
         "long_memory_count": len(long_memory),
         "has_profile": bool(profile_json),
+        "has_web_context": bool(web_context),
+        "web_context": web_context,
     }
     created_at = now_iso()
     with closing(get_connection()) as conn:
@@ -1665,6 +1848,60 @@ def serialize_type_check(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def claim_next_search_plan() -> dict[str, Any] | None:
+    ensure_ai_search_plans_table()
+    now = now_iso()
+    lease_until = (utcnow() + timedelta(seconds=SEARCH_PLAN_LEASE_SECONDS)).isoformat()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            SELECT *
+            FROM ai_search_plans
+            WHERE status = ?
+               OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (TASK_STATUS_PENDING, TASK_STATUS_PROCESSING, now),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.commit()
+            return None
+        task_id = int(row["id"])
+        cur.execute(
+            """
+            UPDATE ai_search_plans
+            SET status = ?, lease_until = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_PROCESSING, lease_until, now, task_id),
+        )
+        cur.execute("SELECT * FROM ai_search_plans WHERE id = ?", (task_id,))
+        claimed_row = cur.fetchone()
+        conn.commit()
+    return serialize_search_plan(claimed_row)
+
+
+def serialize_search_plan(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "status": row["status"],
+        "model": row["model"],
+        "prompt": row["prompt"],
+        "message_text": row["message_text"],
+        "chat_id": int(row["chat_id"]),
+        "user_id": int(row["user_id"]),
+        "request_message_id": int(row["request_message_id"]),
+        "trigger_reason": row["trigger_reason"],
+        "attempt": int(row["attempt"] or 0),
+        "created_at": row["created_at"],
+        "lease_until": row["lease_until"],
+    }
+
+
 def get_task(task_id: int) -> sqlite3.Row | None:
     ensure_ai_tasks_table()
     with closing(get_connection()) as conn:
@@ -1678,6 +1915,14 @@ def get_type_check(task_id: int) -> sqlite3.Row | None:
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM ai_type_checks WHERE id = ?", (task_id,))
+        return cur.fetchone()
+
+
+def get_search_plan(task_id: int) -> sqlite3.Row | None:
+    ensure_ai_search_plans_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM ai_search_plans WHERE id = ?", (task_id,))
         return cur.fetchone()
 
 
@@ -1695,6 +1940,112 @@ def validate_type_check_output(raw_output: str | None) -> str:
     if text not in TYPE_CHECK_ALLOWED_RESULTS:
         raise TypeCheckError(f"Недопустимый type-check результат: {text!r}.")
     return text
+
+
+def validate_search_plan_output(raw_output: str | None) -> dict[str, Any]:
+    try:
+        cleaned = clean_model_json(raw_output)
+        data = json.loads(cleaned)
+    except Exception as exc:
+        raise SearchPlanError(f"Не удалось разобрать JSON search plan: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SearchPlanError("Search plan должен быть JSON-объектом.")
+
+    queries = data.get("queries")
+    needed_facts = data.get("needed_facts")
+    answer_strategy = data.get("answer_strategy")
+    if not isinstance(queries, list) or not queries:
+        raise SearchPlanError("Search plan должен содержать непустой массив queries.")
+    if len(queries) > SEARCH_PLAN_MAX_QUERIES:
+        raise SearchPlanError(f"Search plan содержит больше {SEARCH_PLAN_MAX_QUERIES} queries.")
+    clean_queries: list[str] = []
+    for query in queries:
+        text = str(query or "").strip()
+        if not text:
+            raise SearchPlanError("Search plan содержит пустой query.")
+        clean_queries.append(text[:200])
+
+    if not isinstance(needed_facts, list):
+        raise SearchPlanError("Search plan должен содержать массив needed_facts.")
+    if len(needed_facts) > SEARCH_PLAN_MAX_FACTS:
+        raise SearchPlanError(f"Search plan содержит больше {SEARCH_PLAN_MAX_FACTS} needed_facts.")
+    clean_facts = [str(fact or "").strip()[:200] for fact in needed_facts if str(fact or "").strip()]
+    if not clean_facts:
+        raise SearchPlanError("Search plan должен содержать хотя бы один needed_fact.")
+
+    strategy = str(answer_strategy or "").strip()
+    if not strategy:
+        raise SearchPlanError("Search plan должен содержать answer_strategy.")
+
+    return {
+        "queries": clean_queries,
+        "needed_facts": clean_facts,
+        "answer_strategy": strategy[:600],
+    }
+
+
+def mark_search_plan_done(task_id: int, *, result: dict[str, Any]) -> None:
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ai_search_plans
+            SET status = ?, result_json = ?, error_text = NULL,
+                lease_until = NULL, updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_DONE, json.dumps(result, ensure_ascii=False), now, now, task_id),
+        )
+        conn.commit()
+
+
+def requeue_or_fail_search_plan(
+    task_id: int,
+    *,
+    previous_response: str | None,
+    error_text: str,
+) -> tuple[bool, sqlite3.Row | None]:
+    task = get_search_plan(task_id)
+    if not task:
+        return False, None
+
+    attempt = int(task["attempt"] or 0)
+    now = now_iso()
+    if attempt < SEARCH_PLAN_MAX_RETRY_ATTEMPT:
+        retry_prompt = build_search_plan_prompt(
+            message_text=str(task["message_text"] or ""),
+            trigger_reason=str(task["trigger_reason"] or "web_search"),
+            previous_response=previous_response,
+            previous_error=error_text,
+        )
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE ai_search_plans
+                SET status = ?, prompt = ?, error_text = ?, attempt = attempt + 1,
+                    lease_until = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (TASK_STATUS_PENDING, retry_prompt, error_text, now, task_id),
+            )
+            conn.commit()
+        return True, get_search_plan(task_id)
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ai_search_plans
+            SET status = ?, error_text = ?, lease_until = NULL,
+                updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_FAILED, error_text, now, now, task_id),
+        )
+        conn.commit()
+    return False, get_search_plan(task_id)
 
 
 def mark_type_check_done(task_id: int, *, result_type: str) -> None:
@@ -2027,6 +2378,8 @@ def _rebuild_response_retry_prompt(
     requester_nick = str(payload.get("requester_nick") or "")
     message_text = str(payload.get("message_text") or "")
     trigger_reason = str(payload.get("trigger_reason") or "retry")
+    web_context = payload.get("web_context")
+    web_context = str(web_context) if web_context else None
     short_memory = get_response_short_memory(chat_id=chat_id, before_message_id=request_message_id)
     long_memory = get_response_long_memory(chat_id=chat_id)
     profile_json = get_latest_profile_json(requester_user_id, chat_id)
@@ -2041,6 +2394,7 @@ def _rebuild_response_retry_prompt(
         short_memory=short_memory,
         long_memory=long_memory,
         profile_json=profile_json,
+        web_context=web_context,
         previous_response=previous_response,
         previous_error=previous_error,
     )

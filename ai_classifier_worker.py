@@ -37,9 +37,17 @@ def request_json(url: str, *, method: str = "GET", payload: dict[str, Any] | Non
     return json.loads(raw) if raw else {}
 
 
-def get_next_task() -> dict[str, Any] | None:
+def get_next_type_check() -> dict[str, Any] | None:
     response = request_json(
         f"{BACKEND_URL}/api/ai/type-checks/next",
+        timeout=BACKEND_TIMEOUT_SECONDS,
+    )
+    return response.get("task")
+
+
+def get_next_search_plan() -> dict[str, Any] | None:
+    response = request_json(
+        f"{BACKEND_URL}/api/ai/search-plans/next",
         timeout=BACKEND_TIMEOUT_SECONDS,
     )
     return response.get("task")
@@ -65,7 +73,7 @@ def call_ollama(model: str, prompt: str) -> str:
     return str(response.get("response") or "").strip()
 
 
-def post_result(task_id: int, *, output: str = "", error: str = "") -> dict[str, Any]:
+def post_type_check_result(task_id: int, *, output: str = "", error: str = "") -> dict[str, Any]:
     return request_json(
         f"{BACKEND_URL}/api/ai/type-checks/{task_id}/result",
         method="POST",
@@ -74,31 +82,42 @@ def post_result(task_id: int, *, output: str = "", error: str = "") -> dict[str,
     )
 
 
-def process_task(task: dict[str, Any]) -> None:
+def post_search_plan_result(task_id: int, *, output: str = "", error: str = "") -> dict[str, Any]:
+    return request_json(
+        f"{BACKEND_URL}/api/ai/search-plans/{task_id}/result",
+        method="POST",
+        payload={"output": output, "error": error},
+        timeout=BACKEND_TIMEOUT_SECONDS,
+    )
+
+
+def process_task(task: dict[str, Any], *, task_kind: str) -> None:
     task_id = int(task["id"])
     model = CLASSIFIER_MODEL or str(task["model"])
     prompt = str(task["prompt"])
-    log(f"type-check #{task_id}: model={model}")
+    post_result = post_type_check_result if task_kind == "type-check" else post_search_plan_result
+    log(f"{task_kind} #{task_id}: model={model}")
     try:
         output = call_ollama(model, prompt)
     except Exception as exc:
-        log(f"type-check #{task_id}: Ollama error: {exc}")
+        log(f"{task_kind} #{task_id}: Ollama error: {exc}")
         post_result(task_id, error=str(exc))
         return
 
     if not output:
-        log(f"type-check #{task_id}: empty Ollama response")
+        log(f"{task_kind} #{task_id}: empty Ollama response")
         post_result(task_id, error="Ollama returned empty response")
         return
 
     try:
         response = post_result(task_id, output=output)
     except Exception as exc:
-        log(f"type-check #{task_id}: backend result POST failed: {exc}")
+        log(f"{task_kind} #{task_id}: backend result POST failed: {exc}")
         return
     log(
-        f"type-check #{task_id}: backend status={response.get('status')} "
-        f"result={response.get('result_type')} final_task={response.get('final_task_id')}"
+        f"{task_kind} #{task_id}: backend status={response.get('status')} "
+        f"result={response.get('result_type')} search_plan={response.get('search_plan_id')} "
+        f"final_task={response.get('final_task_id')}"
     )
 
 
@@ -113,9 +132,14 @@ def main() -> int:
     )
     while True:
         try:
-            task = get_next_task()
+            task = get_next_type_check()
             if task:
-                process_task(task)
+                process_task(task, task_kind="type-check")
+                continue
+
+            task = get_next_search_plan()
+            if task:
+                process_task(task, task_kind="search-plan")
             else:
                 time.sleep(POLL_SECONDS)
         except KeyboardInterrupt:

@@ -168,7 +168,7 @@ pip install google-api-python-client google-auth google-auth-httplib2 httplib2
 
 Фоновая задача `chat_summary` примерно раз в 2-4 часа сжимает новые сообщения группового чата в короткое саммари до 150 символов и сохраняет его в `ai_summary`. Это низкоприоритетная AI-задача: она создаётся только когда нет более важных AI-задач, но не откладывается дольше 4 часов.
 
-Задача `response` генерирует живые ответы бота в чат: случайно с шансом из `/settings` (по умолчанию 3%, максимум 10%) или после LLM-классификации прямого обращения к боту. Прямые обращения (`reply`, `@udb_flood_bot`, слово "бот") сначала попадают в быструю очередь `ai_type_checks`; классификатор выбирает `response`, `text_to_sql` или `ignore`. Ответ строится на последних сообщениях, последних саммари и профиле автора.
+Задача `response` генерирует живые ответы бота в чат: случайно с шансом из `/settings` (по умолчанию 3%, максимум 10%) или после LLM-классификации прямого обращения к боту. Прямые обращения (`reply`, `@udb_flood_bot`, слово "бот") сначала попадают в быструю очередь `ai_type_checks`; классификатор выбирает `response`, `text_to_sql`, `web_search` или `ignore`. Для `web_search` быстрый worker сначала строит `search_plan`, backend ищет snippets в локальном SearXNG и создаёт обычную `response` задачу с веб-контекстом. Ответ строится на последних сообщениях, последних саммари и профиле автора.
 
 ### VPS env
 
@@ -176,6 +176,9 @@ pip install google-api-python-client google-auth google-auth-httplib2 httplib2
 
 ```bash
 AI_WORKER_TOKEN=change_me_to_random_worker_secret
+SEARXNG_URL=http://127.0.0.1:8888
+WEB_SEARCH_MAX_RESULTS=8
+WEB_SEARCH_TIMEOUT_SECONDS=8
 ```
 
 После изменения env перезапустить web-сервис:
@@ -183,6 +186,8 @@ AI_WORKER_TOKEN=change_me_to_random_worker_secret
 ```bash
 systemctl restart udb-web
 ```
+
+SearXNG для web-поиска поднимается на VPS как localhost-only сервис из `deploy/searxng/docker-compose.yml`; JSON output должен быть включён в `settings.yml`.
 
 ### Локальный worker Windows
 

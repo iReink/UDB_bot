@@ -35,21 +35,26 @@ from ai_tasks import (
     RESPONSE_REACTION_IN_PROGRESS,
     RESPONSE_DIRECT_COOLDOWN_SECONDS,
     claim_next_task,
+    claim_next_search_plan,
     claim_next_type_check,
     create_response_task,
+    create_search_plan_task,
     create_text_to_sql_task,
     execute_readonly_sql,
     format_sql_result_for_telegram,
     get_task,
     get_response_cooldown_left,
+    get_search_plan,
     get_text_to_sql_cooldown,
     get_type_check,
     mark_chat_summary_task_done,
     mark_task_done,
     mark_profile_task_done,
     mark_response_task_done,
+    mark_search_plan_done,
     mark_type_check_done,
     mark_type_check_failed,
+    requeue_or_fail_search_plan,
     requeue_or_fail_chat_summary_task,
     requeue_or_fail_profile_task,
     requeue_or_fail_response_task,
@@ -57,9 +62,11 @@ from ai_tasks import (
     validate_chat_summary_output,
     validate_profile_update_output,
     validate_response_output,
+    validate_search_plan_output,
     validate_text_to_sql,
     validate_type_check_output,
 )
+from web_search import WebSearchError, build_web_context
 from auth_code import (
     AuthCodeConflictError,
     AuthCodeExpiredError,
@@ -2466,6 +2473,35 @@ def _get_ai_task_user_context(chat_id: int, user_id: int) -> tuple[str, str | No
     return name, nick
 
 
+def _create_response_from_ai_context(
+    *,
+    chat_id: int,
+    user_id: int,
+    request_message_id: int,
+    message_text: str,
+    trigger_reason: str,
+    web_context: str | None = None,
+) -> int | None:
+    requester_name, requester_nick = _get_ai_task_user_context(chat_id, user_id)
+    return create_response_task(
+        chat_id=chat_id,
+        requester_user_id=user_id,
+        request_message_id=request_message_id,
+        message_text=message_text,
+        requester_name=requester_name,
+        requester_nick=requester_nick,
+        trigger_reason=trigger_reason,
+        web_context=web_context,
+    )
+
+
+def _set_in_progress_reaction_best_effort(chat_id: int, request_message_id: int, *, label: str, task_id: int) -> None:
+    try:
+        _set_telegram_reaction(chat_id, request_message_id, RESPONSE_REACTION_IN_PROGRESS)
+    except Exception as exc:
+        logger.warning("%s %s failed to set in-progress reaction: %s", label, task_id, exc)
+
+
 def _require_session(request: Request) -> dict[str, Any]:
     payload = _read_payload(request.cookies.get(COOKIE_NAME))
     if not payload:
@@ -3653,6 +3689,13 @@ def ai_type_check_next(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "task": task})
 
 
+@app.get("/api/ai/search-plans/next")
+def ai_search_plan_next(request: Request) -> JSONResponse:
+    _require_ai_worker(request)
+    task = claim_next_search_plan()
+    return JSONResponse({"ok": True, "task": task})
+
+
 @app.post("/api/ai/type-checks/{type_check_id}/result")
 def ai_type_check_result(type_check_id: int, request: Request, data: AiTaskResultRequest) -> JSONResponse:
     _require_ai_worker(request)
@@ -3681,21 +3724,21 @@ def ai_type_check_result(type_check_id: int, request: Request, data: AiTaskResul
     message_text = str(task["message_text"] or "")
     trigger_reason = str(task["trigger_reason"] or "type_check")
     final_task_id: int | None = None
+    search_plan_id: int | None = None
     skipped_reason: str | None = None
 
     if result_type == TYPE_CHECK_RESULT_IGNORE:
         skipped_reason = "ignore"
     elif result_type == TYPE_CHECK_RESULT_WEB_SEARCH:
-        mark_type_check_failed(type_check_id, error_text="web_search is not implemented yet")
-        return JSONResponse(
-            {
-                "ok": True,
-                "status": "failed",
-                "task_id": type_check_id,
-                "result_type": result_type,
-                "error": "web_search is not implemented yet",
-            }
+        search_plan_id = create_search_plan_task(
+            chat_id=chat_id,
+            user_id=user_id,
+            request_message_id=request_message_id,
+            message_text=message_text,
+            trigger_reason=trigger_reason,
         )
+        if search_plan_id is None:
+            skipped_reason = "search plan already pending"
     else:
         requester_name, requester_nick = _get_ai_task_user_context(chat_id, user_id)
         try:
@@ -3738,10 +3781,13 @@ def ai_type_check_result(type_check_id: int, request: Request, data: AiTaskResul
 
     mark_type_check_done(type_check_id, result_type=result_type)
     if final_task_id is not None:
-        try:
-            _set_telegram_reaction(chat_id, request_message_id, RESPONSE_REACTION_IN_PROGRESS)
-        except Exception as exc:
-            logger.warning("AI type-check task %s failed to set in-progress reaction: %s", type_check_id, exc)
+        if result_type != TYPE_CHECK_RESULT_WEB_SEARCH:
+            _set_in_progress_reaction_best_effort(
+                chat_id,
+                request_message_id,
+                label="AI type-check task",
+                task_id=type_check_id,
+            )
 
     return JSONResponse(
         {
@@ -3750,7 +3796,126 @@ def ai_type_check_result(type_check_id: int, request: Request, data: AiTaskResul
             "task_id": type_check_id,
             "result_type": result_type,
             "final_task_id": final_task_id,
+            "search_plan_id": search_plan_id,
             "skipped_reason": skipped_reason,
+        }
+    )
+
+
+@app.post("/api/ai/search-plans/{search_plan_id}/result")
+def ai_search_plan_result(search_plan_id: int, request: Request, data: AiTaskResultRequest) -> JSONResponse:
+    _require_ai_worker(request)
+    task = get_search_plan(search_plan_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Search-plan task not found")
+    if task["status"] != TASK_STATUS_PROCESSING:
+        raise HTTPException(status_code=409, detail=f"Search-plan task is not processing: {task['status']}")
+
+    raw_output = (data.output or "").strip()
+    worker_error = (data.error or "").strip()
+    chat_id = int(task["chat_id"])
+    user_id = int(task["user_id"])
+    request_message_id = int(task["request_message_id"])
+    message_text = str(task["message_text"] or "")
+    trigger_reason = str(task["trigger_reason"] or "web_search")
+
+    def fallback_response(reason: str) -> JSONResponse:
+        web_context = (
+            "Актуальный веб-контекст получить не удалось. "
+            f"Причина: {reason}. Ответь осторожно и не выдавай непроверенные актуальные факты за точные."
+        )
+        final_task_id = _create_response_from_ai_context(
+            chat_id=chat_id,
+            user_id=user_id,
+            request_message_id=request_message_id,
+            message_text=message_text,
+            trigger_reason="web_search_fallback",
+            web_context=web_context,
+        )
+        if final_task_id is not None:
+            _set_in_progress_reaction_best_effort(
+                chat_id,
+                request_message_id,
+                label="AI search-plan task",
+                task_id=search_plan_id,
+            )
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "fallback",
+                "task_id": search_plan_id,
+                "final_task_id": final_task_id,
+                "error": reason,
+            }
+        )
+
+    if worker_error:
+        failure_reason = f"Worker/Ollama error: {worker_error}"
+        requeued, updated_task = requeue_or_fail_search_plan(
+            search_plan_id,
+            previous_response=raw_output or None,
+            error_text=failure_reason,
+        )
+        if requeued:
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "status": "retry",
+                    "task_id": search_plan_id,
+                    "attempt": int(updated_task["attempt"] or 0) if updated_task else None,
+                }
+            )
+        return fallback_response(failure_reason)
+
+    try:
+        search_plan = validate_search_plan_output(raw_output)
+    except Exception as exc:
+        logger.warning("AI search-plan task %s failed during validation: %s", search_plan_id, exc)
+        failure_reason = str(exc)
+        requeued, updated_task = requeue_or_fail_search_plan(
+            search_plan_id,
+            previous_response=raw_output or None,
+            error_text=failure_reason,
+        )
+        if requeued:
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "status": "retry",
+                    "task_id": search_plan_id,
+                    "attempt": int(updated_task["attempt"] or 0) if updated_task else None,
+                }
+            )
+        return fallback_response(failure_reason)
+
+    mark_search_plan_done(search_plan_id, result=search_plan)
+    try:
+        web_context = build_web_context(question=message_text, search_plan=search_plan)
+    except WebSearchError as exc:
+        logger.warning("AI search-plan task %s failed during SearXNG search: %s", search_plan_id, exc)
+        return fallback_response(str(exc))
+
+    final_task_id = _create_response_from_ai_context(
+        chat_id=chat_id,
+        user_id=user_id,
+        request_message_id=request_message_id,
+        message_text=message_text,
+        trigger_reason="web_search",
+        web_context=web_context,
+    )
+    if final_task_id is not None:
+        _set_in_progress_reaction_best_effort(
+            chat_id,
+            request_message_id,
+            label="AI search-plan task",
+            task_id=search_plan_id,
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "status": "done",
+            "task_id": search_plan_id,
+            "final_task_id": final_task_id,
         }
     )
 
