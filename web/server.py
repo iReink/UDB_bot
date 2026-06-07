@@ -23,6 +23,7 @@ from ai_tasks import (
     TASK_STATUS_PROCESSING,
     TASK_TYPE_CHAT_SUMMARY,
     TASK_TYPE_PROFILE_UPDATE,
+    TASK_TYPE_RESPONSE,
     TASK_TYPE_TEXT_TO_SQL,
     claim_next_task,
     execute_readonly_sql,
@@ -31,11 +32,14 @@ from ai_tasks import (
     mark_chat_summary_task_done,
     mark_task_done,
     mark_profile_task_done,
+    mark_response_task_done,
     requeue_or_fail_chat_summary_task,
     requeue_or_fail_profile_task,
+    requeue_or_fail_response_task,
     requeue_or_fail_task,
     validate_chat_summary_output,
     validate_profile_update_output,
+    validate_response_output,
     validate_text_to_sql,
 )
 from auth_code import (
@@ -3590,6 +3594,64 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
     worker_error = (data.error or "").strip()
     sql_for_retry: str | None = raw_output or None
     failure_reason: str | None = None
+
+    if task["task_type"] == TASK_TYPE_RESPONSE:
+        if worker_error:
+            failure_reason = f"Worker/Ollama error: {worker_error}"
+        else:
+            try:
+                response_text = validate_response_output(raw_output)
+            except Exception as exc:
+                logger.warning("AI response task %s failed during validation: %s", task_id, exc)
+                failure_reason = str(exc)
+            else:
+                try:
+                    response_message_id = _send_telegram_message(
+                        int(task["chat_id"]),
+                        escape(response_text),
+                        reply_to_message_id=int(task["request_message_id"]),
+                    )
+                except Exception as exc:
+                    logger.exception("AI response task %s failed to send Telegram response", task_id)
+                    failure_reason = str(exc)
+                else:
+                    mark_response_task_done(
+                        task_id,
+                        response_text=response_text,
+                        response_message_id=response_message_id,
+                    )
+                    return JSONResponse(
+                        {
+                            "ok": True,
+                            "status": "done",
+                            "task_id": task_id,
+                            "response_message_id": response_message_id,
+                        }
+                    )
+
+        assert failure_reason is not None
+        requeued, updated_task = requeue_or_fail_response_task(
+            task_id,
+            previous_response=raw_output or None,
+            error_text=failure_reason,
+        )
+        if requeued:
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "status": "retry",
+                    "task_id": task_id,
+                    "attempt": int(updated_task["attempt"] or 0) if updated_task else None,
+                }
+            )
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "failed",
+                "task_id": task_id,
+                "error": failure_reason,
+            }
+        )
 
     if task["task_type"] == TASK_TYPE_CHAT_SUMMARY:
         if worker_error:

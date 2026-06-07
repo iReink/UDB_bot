@@ -27,13 +27,13 @@
 | Поле | Тип | Описание |
 |---|---:|---|
 | `id` | INTEGER | ID AI-задачи. |
-| `task_type` | TEXT | Тип задачи: `text_to_sql` для запросов к БД, `profile_update` для AI-профиля или `chat_summary` для короткого саммари чата. |
+| `task_type` | TEXT | Тип задачи: `response` для ответа в чат, `text_to_sql` для запросов к БД, `profile_update` для AI-профиля или `chat_summary` для саммари. |
 | `status` | TEXT | Статус: `pending`, `processing`, `done`, `failed`. |
 | `priority` | INTEGER | Приоритет выбора задачи; большее значение важнее. |
 | `model` | TEXT | Модель, которую worker должен вызвать в Ollama. |
 | `prompt` | TEXT | Полный prompt, который worker передает в LLM. |
 | `payload_json` | TEXT | JSON с исходными параметрами задачи. |
-| `result_text` | TEXT | Итоговый текст результата; для `text_to_sql` хранится SQL, для `profile_update` - JSON профиля, для `chat_summary` - короткое саммари. |
+| `result_text` | TEXT | Итоговый текст результата; для `response` хранится текст ответа, для `text_to_sql` - SQL, для `profile_update` - JSON, для `chat_summary` - саммари. |
 | `error_text` | TEXT | Последняя ошибка обработки задачи. |
 | `chat_id` | INTEGER | Чат, из которого создана задача. |
 | `user_id` | INTEGER | Пользователь, создавший задачу. |
@@ -247,9 +247,9 @@
 |---|---:|---|
 | `chat_id` | INTEGER | Чат, к которому относится настройка. |
 | `name` | TEXT | Код настройки. |
-| `value` | INTEGER | Значение настройки, обычно флаг `0/1`. |
+| `value` | INTEGER | Значение настройки: обычно флаг `0/1`, но для некоторых настроек может быть числом. |
 
-Известные `name`: `daily_reminders`, `enable_geyser`, `forbid_mujlo`, `group_masturbation`.
+Известные `name`: `daily_reminders`, `enable_geyser`, `forbid_mujlo`, `group_masturbation`, `ai_response_chance_percent`.
 
 ### `daily_events`
 

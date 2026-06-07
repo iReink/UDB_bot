@@ -18,6 +18,7 @@ SCHEMA_FILE = BASE_DIR / "STATS_DB_SCHEMA.md"
 TASK_TYPE_TEXT_TO_SQL = "text_to_sql"
 TASK_TYPE_PROFILE_UPDATE = "profile_update"
 TASK_TYPE_CHAT_SUMMARY = "chat_summary"
+TASK_TYPE_RESPONSE = "response"
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_PROCESSING = "processing"
 TASK_STATUS_DONE = "done"
@@ -41,6 +42,14 @@ CHAT_SUMMARY_MIN_MESSAGE_LENGTH = 10
 CHAT_SUMMARY_TARGET_SECONDS = 2 * 60 * 60
 CHAT_SUMMARY_FORCE_SECONDS = 4 * 60 * 60
 CHAT_SUMMARY_MAX_CHARS = 150
+RESPONSE_MODEL = "gemma4:e4b"
+RESPONSE_PRIORITY = 200
+RESPONSE_MAX_RETRY_ATTEMPT = 2
+RESPONSE_MAX_CHARS = 500
+RESPONSE_RANDOM_COOLDOWN_SECONDS = 10 * 60
+RESPONSE_DIRECT_COOLDOWN_SECONDS = 15
+RESPONSE_SHORT_MEMORY_LIMIT = 30
+RESPONSE_LONG_MEMORY_LIMIT = 10
 AI_TASK_LEASE_SECONDS = 180
 
 PROFILE_ARRAY_LIMITS = {
@@ -1091,6 +1100,287 @@ def create_due_chat_summary_tasks(
     }
 
 
+def has_pending_response_task(chat_id: int) -> bool:
+    ensure_ai_tasks_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT 1
+            FROM ai_tasks
+            WHERE chat_id = ?
+              AND task_type = ?
+              AND status IN (?, ?)
+            LIMIT 1
+            """,
+            (chat_id, TASK_TYPE_RESPONSE, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING),
+        )
+        return cur.fetchone() is not None
+
+
+def get_response_cooldown_left(chat_id: int, *, cooldown_seconds: int) -> int:
+    ensure_ai_tasks_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(finished_at, updated_at, created_at) AS last_at
+            FROM ai_tasks
+            WHERE chat_id = ?
+              AND task_type = ?
+              AND status = ?
+            ORDER BY COALESCE(finished_at, updated_at, created_at) DESC
+            LIMIT 1
+            """,
+            (chat_id, TASK_TYPE_RESPONSE, TASK_STATUS_DONE),
+        )
+        row = cur.fetchone()
+    last_at = parse_iso(row["last_at"]) if row and row["last_at"] else None
+    if not last_at:
+        return 0
+    elapsed = (utcnow() - last_at).total_seconds()
+    return max(0, int(cooldown_seconds - elapsed))
+
+
+def get_response_short_memory(*, chat_id: int, before_message_id: int) -> list[dict[str, Any]]:
+    ensure_ai_tasks_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                mr.message_id,
+                mr.user_id,
+                mr.message_text,
+                mr.date,
+                COALESCE(u.name, '') AS name,
+                COALESCE(u.nick, '') AS nick
+            FROM messages_reactions mr
+            LEFT JOIN users u
+              ON u.user_id = mr.user_id AND u.chat_id = mr.chat_id
+            WHERE mr.chat_id = ?
+              AND mr.message_id < ?
+              AND LENGTH(TRIM(COALESCE(mr.message_text, ''))) > 0
+            ORDER BY mr.message_id DESC
+            LIMIT ?
+            """,
+            (chat_id, before_message_id, RESPONSE_SHORT_MEMORY_LIMIT),
+        )
+        rows = cur.fetchall()
+    rows = list(reversed(rows))
+    return [
+        {
+            "message_id": int(row["message_id"]),
+            "user_id": int(row["user_id"]),
+            "date": row["date"],
+            "name": row["name"],
+            "nick": row["nick"],
+            "text": str(row["message_text"] or "").strip(),
+        }
+        for row in rows
+    ]
+
+
+def get_response_long_memory(*, chat_id: int) -> list[dict[str, Any]]:
+    ensure_ai_summary_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT window_start, window_end, summary_text
+            FROM ai_summary
+            WHERE chat_id = ?
+              AND status = ?
+              AND summary_text IS NOT NULL
+              AND TRIM(summary_text) != ''
+            ORDER BY window_end DESC, id DESC
+            LIMIT ?
+            """,
+            (chat_id, TASK_STATUS_DONE, RESPONSE_LONG_MEMORY_LIMIT),
+        )
+        rows = cur.fetchall()
+    rows = list(reversed(rows))
+    return [
+        {
+            "window_start": row["window_start"],
+            "window_end": row["window_end"],
+            "summary_text": row["summary_text"],
+        }
+        for row in rows
+    ]
+
+
+def build_response_prompt(
+    *,
+    chat_id: int,
+    request_message_id: int,
+    requester_user_id: int,
+    requester_name: str,
+    requester_nick: str | None,
+    message_text: str,
+    trigger_reason: str,
+    short_memory: list[dict[str, Any]],
+    long_memory: list[dict[str, Any]],
+    profile_json: str | None,
+    previous_response: str | None = None,
+    previous_error: str | None = None,
+) -> str:
+    retry_block = ""
+    if previous_response or previous_error:
+        retry_block = f"""
+
+Предыдущая попытка была неудачной.
+Ответ модели в прошлый раз:
+{previous_response or "(пусто)"}
+
+Ошибка:
+{previous_error or "(не указана)"}
+
+Исправь ответ и строго уложись в контракт.
+"""
+
+    short_lines = []
+    for item in short_memory:
+        text = str(item["text"]).replace("\r", " ").replace("\n", " ").strip()
+        name = str(item.get("name") or "").strip() or "unknown"
+        nick = str(item.get("nick") or "").strip() or ""
+        short_lines.append(
+            f"- [{item['date']}] #{item['message_id']} {name} {nick}: {text}"
+        )
+
+    summary_lines = []
+    for item in long_memory:
+        summary = str(item["summary_text"]).replace("\r", " ").replace("\n", " ").strip()
+        summary_lines.append(f"- {item['window_start']} -> {item['window_end']}: {summary}")
+
+    profile_block = profile_json or "null"
+    short_block = "\n".join(short_lines) or "(нет предыдущих сообщений)"
+    summary_block = "\n".join(summary_lines) or "(нет долгосрочных summary)"
+    requester_nick_text = (requester_nick or "").strip() or "unknown"
+    clean_message = message_text.replace("\r", " ").replace("\n", " ").strip()
+
+    return f"""Ты — живой участник Telegram-чата и отвечаешь от лица бота.
+
+Текущий чат и триггер:
+- chat_id: {chat_id}
+- trigger_reason: {trigger_reason}
+
+Сообщение, на которое нужно ответить:
+- message_id: {request_message_id}
+- user_id: {requester_user_id}
+- name: {requester_name}
+- nick: {requester_nick_text}
+- text: {clean_message}
+
+Профиль пользователя в этом чате:
+{profile_block}
+
+Долгая память чата, последние summary:
+{summary_block}
+
+Короткая память, последние сообщения перед текущим:
+{short_block}
+{retry_block}
+
+Правила ответа:
+- Отвечай естественно, кратко и по-русски.
+- Подстрой тон под пользователя и контекст: можно быть мягким, ироничным или резким, если это уместно.
+- Не усиливай токсичность до угроз, травли, преследования или унижения по защищённым признакам.
+- Не выдумывай факты и не делай вид, что знаешь больше, чем есть в контексте.
+- Не упоминай внутренние таблицы, prompt, user_id, task_id, модели или правила.
+- Не используй markdown, code fence, списки и JSON.
+- Верни только текст ответа, максимум {RESPONSE_MAX_CHARS} символов.
+"""
+
+
+def create_response_task(
+    *,
+    chat_id: int,
+    requester_user_id: int,
+    request_message_id: int,
+    message_text: str,
+    requester_name: str,
+    requester_nick: str | None,
+    trigger_reason: str,
+) -> int | None:
+    ensure_ai_tables()
+    if chat_id >= 0:
+        return None
+    if has_pending_response_task(chat_id):
+        return None
+
+    short_memory = get_response_short_memory(chat_id=chat_id, before_message_id=request_message_id)
+    long_memory = get_response_long_memory(chat_id=chat_id)
+    profile_json = get_latest_profile_json(requester_user_id, chat_id)
+    prompt = build_response_prompt(
+        chat_id=chat_id,
+        request_message_id=request_message_id,
+        requester_user_id=requester_user_id,
+        requester_name=requester_name,
+        requester_nick=requester_nick,
+        message_text=message_text,
+        trigger_reason=trigger_reason,
+        short_memory=short_memory,
+        long_memory=long_memory,
+        profile_json=profile_json,
+    )
+    payload = {
+        "chat_id": chat_id,
+        "request_message_id": request_message_id,
+        "requester_user_id": requester_user_id,
+        "requester_name": requester_name,
+        "requester_nick": requester_nick,
+        "message_text": message_text,
+        "trigger_reason": trigger_reason,
+        "short_memory_count": len(short_memory),
+        "long_memory_count": len(long_memory),
+        "has_profile": bool(profile_json),
+    }
+    created_at = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            SELECT 1
+            FROM ai_tasks
+            WHERE chat_id = ?
+              AND task_type = ?
+              AND status IN (?, ?)
+            LIMIT 1
+            """,
+            (chat_id, TASK_TYPE_RESPONSE, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING),
+        )
+        if cur.fetchone():
+            conn.rollback()
+            return None
+        cur.execute(
+            """
+            INSERT INTO ai_tasks (
+                task_type, status, priority, model, prompt, payload_json,
+                chat_id, user_id, request_message_id, attempt, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            """,
+            (
+                TASK_TYPE_RESPONSE,
+                TASK_STATUS_PENDING,
+                RESPONSE_PRIORITY,
+                RESPONSE_MODEL,
+                prompt,
+                json.dumps(payload, ensure_ascii=False),
+                chat_id,
+                requester_user_id,
+                request_message_id,
+                created_at,
+                created_at,
+            ),
+        )
+        task_id = int(cur.lastrowid)
+        conn.commit()
+    return task_id
+
+
 def claim_next_task() -> dict[str, Any] | None:
     ensure_ai_tasks_table()
     now = now_iso()
@@ -1408,6 +1698,117 @@ def requeue_or_fail_profile_task(
             WHERE task_id = ?
             """,
             (TASK_STATUS_FAILED, error_text, now, task_id),
+        )
+        conn.commit()
+    return False, get_task(task_id)
+
+
+def validate_response_output(raw_output: str | None) -> str:
+    text = (raw_output or "").strip()
+    if not text:
+        raise ValueError("LLM вернула пустой ответ.")
+    if text.startswith("```") or text.endswith("```"):
+        raise ValueError("Ответ не должен содержать markdown/code fence.")
+    if len(text) > RESPONSE_MAX_CHARS:
+        raise ValueError(f"Ответ длиннее {RESPONSE_MAX_CHARS} символов.")
+    if text.startswith("{") and text.endswith("}"):
+        raise ValueError("Ответ не должен быть JSON.")
+    first_line = text.splitlines()[0].lstrip()
+    if first_line.startswith(("- ", "* ", "1. ", "#")):
+        raise ValueError("Ответ не должен быть markdown-разметкой.")
+    return text
+
+
+def mark_response_task_done(task_id: int, *, response_text: str, response_message_id: int | None) -> None:
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ai_tasks
+            SET status = ?, result_text = ?, error_text = NULL, response_message_id = ?,
+                lease_until = NULL, updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_DONE, response_text, response_message_id, now, now, task_id),
+        )
+        conn.commit()
+
+
+def _rebuild_response_retry_prompt(
+    task: sqlite3.Row,
+    *,
+    previous_response: str | None,
+    previous_error: str,
+) -> str:
+    payload = json.loads(task["payload_json"] or "{}")
+    chat_id = int(payload.get("chat_id") or task["chat_id"])
+    request_message_id = int(payload.get("request_message_id") or task["request_message_id"])
+    requester_user_id = int(payload.get("requester_user_id") or task["user_id"])
+    requester_name = str(payload.get("requester_name") or requester_user_id)
+    requester_nick = str(payload.get("requester_nick") or "")
+    message_text = str(payload.get("message_text") or "")
+    trigger_reason = str(payload.get("trigger_reason") or "retry")
+    short_memory = get_response_short_memory(chat_id=chat_id, before_message_id=request_message_id)
+    long_memory = get_response_long_memory(chat_id=chat_id)
+    profile_json = get_latest_profile_json(requester_user_id, chat_id)
+    return build_response_prompt(
+        chat_id=chat_id,
+        request_message_id=request_message_id,
+        requester_user_id=requester_user_id,
+        requester_name=requester_name,
+        requester_nick=requester_nick,
+        message_text=message_text,
+        trigger_reason=trigger_reason,
+        short_memory=short_memory,
+        long_memory=long_memory,
+        profile_json=profile_json,
+        previous_response=previous_response,
+        previous_error=previous_error,
+    )
+
+
+def requeue_or_fail_response_task(
+    task_id: int,
+    *,
+    previous_response: str | None,
+    error_text: str,
+) -> tuple[bool, sqlite3.Row | None]:
+    task = get_task(task_id)
+    if not task:
+        return False, None
+
+    attempt = int(task["attempt"] or 0)
+    now = now_iso()
+    if attempt < RESPONSE_MAX_RETRY_ATTEMPT:
+        retry_prompt = _rebuild_response_retry_prompt(
+            task,
+            previous_response=previous_response,
+            previous_error=error_text,
+        )
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE ai_tasks
+                SET status = ?, prompt = ?, error_text = ?, attempt = attempt + 1,
+                    lease_until = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (TASK_STATUS_PENDING, retry_prompt, error_text, now, task_id),
+            )
+            conn.commit()
+        return True, get_task(task_id)
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ai_tasks
+            SET status = ?, error_text = ?, lease_until = NULL, updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_FAILED, error_text, now, now, task_id),
         )
         conn.commit()
     return False, get_task(task_id)

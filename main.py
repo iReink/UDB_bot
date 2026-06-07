@@ -100,7 +100,7 @@ register_hall_handlers(dp)
 from daily import register_daily_handlers, daily_reminder_loop
 register_daily_handlers(dp)
 
-from settings import register_settings_handlers, ADMIN_IDS
+from settings import get_ai_response_chance_percent, register_settings_handlers, ADMIN_IDS
 register_settings_handlers(dp)
 
 import mujlo
@@ -119,10 +119,15 @@ dashboard.register_dashboard_handlers(dp)
 from profanity import count_profanity
 from bot_word_reactions import choose_bot_word_reaction
 from ai_tasks import (
+    RESPONSE_DIRECT_COOLDOWN_SECONDS,
+    RESPONSE_RANDOM_COOLDOWN_SECONDS,
+    create_response_task,
     create_due_chat_summary_tasks,
     create_profile_update_tasks,
     create_text_to_sql_task,
+    get_response_cooldown_left,
     get_text_to_sql_cooldown,
+    has_pending_response_task,
 )
 from auth_code import issue_auth_code
 from sits import (
@@ -140,6 +145,8 @@ TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=TOKEN)
 sticker_manager.bot = bot
+BOT_ID: int | None = None
+BOT_USERNAME_RUNTIME = "udb_flood_bot"
 
 
 async def ignore_forbidden_request(make_request, bot_instance, method):
@@ -1648,6 +1655,90 @@ async def maybe_react_to_bot_word_message(message: types.Message) -> None:
         )
 
 
+AI_BOT_WORD_RE = re.compile(
+    "(?<!\\w)\u0431\u043e\u0442(?:\u0430|\u0443|\u043e\u043c|\u0435|\u044b|\u043e\u0432|\u0430\u043c\u0438|\u0430\u0445)?(?!\\w)",
+    re.IGNORECASE,
+)
+
+
+def _is_reply_to_this_bot(message: types.Message) -> bool:
+    replied = getattr(message, "reply_to_message", None)
+    from_user = getattr(replied, "from_user", None) if replied else None
+    if not from_user or not getattr(from_user, "is_bot", False):
+        return False
+    if BOT_ID is not None and int(from_user.id) == BOT_ID:
+        return True
+    username = (getattr(from_user, "username", None) or "").lower()
+    return bool(username and username == BOT_USERNAME_RUNTIME.lower())
+
+
+def _get_ai_response_trigger(message: types.Message) -> str | None:
+    text = message.text or ""
+    lowered = text.lower()
+    username = BOT_USERNAME_RUNTIME.lower().lstrip("@")
+    if _is_reply_to_this_bot(message):
+        return "reply_to_bot"
+    if username and f"@{username}" in lowered:
+        return "mention_username"
+    if AI_BOT_WORD_RE.search(text):
+        return "mention_bot_word"
+    return None
+
+
+async def maybe_create_ai_response_task(message: types.Message) -> None:
+    if not message.text or not message.from_user:
+        return
+    if message.from_user.is_bot:
+        return
+    if message.chat.id >= 0:
+        return
+    if message.text.startswith("/"):
+        return
+    if has_pending_response_task(int(message.chat.id)):
+        return
+
+    trigger_reason = _get_ai_response_trigger(message)
+    if trigger_reason:
+        cooldown = get_response_cooldown_left(
+            int(message.chat.id),
+            cooldown_seconds=RESPONSE_DIRECT_COOLDOWN_SECONDS,
+        )
+        if cooldown > 0:
+            return
+    else:
+        chance = get_ai_response_chance_percent(int(message.chat.id))
+        if chance <= 0:
+            return
+        cooldown = get_response_cooldown_left(
+            int(message.chat.id),
+            cooldown_seconds=RESPONSE_RANDOM_COOLDOWN_SECONDS,
+        )
+        if cooldown > 0:
+            return
+        if random.random() >= chance / 100.0:
+            return
+        trigger_reason = "random"
+
+    task_id = await asyncio.to_thread(
+        create_response_task,
+        chat_id=int(message.chat.id),
+        requester_user_id=int(message.from_user.id),
+        request_message_id=int(message.message_id),
+        message_text=message.text,
+        requester_name=message.from_user.full_name,
+        requester_nick=f"@{message.from_user.username}" if message.from_user.username else None,
+        trigger_reason=trigger_reason,
+    )
+    if task_id:
+        logging.info(
+            "AI response queued: task_id=%s chat_id=%s message_id=%s trigger=%s",
+            task_id,
+            message.chat.id,
+            message.message_id,
+            trigger_reason,
+        )
+
+
 @dp.message()
 async def handle_message(message: types.Message):
 
@@ -1690,6 +1781,9 @@ async def handle_message(message: types.Message):
         conn.commit()
 
     # проверка на тише мужло
+    if message.text:
+        await maybe_create_ai_response_task(message)
+
     await handle_mujlo_message(message)
 
 
@@ -2241,6 +2335,12 @@ weekly_awards.bot = bot
 weekly_awards.add_sits = add_sits
 
 async def main():
+    global BOT_ID, BOT_USERNAME_RUNTIME
+    bot_me = await bot.get_me()
+    BOT_ID = int(bot_me.id)
+    BOT_USERNAME_RUNTIME = bot_me.username or BOT_USERNAME_RUNTIME
+    logging.info("Bot identity loaded: id=%s username=%s", BOT_ID, BOT_USERNAME_RUNTIME)
+
     await group.initialize_group_runtime(bot, reset_state=True)
     # Запускаем фоновые задачи
     asyncio.create_task(daily_reward_task())  # награждение в 23:55
