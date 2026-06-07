@@ -54,6 +54,18 @@ RESPONSE_REACTION_IN_PROGRESS = "\U0001f440"
 RESPONSE_REACTION_DONE = "\u2705"
 RESPONSE_REACTION_ERROR = "\u26a0\ufe0f"
 AI_TASK_LEASE_SECONDS = 180
+TYPE_CHECK_MODEL = os.getenv("AI_CLASSIFIER_MODEL", "gemma4:e4b")
+TYPE_CHECK_LEASE_SECONDS = 60
+TYPE_CHECK_RESULT_RESPONSE = "response"
+TYPE_CHECK_RESULT_TEXT_TO_SQL = "text_to_sql"
+TYPE_CHECK_RESULT_IGNORE = "ignore"
+TYPE_CHECK_RESULT_WEB_SEARCH = "web_search"
+TYPE_CHECK_ALLOWED_RESULTS = {
+    TYPE_CHECK_RESULT_RESPONSE,
+    TYPE_CHECK_RESULT_TEXT_TO_SQL,
+    TYPE_CHECK_RESULT_IGNORE,
+    TYPE_CHECK_RESULT_WEB_SEARCH,
+}
 
 PROFILE_ARRAY_LIMITS = {
     "stable_interests": 5,
@@ -125,6 +137,10 @@ class ProfileUpdateError(ValueError):
     pass
 
 
+class TypeCheckError(ValueError):
+    pass
+
+
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -185,6 +201,46 @@ def ensure_ai_tasks_table() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_ai_tasks_chat_type_created
             ON ai_tasks(chat_id, task_type, created_at DESC)
+            """
+        )
+        conn.commit()
+
+
+def ensure_ai_type_checks_table() -> None:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_type_checks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                model TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                message_text TEXT NOT NULL,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                request_message_id INTEGER NOT NULL,
+                trigger_reason TEXT NOT NULL,
+                result_type TEXT,
+                error_text TEXT,
+                lease_until TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                finished_at TEXT,
+                UNIQUE(chat_id, request_message_id)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_type_checks_queue
+            ON ai_type_checks(status, created_at ASC)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_type_checks_message
+            ON ai_type_checks(chat_id, request_message_id)
             """
         )
         conn.commit()
@@ -359,6 +415,118 @@ def get_text_to_sql_cooldown(chat_id: int) -> int:
         return 0
     elapsed = (utcnow() - last_created).total_seconds()
     return max(0, int(TEXT_TO_SQL_COOLDOWN_SECONDS - elapsed))
+
+
+def build_type_check_prompt(*, message_text: str, trigger_reason: str) -> str:
+    clean_text = message_text.replace("\r", " ").strip()
+    return f"""Классифицируй сообщение, адресованное Telegram-боту.
+
+Верни только одно слово:
+response — обычный разговорный ответ бота;
+text_to_sql — пользователь просит статистику, аналитику, подсчёт, топ, сравнение или факт из базы данных чата;
+ignore — сообщение адресовано боту, но не требует ответа или действия;
+web_search — нужен актуальный интернет-контекст; в MVP не используй, если можно ответить как response.
+
+Выбирай text_to_sql только если нужен запрос к истории/статистике чата.
+Выбирай response для шуток, мнений, обычных вопросов и разговорных обращений.
+Не добавляй пояснения, markdown или JSON.
+
+trigger_reason: {trigger_reason}
+
+Сообщение:
+{clean_text}
+"""
+
+
+def has_pending_type_check(*, chat_id: int, request_message_id: int | None = None) -> bool:
+    ensure_ai_type_checks_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        if request_message_id is None:
+            cur.execute(
+                """
+                SELECT 1
+                FROM ai_type_checks
+                WHERE chat_id = ?
+                  AND status IN (?, ?)
+                LIMIT 1
+                """,
+                (chat_id, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT 1
+                FROM ai_type_checks
+                WHERE chat_id = ?
+                  AND request_message_id = ?
+                  AND status IN (?, ?)
+                LIMIT 1
+                """,
+                (chat_id, request_message_id, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING),
+            )
+        return cur.fetchone() is not None
+
+
+def create_type_check_task(
+    *,
+    chat_id: int,
+    user_id: int,
+    request_message_id: int,
+    message_text: str,
+    trigger_reason: str,
+) -> int | None:
+    ensure_ai_type_checks_table()
+    if chat_id >= 0:
+        return None
+
+    prompt = build_type_check_prompt(message_text=message_text, trigger_reason=trigger_reason)
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            SELECT 1
+            FROM ai_type_checks
+            WHERE chat_id = ?
+              AND request_message_id = ?
+              AND status IN (?, ?)
+            LIMIT 1
+            """,
+            (chat_id, request_message_id, TASK_STATUS_PENDING, TASK_STATUS_PROCESSING),
+        )
+        if cur.fetchone():
+            conn.rollback()
+            return None
+        try:
+            cur.execute(
+                """
+                INSERT INTO ai_type_checks (
+                    status, model, prompt, message_text, chat_id, user_id,
+                    request_message_id, trigger_reason, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    TASK_STATUS_PENDING,
+                    TYPE_CHECK_MODEL,
+                    prompt,
+                    message_text,
+                    chat_id,
+                    user_id,
+                    request_message_id,
+                    trigger_reason,
+                    now,
+                    now,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return None
+        task_id = int(cur.lastrowid)
+        conn.commit()
+    return task_id
 
 
 def create_text_to_sql_task(
@@ -1444,12 +1612,121 @@ def serialize_task(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def claim_next_type_check() -> dict[str, Any] | None:
+    ensure_ai_type_checks_table()
+    now = now_iso()
+    lease_until = (utcnow() + timedelta(seconds=TYPE_CHECK_LEASE_SECONDS)).isoformat()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            SELECT *
+            FROM ai_type_checks
+            WHERE status = ?
+               OR (status = ? AND lease_until IS NOT NULL AND lease_until <= ?)
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (TASK_STATUS_PENDING, TASK_STATUS_PROCESSING, now),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.commit()
+            return None
+        task_id = int(row["id"])
+        cur.execute(
+            """
+            UPDATE ai_type_checks
+            SET status = ?, lease_until = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_PROCESSING, lease_until, now, task_id),
+        )
+        cur.execute("SELECT * FROM ai_type_checks WHERE id = ?", (task_id,))
+        claimed_row = cur.fetchone()
+        conn.commit()
+    return serialize_type_check(claimed_row)
+
+
+def serialize_type_check(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "status": row["status"],
+        "model": row["model"],
+        "prompt": row["prompt"],
+        "message_text": row["message_text"],
+        "chat_id": int(row["chat_id"]),
+        "user_id": int(row["user_id"]),
+        "request_message_id": int(row["request_message_id"]),
+        "trigger_reason": row["trigger_reason"],
+        "created_at": row["created_at"],
+        "lease_until": row["lease_until"],
+    }
+
+
 def get_task(task_id: int) -> sqlite3.Row | None:
     ensure_ai_tasks_table()
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM ai_tasks WHERE id = ?", (task_id,))
         return cur.fetchone()
+
+
+def get_type_check(task_id: int) -> sqlite3.Row | None:
+    ensure_ai_type_checks_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM ai_type_checks WHERE id = ?", (task_id,))
+        return cur.fetchone()
+
+
+def validate_type_check_output(raw_output: str | None) -> str:
+    text = (raw_output or "").strip().lower()
+    if not text:
+        raise TypeCheckError("LLM вернула пустой тип.")
+    if text.startswith("```") or text.endswith("```"):
+        raise TypeCheckError("Type-check не должен содержать markdown/code fence.")
+    if text.startswith("{") or text.startswith("["):
+        raise TypeCheckError("Type-check не должен быть JSON.")
+    if "\n" in text or "\r" in text:
+        raise TypeCheckError("Type-check должен быть одним словом.")
+    text = text.strip(" .,:;!?\"'`")
+    if text not in TYPE_CHECK_ALLOWED_RESULTS:
+        raise TypeCheckError(f"Недопустимый type-check результат: {text!r}.")
+    return text
+
+
+def mark_type_check_done(task_id: int, *, result_type: str) -> None:
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ai_type_checks
+            SET status = ?, result_type = ?, error_text = NULL,
+                lease_until = NULL, updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_DONE, result_type, now, now, task_id),
+        )
+        conn.commit()
+
+
+def mark_type_check_failed(task_id: int, *, error_text: str) -> None:
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ai_type_checks
+            SET status = ?, error_text = ?, lease_until = NULL,
+                updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_FAILED, error_text, now, now, task_id),
+        )
+        conn.commit()
 
 
 def mark_task_done(task_id: int, *, sql: str, response_message_id: int | None) -> None:

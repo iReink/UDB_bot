@@ -125,8 +125,10 @@ from ai_tasks import (
     create_due_chat_summary_tasks,
     create_profile_update_tasks,
     create_text_to_sql_task,
+    create_type_check_task,
     get_response_cooldown_left,
     get_text_to_sql_cooldown,
+    has_pending_type_check,
     has_pending_response_task,
 )
 from auth_code import issue_auth_code
@@ -1692,6 +1694,8 @@ async def maybe_create_ai_response_task(message: types.Message) -> None:
         return
     if has_pending_response_task(int(message.chat.id)):
         return
+    if has_pending_type_check(chat_id=int(message.chat.id)):
+        return
 
     trigger_reason = _get_ai_response_trigger(message)
     if trigger_reason:
@@ -1701,6 +1705,23 @@ async def maybe_create_ai_response_task(message: types.Message) -> None:
         )
         if cooldown > 0:
             return
+        task_id = await asyncio.to_thread(
+            create_type_check_task,
+            chat_id=int(message.chat.id),
+            user_id=int(message.from_user.id),
+            request_message_id=int(message.message_id),
+            message_text=message.text,
+            trigger_reason=trigger_reason,
+        )
+        if task_id:
+            logging.info(
+                "AI type-check queued: task_id=%s chat_id=%s message_id=%s trigger=%s",
+                task_id,
+                message.chat.id,
+                message.message_id,
+                trigger_reason,
+            )
+        return
     else:
         chance = get_ai_response_chance_percent(int(message.chat.id))
         if chance <= 0:
