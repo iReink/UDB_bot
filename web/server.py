@@ -3950,7 +3950,7 @@ def _format_data_analysis_message(answer_text: str, preview_text: str | None) ->
         return answer_html
 
     def build(preview_body: str) -> str:
-        return f"{answer_html}\n\n<b>Данные:</b>\n<pre>{html.escape(preview_body)}</pre>"
+        return f"{answer_html}\n\n<b>Данные:</b>\n<pre>{escape(preview_body)}</pre>"
 
     message = build(preview)
     if len(message) <= 3900:
@@ -3966,7 +3966,7 @@ def _format_data_analysis_message(answer_text: str, preview_text: str | None) ->
     answer_html = escape(short_answer)
     max_preview_len = max(200, 3600 - len(answer_html))
     short_preview = preview[:max_preview_len].rstrip() + "\n... данные обрезаны для сообщения"
-    return f"{answer_html}\n\n<b>Данные:</b>\n<pre>{html.escape(short_preview)}</pre>"
+    return f"{answer_html}\n\n<b>Данные:</b>\n<pre>{escape(short_preview)}</pre>"
 
 
 @app.post("/api/ai/tasks/{task_id}/result")
@@ -4112,7 +4112,7 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
                     "attempt": int(updated_task["attempt"] or 0) if updated_task else None,
                 }
             )
-        error_message = html.escape(failure_reason[:1200])
+        error_message = escape(failure_reason[:1200])
         try:
             _set_telegram_reaction(
                 int(task["chat_id"]),
@@ -4215,7 +4215,7 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
         try:
             _send_telegram_message(
                 int(task["chat_id"]),
-                f"Не удалось подготовить аналитический ответ.\n<pre>{html.escape(failure_reason[:1200])}</pre>",
+                f"Не удалось подготовить аналитический ответ.\n<pre>{escape(failure_reason[:1200])}</pre>",
                 reply_to_message_id=int(task["request_message_id"]),
             )
         except Exception:
@@ -4374,7 +4374,7 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
             }
         )
 
-    error_message = html.escape(failure_reason[:1200])
+    error_message = escape(failure_reason[:1200])
     try:
         _set_telegram_reaction(
             int(task["chat_id"]),
