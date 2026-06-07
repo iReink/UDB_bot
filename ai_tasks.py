@@ -19,6 +19,8 @@ TASK_TYPE_TEXT_TO_SQL = "text_to_sql"
 TASK_TYPE_PROFILE_UPDATE = "profile_update"
 TASK_TYPE_CHAT_SUMMARY = "chat_summary"
 TASK_TYPE_RESPONSE = "response"
+TASK_TYPE_DATA_ANALYSIS_SQL = "data_analysis_sql"
+TASK_TYPE_DATA_ANALYSIS_RESPONSE = "data_analysis_response"
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_PROCESSING = "processing"
 TASK_STATUS_DONE = "done"
@@ -53,16 +55,27 @@ RESPONSE_LONG_MEMORY_LIMIT = 10
 RESPONSE_REACTION_IN_PROGRESS = "\U0001f440"
 RESPONSE_REACTION_DONE = "\u2705"
 RESPONSE_REACTION_ERROR = "\u26a0\ufe0f"
+DATA_ANALYSIS_SQL_MODEL = "gemma4:e4b"
+DATA_ANALYSIS_RESPONSE_MODEL = "gemma4:e4b"
+DATA_ANALYSIS_SQL_PRIORITY = 160
+DATA_ANALYSIS_RESPONSE_PRIORITY = 170
+DATA_ANALYSIS_SQL_MAX_RETRY_ATTEMPT = 1
+DATA_ANALYSIS_RESPONSE_MAX_RETRY_ATTEMPT = 2
+DATA_ANALYSIS_RESULT_ROW_LIMIT = 300
+DATA_ANALYSIS_PREVIEW_ROW_LIMIT = 20
+DATA_ANALYSIS_PROMPT_CHAR_LIMIT = 45_000
 AI_TASK_LEASE_SECONDS = 180
 TYPE_CHECK_MODEL = os.getenv("AI_CLASSIFIER_MODEL", "gemma4:e4b")
 TYPE_CHECK_LEASE_SECONDS = 60
 TYPE_CHECK_RESULT_RESPONSE = "response"
 TYPE_CHECK_RESULT_TEXT_TO_SQL = "text_to_sql"
+TYPE_CHECK_RESULT_DATA_ANALYSIS = "data_analysis"
 TYPE_CHECK_RESULT_IGNORE = "ignore"
 TYPE_CHECK_RESULT_WEB_SEARCH = "web_search"
 TYPE_CHECK_ALLOWED_RESULTS = {
     TYPE_CHECK_RESULT_RESPONSE,
     TYPE_CHECK_RESULT_TEXT_TO_SQL,
+    TYPE_CHECK_RESULT_DATA_ANALYSIS,
     TYPE_CHECK_RESULT_IGNORE,
     TYPE_CHECK_RESULT_WEB_SEARCH,
 }
@@ -117,6 +130,7 @@ CHAT_SCOPED_TABLES = {
 
 FORBIDDEN_TEXT_TO_SQL_TABLES = {
     "ai_profiles",
+    "ai_data_analyses",
 }
 
 DANGEROUS_SQL_WORDS = {
@@ -148,6 +162,10 @@ class TypeCheckError(ValueError):
 
 
 class SearchPlanError(ValueError):
+    pass
+
+
+class DataAnalysisError(ValueError):
     pass
 
 
@@ -297,6 +315,57 @@ def ensure_ai_search_plans_table() -> None:
         conn.commit()
 
 
+def ensure_ai_data_analyses_table() -> None:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_data_analyses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                request_message_id INTEGER NOT NULL,
+                user_query TEXT NOT NULL,
+                sql_text TEXT,
+                columns_json TEXT,
+                rows_json TEXT,
+                row_count INTEGER NOT NULL DEFAULT 0,
+                truncated INTEGER NOT NULL DEFAULT 0,
+                preview_text TEXT,
+                final_answer TEXT,
+                sql_task_id INTEGER,
+                response_task_id INTEGER,
+                response_message_id INTEGER,
+                error_text TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                finished_at TEXT,
+                UNIQUE(chat_id, request_message_id)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_data_analyses_message
+            ON ai_data_analyses(chat_id, request_message_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_data_analyses_sql_task
+            ON ai_data_analyses(sql_task_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_data_analyses_response_task
+            ON ai_data_analyses(response_task_id)
+            """
+        )
+        conn.commit()
+
+
 def ensure_ai_profiles_table() -> None:
     with closing(get_connection()) as conn:
         cur = conn.cursor()
@@ -378,6 +447,7 @@ def ensure_ai_tables() -> None:
     ensure_ai_tasks_table()
     ensure_ai_type_checks_table()
     ensure_ai_search_plans_table()
+    ensure_ai_data_analyses_table()
     ensure_ai_profiles_table()
     ensure_ai_summary_table()
 
@@ -477,10 +547,12 @@ def build_type_check_prompt(*, message_text: str, trigger_reason: str) -> str:
 Верни только одно слово:
 response — обычный разговорный ответ бота;
 text_to_sql — пользователь просит статистику, аналитику, подсчёт, топ, сравнение или факт из базы данных чата;
+data_analysis — пользователь просит вывод, интерпретацию, гипотезу или смысловой анализ на основе истории/статистики чата;
 ignore — сообщение адресовано боту, но не требует ответа или действия;
 web_search — нужен внешний интернет-контекст: актуальные события, новости, текущие данные или научные/справочные факты.
 
 Выбирай text_to_sql только если нужен запрос к истории/статистике чата.
+Выбирай data_analysis, если нужно сначала достать данные из БД, а потом сделать вывод, объяснение, интерпретацию или гипотезу.
 Выбирай web_search, если для ответа нужны факты из внешнего мира или свежая информация.
 Выбирай response для шуток, мнений, обычных вопросов и разговорных обращений.
 Не добавляй пояснения, markdown или JSON.
@@ -752,6 +824,526 @@ def create_text_to_sql_task(
         task_id = int(cur.lastrowid)
         conn.commit()
         return task_id
+
+
+def build_data_analysis_sql_prompt(
+    *,
+    user_query: str,
+    chat_id: int,
+    requester_user_id: int,
+    requester_name: str | None = None,
+    requester_nick: str | None = None,
+    previous_sql: str | None = None,
+    previous_error: str | None = None,
+) -> str:
+    schema = read_schema_markdown()
+    retry_block = ""
+    if previous_sql or previous_error:
+        retry_block = f"""
+
+Предыдущая попытка SQL была неудачной.
+SQL прошлой попытки:
+{previous_sql or "(SQL не был получен)"}
+
+Ошибка прошлой попытки:
+{previous_error or "(ошибка не указана)"}
+
+Исправь SQL. Верни новый корректный SELECT.
+"""
+
+    return f"""Ты строишь SQL-запрос SQLite для аналитического ответа Telegram-бота.
+
+Пользователь попросил:
+{user_query}
+
+Запросивший пользователь:
+- requester_user_id: {requester_user_id}
+- requester_name: {(requester_name or "").strip() or "unknown"}
+- requester_nick: {(requester_nick or "").strip() or "unknown"}
+
+Текущий chat_id: {chat_id}
+Текущая дата: {date.today().isoformat()}
+
+Цель:
+Верни SQL, который достанет данные для последующего анализа другой LLM-задачей. Не пиши готовый ответ пользователю.
+
+Контракт ответа:
+- Верни только один SQLite SELECT.
+- Не используй markdown, code fence, комментарии, пояснения и shell-команды.
+- Запрос будет выполнен backend'ом в read-only режиме.
+- Никакие INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, ATTACH, PRAGMA, VACUUM и любые операции изменения БД недопустимы.
+- Все пользовательские и чатовые данные фильтруй по chat_id = {chat_id}.
+- Для людей возвращай имена и/или ники через JOIN users по user_id и chat_id, а не голые user_id.
+- Для анализа сообщений возвращай message_text, date, имя/ник автора и релевантные счётчики/признаки.
+- Если пользователь просит период, вырази его явно через поля date/date_taken/created_at согласно схеме.
+- Если в запросе есть "я", "мой", "мне", "меня", "мои" или другой личный контекст, это requester_user_id = {requester_user_id}; добавь фильтр по user_id = {requester_user_id}.
+- Добавляй разумный LIMIT, если запрос может вернуть слишком много строк. Backend всё равно передаст дальше максимум {DATA_ANALYSIS_RESULT_ROW_LIMIT} строк.
+{retry_block}
+Схема БД:
+{schema}
+"""
+
+
+def create_data_analysis_task(
+    *,
+    chat_id: int,
+    user_id: int,
+    request_message_id: int,
+    user_query: str,
+    requester_name: str | None = None,
+    requester_nick: str | None = None,
+) -> int | None:
+    ensure_ai_tables()
+    if chat_id >= 0:
+        return None
+
+    now = now_iso()
+    prompt = build_data_analysis_sql_prompt(
+        user_query=user_query,
+        chat_id=chat_id,
+        requester_user_id=user_id,
+        requester_name=requester_name,
+        requester_nick=requester_nick,
+    )
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute(
+                """
+                INSERT INTO ai_data_analyses (
+                    status, chat_id, user_id, request_message_id, user_query,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (TASK_STATUS_PENDING, chat_id, user_id, request_message_id, user_query, now, now),
+            )
+            analysis_id = int(cur.lastrowid)
+            payload = {
+                "analysis_id": analysis_id,
+                "user_query": user_query,
+                "chat_id": chat_id,
+                "request_message_id": request_message_id,
+                "created_by_user_id": user_id,
+                "requester_name": requester_name,
+                "requester_nick": requester_nick,
+            }
+            cur.execute(
+                """
+                INSERT INTO ai_tasks (
+                    task_type, status, priority, model, prompt, payload_json,
+                    chat_id, user_id, request_message_id, attempt, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                """,
+                (
+                    TASK_TYPE_DATA_ANALYSIS_SQL,
+                    TASK_STATUS_PENDING,
+                    DATA_ANALYSIS_SQL_PRIORITY,
+                    DATA_ANALYSIS_SQL_MODEL,
+                    prompt,
+                    json.dumps(payload, ensure_ascii=False),
+                    chat_id,
+                    user_id,
+                    request_message_id,
+                    now,
+                    now,
+                ),
+            )
+            sql_task_id = int(cur.lastrowid)
+            cur.execute(
+                """
+                UPDATE ai_data_analyses
+                SET sql_task_id = ?, status = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (sql_task_id, TASK_STATUS_PROCESSING, now, analysis_id),
+            )
+            conn.commit()
+            return sql_task_id
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return None
+
+
+def get_data_analysis(analysis_id: int) -> sqlite3.Row | None:
+    ensure_ai_data_analyses_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM ai_data_analyses WHERE id = ?", (analysis_id,))
+        return cur.fetchone()
+
+
+def get_data_analysis_by_task(task: sqlite3.Row) -> sqlite3.Row | None:
+    payload = json.loads(task["payload_json"] or "{}")
+    analysis_id = int(payload.get("analysis_id") or 0)
+    return get_data_analysis(analysis_id) if analysis_id else None
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def rows_to_json_records(columns: list[str], rows: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        records.append({columns[index]: _json_safe(value) for index, value in enumerate(row)})
+    return records
+
+
+def format_data_analysis_preview(columns: list[str], rows: list[tuple[Any, ...]], *, truncated: bool) -> str:
+    if not columns:
+        return "SQL выполнен, но не вернул табличные колонки."
+    if not rows:
+        return "SQL выполнен, но строки не найдены."
+
+    preview_rows = rows[:DATA_ANALYSIS_PREVIEW_ROW_LIMIT]
+    table = [[_cell(col, 40) for col in columns]]
+    table.extend([[_cell(value, 80) for value in row] for row in preview_rows])
+    widths = [min(40, max(len(line[i]) for line in table)) for i in range(len(columns))]
+
+    def fmt(row: list[str]) -> str:
+        return " | ".join(row[i].ljust(widths[i]) for i in range(len(widths))).rstrip()
+
+    sep = "-+-".join("-" * width for width in widths)
+    lines = [fmt(table[0]), sep]
+    lines.extend(fmt(row) for row in table[1:])
+    if len(rows) > len(preview_rows) or truncated:
+        lines.append(f"... показаны первые {len(preview_rows)} строк; полный контекст передан LLM")
+    body = "\n".join(lines)
+    if len(body) > 1800:
+        body = body[:1800].rstrip() + "\n... preview обрезан"
+    return body
+
+
+def mark_data_analysis_sql_done(
+    analysis_id: int,
+    *,
+    sql: str,
+    columns: list[str],
+    rows: list[tuple[Any, ...]],
+    truncated: bool,
+    preview_text: str,
+) -> None:
+    now = now_iso()
+    rows_json = json.dumps(rows_to_json_records(columns, rows), ensure_ascii=False)
+    columns_json = json.dumps(columns, ensure_ascii=False)
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ai_data_analyses
+            SET sql_text = ?, columns_json = ?, rows_json = ?, row_count = ?,
+                truncated = ?, preview_text = ?, error_text = NULL, updated_at = ?
+            WHERE id = ?
+            """,
+            (sql, columns_json, rows_json, len(rows), 1 if truncated else 0, preview_text, now, analysis_id),
+        )
+        conn.commit()
+
+
+def build_data_analysis_response_prompt(
+    *,
+    analysis: sqlite3.Row,
+    previous_response: str | None = None,
+    previous_error: str | None = None,
+) -> str:
+    chat_id = int(analysis["chat_id"])
+    request_message_id = int(analysis["request_message_id"])
+    sql = str(analysis["sql_text"] or "")
+    columns = json.loads(analysis["columns_json"] or "[]")
+    rows = json.loads(analysis["rows_json"] or "[]")
+    preview = str(analysis["preview_text"] or "")
+    short_memory = get_response_short_memory(chat_id=chat_id, before_message_id=request_message_id)
+    long_memory = get_response_long_memory(chat_id=chat_id)
+
+    rows_json = json.dumps(rows, ensure_ascii=False, indent=2)
+    if len(rows_json) > DATA_ANALYSIS_PROMPT_CHAR_LIMIT:
+        rows_json = rows_json[:DATA_ANALYSIS_PROMPT_CHAR_LIMIT].rstrip() + "\n... SQL-result context truncated"
+
+    short_lines = []
+    for item in short_memory:
+        name = str(item.get("name") or item.get("nick") or item.get("user_id") or "").strip()
+        short_lines.append(
+            f"- [{item.get('date')}] {name}: {str(item.get('text') or '').replace(chr(10), ' ')}"
+        )
+    summary_lines = [f"- [{item.get('window_end')}] {item.get('summary_text')}" for item in long_memory]
+
+    retry_block = ""
+    if previous_response or previous_error:
+        retry_block = f"""
+
+Предыдущая попытка ответа была неудачной.
+Ответ модели:
+{previous_response or "(пусто)"}
+
+Ошибка:
+{previous_error or "(не указана)"}
+
+Исправь ответ и верни только текст анализа.
+"""
+
+    return f"""Ты пишешь аналитический ответ Telegram-бота на основе результата SQL-запроса к истории чата.
+
+Вопрос пользователя:
+{analysis["user_query"]}
+
+chat_id: {chat_id}
+request_message_id: {request_message_id}
+Текущая дата: {date.today().isoformat()}
+
+SQL, которым backend достал данные:
+{sql}
+
+Колонки:
+{json.dumps(columns, ensure_ascii=False)}
+
+SQL-result JSON. Это полный контекст, переданный тебе для анализа, максимум {DATA_ANALYSIS_RESULT_ROW_LIMIT} строк:
+{rows_json}
+
+Результат был усечён backend'ом: {"да" if int(analysis["truncated"] or 0) else "нет"}
+
+Краткий preview данных, который будет показан в чат:
+{preview}
+
+Последние саммари этого чата:
+{chr(10).join(summary_lines) if summary_lines else "(нет)"}
+
+Последние сообщения перед запросом:
+{chr(10).join(short_lines) if short_lines else "(нет)"}
+{retry_block}
+
+Правила ответа:
+- Пиши на русском.
+- Используй только предоставленные SQL-данные и контекст чата.
+- Не выдумывай факты сверх данных.
+- Отделяй сильные выводы от предположений.
+- Если анализ основан на косвенных признаках, прямо укажи это.
+- Если данных мало или они неоднозначны, честно напиши о низкой уверенности.
+- Не упоминай внутренние таблицы, prompt, task_id, user_id и технические детали.
+- Не используй markdown, code fence, JSON и списки с маркерами.
+- Дай краткий вывод и 2-5 аргументов обычным текстом.
+
+Верни только текст анализа.
+"""
+
+
+def create_data_analysis_response_task(analysis_id: int) -> int | None:
+    analysis = get_data_analysis(analysis_id)
+    if not analysis:
+        return None
+    prompt = build_data_analysis_response_prompt(analysis=analysis)
+    payload = {
+        "analysis_id": analysis_id,
+        "user_query": analysis["user_query"],
+        "chat_id": int(analysis["chat_id"]),
+        "request_message_id": int(analysis["request_message_id"]),
+    }
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            INSERT INTO ai_tasks (
+                task_type, status, priority, model, prompt, payload_json,
+                chat_id, user_id, request_message_id, attempt, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            """,
+            (
+                TASK_TYPE_DATA_ANALYSIS_RESPONSE,
+                TASK_STATUS_PENDING,
+                DATA_ANALYSIS_RESPONSE_PRIORITY,
+                DATA_ANALYSIS_RESPONSE_MODEL,
+                prompt,
+                json.dumps(payload, ensure_ascii=False),
+                int(analysis["chat_id"]),
+                int(analysis["user_id"]),
+                int(analysis["request_message_id"]),
+                now,
+                now,
+            ),
+        )
+        response_task_id = int(cur.lastrowid)
+        cur.execute(
+            """
+            UPDATE ai_data_analyses
+            SET response_task_id = ?, status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (response_task_id, TASK_STATUS_PROCESSING, now, analysis_id),
+        )
+        conn.commit()
+    return response_task_id
+
+
+def mark_data_analysis_done(
+    analysis_id: int,
+    *,
+    final_answer: str,
+    response_message_id: int | None,
+) -> None:
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ai_data_analyses
+            SET status = ?, final_answer = ?, response_message_id = ?,
+                error_text = NULL, updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_DONE, final_answer, response_message_id, now, now, analysis_id),
+        )
+        conn.commit()
+
+
+def mark_data_analysis_failed(analysis_id: int, *, error_text: str) -> None:
+    now = now_iso()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ai_data_analyses
+            SET status = ?, error_text = ?, updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_FAILED, error_text, now, now, analysis_id),
+        )
+        conn.commit()
+
+
+def requeue_or_fail_data_analysis_sql_task(
+    task_id: int,
+    *,
+    previous_sql: str | None,
+    error_text: str,
+) -> tuple[bool, sqlite3.Row | None]:
+    task = get_task(task_id)
+    if not task:
+        return False, None
+    payload = json.loads(task["payload_json"] or "{}")
+    analysis_id = int(payload.get("analysis_id") or 0)
+    attempt = int(task["attempt"] or 0)
+    now = now_iso()
+    if attempt < DATA_ANALYSIS_SQL_MAX_RETRY_ATTEMPT:
+        retry_prompt = build_data_analysis_sql_prompt(
+            user_query=str(payload.get("user_query") or ""),
+            chat_id=int(task["chat_id"]),
+            requester_user_id=int(payload.get("created_by_user_id") or task["user_id"]),
+            requester_name=str(payload.get("requester_name") or ""),
+            requester_nick=str(payload.get("requester_nick") or ""),
+            previous_sql=previous_sql,
+            previous_error=error_text,
+        )
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute(
+                """
+                UPDATE ai_tasks
+                SET status = ?, prompt = ?, error_text = ?, attempt = attempt + 1,
+                    lease_until = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (TASK_STATUS_PENDING, retry_prompt, error_text, now, task_id),
+            )
+            if analysis_id:
+                cur.execute(
+                    """
+                    UPDATE ai_data_analyses
+                    SET error_text = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (error_text, now, analysis_id),
+                )
+            conn.commit()
+        return True, get_task(task_id)
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            UPDATE ai_tasks
+            SET status = ?, error_text = ?, lease_until = NULL,
+                updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_FAILED, error_text, now, now, task_id),
+        )
+        if analysis_id:
+            cur.execute(
+                """
+                UPDATE ai_data_analyses
+                SET status = ?, error_text = ?, updated_at = ?, finished_at = ?
+                WHERE id = ?
+                """,
+                (TASK_STATUS_FAILED, error_text, now, now, analysis_id),
+            )
+        conn.commit()
+    return False, get_task(task_id)
+
+
+def requeue_or_fail_data_analysis_response_task(
+    task_id: int,
+    *,
+    previous_response: str | None,
+    error_text: str,
+) -> tuple[bool, sqlite3.Row | None]:
+    task = get_task(task_id)
+    if not task:
+        return False, None
+    analysis = get_data_analysis_by_task(task)
+    attempt = int(task["attempt"] or 0)
+    now = now_iso()
+    if attempt < DATA_ANALYSIS_RESPONSE_MAX_RETRY_ATTEMPT and analysis:
+        retry_prompt = build_data_analysis_response_prompt(
+            analysis=analysis,
+            previous_response=previous_response,
+            previous_error=error_text,
+        )
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE ai_tasks
+                SET status = ?, prompt = ?, error_text = ?, attempt = attempt + 1,
+                    lease_until = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (TASK_STATUS_PENDING, retry_prompt, error_text, now, task_id),
+            )
+            conn.commit()
+        return True, get_task(task_id)
+
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            UPDATE ai_tasks
+            SET status = ?, error_text = ?, lease_until = NULL,
+                updated_at = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (TASK_STATUS_FAILED, error_text, now, now, task_id),
+        )
+        if analysis:
+            cur.execute(
+                """
+                UPDATE ai_data_analyses
+                SET status = ?, error_text = ?, updated_at = ?, finished_at = ?
+                WHERE id = ?
+                """,
+                (TASK_STATUS_FAILED, error_text, now, now, int(analysis["id"])),
+            )
+        conn.commit()
+    return False, get_task(task_id)
 
 
 def _profile_window(profile_date: str | date) -> tuple[str, str, str]:
@@ -2659,7 +3251,7 @@ def readonly_authorizer(action: int, arg1: str | None, arg2: str | None, dbname:
     return sqlite3.SQLITE_DENY if action in denied else sqlite3.SQLITE_OK
 
 
-def execute_readonly_sql(sql: str) -> tuple[list[str], list[tuple[Any, ...]], bool]:
+def execute_readonly_sql(sql: str, *, max_rows: int = 100) -> tuple[list[str], list[tuple[Any, ...]], bool]:
     uri = f"file:{DB_FILE.as_posix()}?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
     try:
@@ -2668,11 +3260,11 @@ def execute_readonly_sql(sql: str) -> tuple[list[str], list[tuple[Any, ...]], bo
         cur.execute("PRAGMA query_only = ON")
         conn.set_authorizer(readonly_authorizer)
         cur.execute(sql)
-        rows = cur.fetchmany(101)
+        rows = cur.fetchmany(max_rows + 1)
         columns = [item[0] for item in (cur.description or [])]
-        truncated = len(rows) > 100
+        truncated = len(rows) > max_rows
         if truncated:
-            rows = rows[:100]
+            rows = rows[:max_rows]
         return columns, [tuple(row) for row in rows], truncated
     finally:
         conn.close()

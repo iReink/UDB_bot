@@ -23,9 +23,12 @@ from zoneinfo import ZoneInfo
 from ai_tasks import (
     TASK_STATUS_PROCESSING,
     TASK_TYPE_CHAT_SUMMARY,
+    TASK_TYPE_DATA_ANALYSIS_RESPONSE,
+    TASK_TYPE_DATA_ANALYSIS_SQL,
     TASK_TYPE_PROFILE_UPDATE,
     TASK_TYPE_RESPONSE,
     TASK_TYPE_TEXT_TO_SQL,
+    TYPE_CHECK_RESULT_DATA_ANALYSIS,
     TYPE_CHECK_RESULT_IGNORE,
     TYPE_CHECK_RESULT_RESPONSE,
     TYPE_CHECK_RESULT_TEXT_TO_SQL,
@@ -34,20 +37,27 @@ from ai_tasks import (
     RESPONSE_REACTION_ERROR,
     RESPONSE_REACTION_IN_PROGRESS,
     RESPONSE_DIRECT_COOLDOWN_SECONDS,
+    DATA_ANALYSIS_RESULT_ROW_LIMIT,
     claim_next_task,
     claim_next_search_plan,
     claim_next_type_check,
+    create_data_analysis_response_task,
+    create_data_analysis_task,
     create_response_task,
     create_search_plan_task,
     create_text_to_sql_task,
     execute_readonly_sql,
+    format_data_analysis_preview,
     format_sql_result_for_telegram,
+    get_data_analysis_by_task,
     get_task,
     get_response_cooldown_left,
     get_search_plan,
     get_text_to_sql_cooldown,
     get_type_check,
     mark_chat_summary_task_done,
+    mark_data_analysis_done,
+    mark_data_analysis_sql_done,
     mark_task_done,
     mark_profile_task_done,
     mark_response_task_done,
@@ -56,6 +66,8 @@ from ai_tasks import (
     mark_type_check_failed,
     requeue_or_fail_search_plan,
     requeue_or_fail_chat_summary_task,
+    requeue_or_fail_data_analysis_response_task,
+    requeue_or_fail_data_analysis_sql_task,
     requeue_or_fail_profile_task,
     requeue_or_fail_response_task,
     requeue_or_fail_task,
@@ -3774,6 +3786,17 @@ def ai_type_check_result(type_check_id: int, request: Request, data: AiTaskResul
                         requester_name=requester_name,
                         requester_nick=requester_nick,
                     )
+            elif result_type == TYPE_CHECK_RESULT_DATA_ANALYSIS:
+                final_task_id = create_data_analysis_task(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    request_message_id=request_message_id,
+                    user_query=message_text,
+                    requester_name=requester_name,
+                    requester_nick=requester_nick,
+                )
+                if final_task_id is None:
+                    skipped_reason = "data analysis already pending"
         except Exception as exc:
             logger.exception("AI type-check task %s failed to create final task", type_check_id)
             mark_type_check_failed(type_check_id, error_text=str(exc))
@@ -3920,6 +3943,32 @@ def ai_search_plan_result(search_plan_id: int, request: Request, data: AiTaskRes
     )
 
 
+def _format_data_analysis_message(answer_text: str, preview_text: str | None) -> str:
+    answer_html = escape(answer_text.strip())
+    preview = (preview_text or "").strip()
+    if not preview:
+        return answer_html
+
+    def build(preview_body: str) -> str:
+        return f"{answer_html}\n\n<b>Данные:</b>\n<pre>{html.escape(preview_body)}</pre>"
+
+    message = build(preview)
+    if len(message) <= 3900:
+        return message
+
+    max_preview_len = max(200, 3600 - len(answer_html))
+    short_preview = preview[:max_preview_len].rstrip() + "\n... данные обрезаны для сообщения"
+    message = build(short_preview)
+    if len(message) <= 3900:
+        return message
+
+    short_answer = answer_text.strip()[:2600].rstrip() + "\n... анализ обрезан для сообщения"
+    answer_html = escape(short_answer)
+    max_preview_len = max(200, 3600 - len(answer_html))
+    short_preview = preview[:max_preview_len].rstrip() + "\n... данные обрезаны для сообщения"
+    return f"{answer_html}\n\n<b>Данные:</b>\n<pre>{html.escape(short_preview)}</pre>"
+
+
 @app.post("/api/ai/tasks/{task_id}/result")
 def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) -> JSONResponse:
     _require_ai_worker(request)
@@ -3999,6 +4048,178 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
             )
         except Exception as exc:
             logger.warning("AI response task %s failed to set error reaction: %s", task_id, exc)
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "failed",
+                "task_id": task_id,
+                "error": failure_reason,
+            }
+        )
+
+    if task["task_type"] == TASK_TYPE_DATA_ANALYSIS_SQL:
+        if worker_error:
+            failure_reason = f"Worker/Ollama error: {worker_error}"
+        else:
+            try:
+                sql = validate_text_to_sql(raw_output, chat_id=int(task["chat_id"]))
+                sql_for_retry = sql
+                columns, rows, truncated = execute_readonly_sql(
+                    sql,
+                    max_rows=DATA_ANALYSIS_RESULT_ROW_LIMIT,
+                )
+                analysis = get_data_analysis_by_task(task)
+                if not analysis:
+                    raise RuntimeError("Data analysis workflow not found")
+                preview_text = format_data_analysis_preview(columns, rows, truncated=truncated)
+                mark_data_analysis_sql_done(
+                    int(analysis["id"]),
+                    sql=sql,
+                    columns=columns,
+                    rows=rows,
+                    truncated=truncated,
+                    preview_text=preview_text,
+                )
+                response_task_id = create_data_analysis_response_task(int(analysis["id"]))
+                if response_task_id is None:
+                    raise RuntimeError("Failed to create analysis response task")
+                mark_task_done(task_id, sql=sql, response_message_id=None)
+            except Exception as exc:
+                logger.warning("AI data-analysis SQL task %s failed: %s", task_id, exc)
+                failure_reason = str(exc)
+            else:
+                return JSONResponse(
+                    {
+                        "ok": True,
+                        "status": "done",
+                        "task_id": task_id,
+                        "response_task_id": response_task_id,
+                    }
+                )
+
+        assert failure_reason is not None
+        requeued, updated_task = requeue_or_fail_data_analysis_sql_task(
+            task_id,
+            previous_sql=sql_for_retry,
+            error_text=failure_reason,
+        )
+        if requeued:
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "status": "retry",
+                    "task_id": task_id,
+                    "attempt": int(updated_task["attempt"] or 0) if updated_task else None,
+                }
+            )
+        error_message = html.escape(failure_reason[:1200])
+        try:
+            _set_telegram_reaction(
+                int(task["chat_id"]),
+                int(task["request_message_id"]),
+                RESPONSE_REACTION_ERROR,
+            )
+        except Exception as exc:
+            logger.warning("AI data-analysis SQL task %s failed to set error reaction: %s", task_id, exc)
+        try:
+            _send_telegram_message(
+                int(task["chat_id"]),
+                f"Не удалось подготовить данные для анализа после повторной попытки.\n<pre>{error_message}</pre>",
+                reply_to_message_id=int(task["request_message_id"]),
+            )
+        except Exception:
+            logger.exception("AI data-analysis SQL task %s failed to send final error message", task_id)
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "failed",
+                "task_id": task_id,
+                "error": failure_reason,
+            }
+        )
+
+    if task["task_type"] == TASK_TYPE_DATA_ANALYSIS_RESPONSE:
+        analysis = get_data_analysis_by_task(task)
+        if worker_error:
+            failure_reason = f"Worker/Ollama error: {worker_error}"
+        else:
+            try:
+                response_text = validate_response_output(raw_output)
+                if not analysis:
+                    raise RuntimeError("Data analysis workflow not found")
+                message_text = _format_data_analysis_message(response_text, str(analysis["preview_text"] or ""))
+            except Exception as exc:
+                logger.warning("AI data-analysis response task %s failed during validation: %s", task_id, exc)
+                failure_reason = str(exc)
+            else:
+                try:
+                    response_message_id = _send_telegram_message(
+                        int(task["chat_id"]),
+                        message_text,
+                        reply_to_message_id=int(task["request_message_id"]),
+                    )
+                except Exception as exc:
+                    logger.exception("AI data-analysis response task %s failed to send Telegram response", task_id)
+                    failure_reason = str(exc)
+                else:
+                    mark_response_task_done(
+                        task_id,
+                        response_text=response_text,
+                        response_message_id=response_message_id,
+                    )
+                    mark_data_analysis_done(
+                        int(analysis["id"]),
+                        final_answer=response_text,
+                        response_message_id=response_message_id,
+                    )
+                    try:
+                        _set_telegram_reaction(
+                            int(task["chat_id"]),
+                            int(task["request_message_id"]),
+                            RESPONSE_REACTION_DONE,
+                        )
+                    except Exception as exc:
+                        logger.warning("AI data-analysis response task %s failed to set done reaction: %s", task_id, exc)
+                    return JSONResponse(
+                        {
+                            "ok": True,
+                            "status": "done",
+                            "task_id": task_id,
+                            "response_message_id": response_message_id,
+                        }
+                    )
+
+        assert failure_reason is not None
+        requeued, updated_task = requeue_or_fail_data_analysis_response_task(
+            task_id,
+            previous_response=raw_output or None,
+            error_text=failure_reason,
+        )
+        if requeued:
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "status": "retry",
+                    "task_id": task_id,
+                    "attempt": int(updated_task["attempt"] or 0) if updated_task else None,
+                }
+            )
+        try:
+            _set_telegram_reaction(
+                int(task["chat_id"]),
+                int(task["request_message_id"]),
+                RESPONSE_REACTION_ERROR,
+            )
+        except Exception as exc:
+            logger.warning("AI data-analysis response task %s failed to set error reaction: %s", task_id, exc)
+        try:
+            _send_telegram_message(
+                int(task["chat_id"]),
+                f"Не удалось подготовить аналитический ответ.\n<pre>{html.escape(failure_reason[:1200])}</pre>",
+                reply_to_message_id=int(task["request_message_id"]),
+            )
+        except Exception:
+            logger.exception("AI data-analysis response task %s failed to send final error message", task_id)
         return JSONResponse(
             {
                 "ok": True,

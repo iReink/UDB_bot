@@ -27,13 +27,13 @@
 | Поле | Тип | Описание |
 |---|---:|---|
 | `id` | INTEGER | ID AI-задачи. |
-| `task_type` | TEXT | Тип задачи: `response` для ответа в чат, `text_to_sql` для запросов к БД, `profile_update` для AI-профиля или `chat_summary` для саммари. |
+| `task_type` | TEXT | Тип задачи: `response` для ответа в чат, `text_to_sql` для запросов к БД, `data_analysis_sql`/`data_analysis_response` для аналитики по SQL-контексту, `profile_update` для AI-профиля или `chat_summary` для саммари. |
 | `status` | TEXT | Статус: `pending`, `processing`, `done`, `failed`. |
 | `priority` | INTEGER | Приоритет выбора задачи; большее значение важнее. |
 | `model` | TEXT | Модель, которую worker должен вызвать в Ollama. |
 | `prompt` | TEXT | Полный prompt, который worker передает в LLM. |
 | `payload_json` | TEXT | JSON с исходными параметрами задачи. |
-| `result_text` | TEXT | Итоговый текст результата; для `response` хранится текст ответа, для `text_to_sql` - SQL, для `profile_update` - JSON, для `chat_summary` - саммари. |
+| `result_text` | TEXT | Итоговый текст результата; для `response` и `data_analysis_response` хранится текст ответа, для `text_to_sql` и `data_analysis_sql` - SQL, для `profile_update` - JSON, для `chat_summary` - саммари. |
 | `error_text` | TEXT | Последняя ошибка обработки задачи. |
 | `chat_id` | INTEGER | Чат, из которого создана задача. |
 | `user_id` | INTEGER | Пользователь, создавший задачу. |
