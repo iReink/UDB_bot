@@ -163,6 +163,10 @@ def register_settings_handlers(dp: Dispatcher):
 
     @dp.callback_query(lambda c: c.data.startswith("setting_toggle:"))
     async def toggle_setting_handler(callback: types.CallbackQuery):
+        if callback.from_user.id not in ADMIN_IDS:
+            await callback.answer("Нет прав для изменения настройки.", show_alert=True)
+            return
+
         chat_id = callback.message.chat.id
         setting_name = callback.data.split(":")[1]
 
