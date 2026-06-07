@@ -25,6 +25,8 @@ from ai_tasks import (
     TASK_TYPE_PROFILE_UPDATE,
     TASK_TYPE_RESPONSE,
     TASK_TYPE_TEXT_TO_SQL,
+    RESPONSE_REACTION_DONE,
+    RESPONSE_REACTION_ERROR,
     claim_next_task,
     execute_readonly_sql,
     format_sql_result_for_telegram,
@@ -2401,6 +2403,32 @@ def _send_telegram_message(chat_id: int, text: str, *, reply_to_message_id: int 
     return int(message_id) if message_id is not None else None
 
 
+def _set_telegram_reaction(chat_id: int, message_id: int, emoji: str) -> None:
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not configured")
+
+    payload: dict[str, Any] = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "reaction": [{"type": "emoji", "emoji": emoji}],
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = UrlRequest(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/setMessageReaction",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=10) as resp:
+            response_data = json.loads(resp.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Telegram setMessageReaction failed: {exc}") from exc
+
+    if not response_data.get("ok"):
+        raise RuntimeError(f"Telegram setMessageReaction returned error: {response_data}")
+
+
 def _require_session(request: Request) -> dict[str, Any]:
     payload = _read_payload(request.cookies.get(COOKIE_NAME))
     if not payload:
@@ -3620,6 +3648,14 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
                         response_text=response_text,
                         response_message_id=response_message_id,
                     )
+                    try:
+                        _set_telegram_reaction(
+                            int(task["chat_id"]),
+                            int(task["request_message_id"]),
+                            RESPONSE_REACTION_DONE,
+                        )
+                    except Exception as exc:
+                        logger.warning("AI response task %s failed to set done reaction: %s", task_id, exc)
                     return JSONResponse(
                         {
                             "ok": True,
@@ -3644,6 +3680,14 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
                     "attempt": int(updated_task["attempt"] or 0) if updated_task else None,
                 }
             )
+        try:
+            _set_telegram_reaction(
+                int(task["chat_id"]),
+                int(task["request_message_id"]),
+                RESPONSE_REACTION_ERROR,
+            )
+        except Exception as exc:
+            logger.warning("AI response task %s failed to set error reaction: %s", task_id, exc)
         return JSONResponse(
             {
                 "ok": True,

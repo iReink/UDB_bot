@@ -117,10 +117,10 @@ import chat_summary
 dashboard.register_dashboard_handlers(dp)
 
 from profanity import count_profanity
-from bot_word_reactions import choose_bot_word_reaction
 from ai_tasks import (
     RESPONSE_DIRECT_COOLDOWN_SECONDS,
     RESPONSE_RANDOM_COOLDOWN_SECONDS,
+    RESPONSE_REACTION_IN_PROGRESS,
     create_response_task,
     create_due_chat_summary_tasks,
     create_profile_update_tasks,
@@ -1634,11 +1634,7 @@ async def cmd_deleteme(message: types.Message):
 # ------------------------------
 # ------------------------------
 # Когда новое сообщение
-async def maybe_react_to_bot_word_message(message: types.Message) -> None:
-    emoji = choose_bot_word_reaction(message.text)
-    if not emoji:
-        return
-
+async def set_ai_response_reaction(message: types.Message, emoji: str) -> None:
     try:
         await bot.set_message_reaction(
             chat_id=message.chat.id,
@@ -1730,6 +1726,7 @@ async def maybe_create_ai_response_task(message: types.Message) -> None:
         trigger_reason=trigger_reason,
     )
     if task_id:
+        await set_ai_response_reaction(message, RESPONSE_REACTION_IN_PROGRESS)
         logging.info(
             "AI response queued: task_id=%s chat_id=%s message_id=%s trigger=%s",
             task_id,
@@ -1748,9 +1745,6 @@ async def handle_message(message: types.Message):
     if not (
             message.text or message.sticker or message.photo or message.video or message.voice or message.animation or message.video_note):
         return
-
-    if message.text:
-        asyncio.create_task(maybe_react_to_bot_word_message(message))
 
     chat_name = message.chat.title if message.chat.type in ["group", "supergroup"] else message.chat.id
 
