@@ -1712,8 +1712,6 @@ def validate_response_output(raw_output: str | None) -> str:
         raise ValueError("LLM вернула пустой ответ.")
     if text.startswith("```") or text.endswith("```"):
         raise ValueError("Ответ не должен содержать markdown/code fence.")
-    if len(text) > RESPONSE_MAX_CHARS:
-        raise ValueError(f"Ответ длиннее {RESPONSE_MAX_CHARS} символов.")
     if text.startswith("{") and text.endswith("}"):
         raise ValueError("Ответ не должен быть JSON.")
     first_line = text.splitlines()[0].lstrip()
@@ -1829,8 +1827,6 @@ def validate_chat_summary_output(raw_output: str | None) -> str:
         raise ValueError("Summary не должно быть списком.")
     if (text.startswith('"') and text.endswith('"')) or (text.startswith("«") and text.endswith("»")):
         raise ValueError("Summary не должно быть обёрнуто в кавычки.")
-    if len(text) > CHAT_SUMMARY_MAX_CHARS:
-        raise ValueError(f"Summary длиннее {CHAT_SUMMARY_MAX_CHARS} символов.")
     return text
 
 
