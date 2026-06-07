@@ -187,7 +187,16 @@ WEB_SEARCH_TIMEOUT_SECONDS=8
 systemctl restart udb-web
 ```
 
-SearXNG для web-поиска поднимается на VPS как localhost-only сервис из `deploy/searxng/docker-compose.yml`; JSON output должен быть включён в `settings.yml`.
+SearXNG для web-поиска поднимается на VPS как localhost-only сервис из `deploy/searxng/docker-compose.yml`. Перед первым запуском нужно создать локальный конфиг:
+
+```bash
+cd /root/UDB_bot/deploy/searxng
+cp settings.yml.example settings.yml
+sed -i "s/replace-this-on-vps/$(openssl rand -hex 32)/" settings.yml
+docker compose up -d
+```
+
+`settings.yml` не коммитится, потому что содержит локальный `secret_key`; JSON output уже включён в примере.
 
 ### Локальный worker Windows
 

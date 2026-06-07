@@ -3,4 +3,5 @@ ai_exchange/*_summary.json
 ai_exchange/manual_test.json
 stats.db
 ai_worker.local.bat
+deploy/searxng/settings.yml
 бекапы/stats.db
