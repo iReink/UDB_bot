@@ -1653,12 +1653,6 @@ async def set_ai_response_reaction(message: types.Message, emoji: str) -> None:
         )
 
 
-AI_BOT_WORD_RE = re.compile(
-    "(?<!\\w)\u0431\u043e\u0442(?:\u0430|\u0443|\u043e\u043c|\u0435|\u044b|\u043e\u0432|\u0430\u043c\u0438|\u0430\u0445)?(?!\\w)",
-    re.IGNORECASE,
-)
-
-
 def _is_reply_to_this_bot(message: types.Message) -> bool:
     replied = getattr(message, "reply_to_message", None)
     from_user = getattr(replied, "from_user", None) if replied else None
@@ -1670,6 +1664,10 @@ def _is_reply_to_this_bot(message: types.Message) -> bool:
     return bool(username and username == BOT_USERNAME_RUNTIME.lower())
 
 
+def _is_explicit_bot_prefix(text: str) -> bool:
+    return text.lower().startswith("бот,")
+
+
 def _get_ai_response_trigger(message: types.Message) -> str | None:
     text = message.text or ""
     lowered = text.lower()
@@ -1678,7 +1676,7 @@ def _get_ai_response_trigger(message: types.Message) -> str | None:
         return "reply_to_bot"
     if username and f"@{username}" in lowered:
         return "mention_username"
-    if AI_BOT_WORD_RE.search(text):
+    if _is_explicit_bot_prefix(text):
         return "mention_bot_word"
     return None
 
