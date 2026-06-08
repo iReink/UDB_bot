@@ -1,0 +1,19 @@
+[Unit]
+Description=UDB Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/root/UDB_bot
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/root/UDB_bot/.env
+ExecStart=/root/UDB_bot/venv/bin/python /root/UDB_bot/main.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/root/UDB_bot/bot.log
+StandardError=append:/root/UDB_bot/bot.log
+
+[Install]
+WantedBy=multi-user.target

@@ -2,46 +2,55 @@
 set -euo pipefail
 
 BOT_FILE="main.py"
+BOT_SERVICE="udb-bot"
 WEB_SERVICE="udb-web"
 
 unit_exists() {
-    systemctl cat "$WEB_SERVICE" >/dev/null 2>&1
+    systemctl cat "$1" >/dev/null 2>&1
 }
 
 stop_bot() {
-    local pids
-    pids="$(pgrep -f "python.*${BOT_FILE}" || true)"
-
-    if [[ -z "$pids" ]]; then
-        echo "Бот не запущен"
+    if unit_exists "$BOT_SERVICE"; then
+        if systemctl is-active --quiet "$BOT_SERVICE"; then
+            systemctl stop "$BOT_SERVICE"
+            echo "Bot stopped (${BOT_SERVICE}.service)"
+        else
+            echo "Bot is already stopped (${BOT_SERVICE}.service)"
+        fi
         return
     fi
 
-    echo "Останавливаю бота, PID: $pids"
+    local pids
+    pids="$(ps -eo pid=,args= | awk -v bot="$BOT_FILE" '$0 ~ /[p]ython(3)?/ && $0 ~ bot {print $1}' || true)"
+    if [[ -z "$pids" ]]; then
+        echo "Bot is not running"
+        return
+    fi
+
+    echo "Stopping bot, PID: $pids"
     kill $pids || true
     sleep 2
 
     local remaining
-    remaining="$(pgrep -f "python.*${BOT_FILE}" || true)"
+    remaining="$(ps -eo pid=,args= | awk -v bot="$BOT_FILE" '$0 ~ /[p]ython(3)?/ && $0 ~ bot {print $1}' || true)"
     if [[ -n "$remaining" ]]; then
-        echo "Процесс не завершился, принудительная остановка: $remaining"
+        echo "Bot did not stop, killing: $remaining"
         kill -9 $remaining || true
     fi
-
-    echo "Бот остановлен"
+    echo "Bot stopped"
 }
 
 stop_web() {
-    if ! unit_exists; then
-        echo "Сервис ${WEB_SERVICE}.service не найден. Пропускаю остановку веб-сервера."
+    if ! unit_exists "$WEB_SERVICE"; then
+        echo "Service ${WEB_SERVICE}.service not found; skipping web stop."
         return
     fi
 
     if systemctl is-active --quiet "$WEB_SERVICE"; then
         systemctl stop "$WEB_SERVICE"
-        echo "Веб-сервер остановлен (${WEB_SERVICE}.service)"
+        echo "Web server stopped (${WEB_SERVICE}.service)"
     else
-        echo "Веб-сервер уже остановлен"
+        echo "Web server is already stopped"
     fi
 }
 
