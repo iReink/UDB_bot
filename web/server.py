@@ -79,6 +79,7 @@ from ai_tasks import (
     validate_type_check_output,
 )
 from web_search import WebSearchError, build_web_context
+from db import WEB_CHAT_MEDIA_DIR, ensure_web_chat_media_schema
 from auth_code import (
     AuthCodeConflictError,
     AuthCodeExpiredError,
@@ -87,7 +88,7 @@ from auth_code import (
     consume_auth_code,
 )
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -1427,7 +1428,20 @@ def _ensure_daily_schema_compatibility() -> None:
             logger.error("daily_participants is missing required columns: %s", ", ".join(missing_participants))
 
 
-def _format_chat_message(row: sqlite3.Row) -> dict[str, Any]:
+def _format_chat_attachment(row: sqlite3.Row) -> dict[str, Any]:
+    attachment_id = int(row["id"])
+    return {
+        "id": attachment_id,
+        "media_type": str(row["media_type"] or "photo"),
+        "url": f"/api/chat/media/{attachment_id}",
+        "mime_type": str(row["mime_type"] or "image/jpeg"),
+        "width": int(row["width"]) if row["width"] is not None else None,
+        "height": int(row["height"]) if row["height"] is not None else None,
+        "file_size": int(row["file_size"]) if row["file_size"] is not None else None,
+    }
+
+
+def _format_chat_message(row: sqlite3.Row, attachments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     user_id = int(row["user_id"] or 0)
     author_name = str(row["author_name"] or "").strip()
     author_nick = str(row["author_nick"] or "").strip()
@@ -1440,7 +1454,39 @@ def _format_chat_message(row: sqlite3.Row) -> dict[str, Any]:
         "text": str(row["message_text"] or ""),
         "reactions_count": int(row["reactions_count"] or 0),
         "date": str(row["date"] or ""),
+        "attachments": attachments or [],
     }
+
+
+def _get_chat_attachments(cur: sqlite3.Cursor, chat_id: int, message_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    if not message_ids:
+        return {}
+    placeholders = ",".join("?" for _ in message_ids)
+    cur.execute(
+        f"""
+        SELECT
+            id,
+            chat_id,
+            message_id,
+            attachment_index,
+            media_type,
+            mime_type,
+            width,
+            height,
+            file_size
+        FROM web_chat_attachments
+        WHERE chat_id = ?
+            AND message_id IN ({placeholders})
+            AND media_type = 'photo'
+        ORDER BY message_id ASC, attachment_index ASC, id ASC
+        """,
+        [chat_id, *message_ids],
+    )
+    attachments_by_message: dict[int, list[dict[str, Any]]] = {}
+    for row in cur.fetchall():
+        message_id = int(row["message_id"])
+        attachments_by_message.setdefault(message_id, []).append(_format_chat_attachment(row))
+    return attachments_by_message
 
 
 def _get_chat_messages(chat_id: int, after_message_id: int | None = None, limit: int = 100) -> list[dict[str, Any]]:
@@ -1464,7 +1510,15 @@ def _get_chat_messages(chat_id: int, after_message_id: int | None = None, limit:
                     ON u.chat_id = mr.chat_id AND u.user_id = mr.user_id
                 WHERE mr.chat_id = ?
                     AND mr.message_id > ?
-                    AND TRIM(COALESCE(mr.message_text, '')) != ''
+                    AND (
+                        TRIM(COALESCE(mr.message_text, '')) != ''
+                        OR EXISTS (
+                            SELECT 1
+                            FROM web_chat_attachments wca
+                            WHERE wca.chat_id = mr.chat_id
+                                AND wca.message_id = mr.message_id
+                        )
+                    )
                 ORDER BY mr.message_id ASC
                 LIMIT ?
                 """,
@@ -1489,7 +1543,15 @@ def _get_chat_messages(chat_id: int, after_message_id: int | None = None, limit:
                     LEFT JOIN users u
                         ON u.chat_id = mr.chat_id AND u.user_id = mr.user_id
                     WHERE mr.chat_id = ?
-                        AND TRIM(COALESCE(mr.message_text, '')) != ''
+                        AND (
+                            TRIM(COALESCE(mr.message_text, '')) != ''
+                            OR EXISTS (
+                                SELECT 1
+                                FROM web_chat_attachments wca
+                                WHERE wca.chat_id = mr.chat_id
+                                    AND wca.message_id = mr.message_id
+                            )
+                        )
                     ORDER BY mr.message_id DESC
                     LIMIT ?
                 )
@@ -1498,7 +1560,12 @@ def _get_chat_messages(chat_id: int, after_message_id: int | None = None, limit:
                 (chat_id, limit),
             )
             rows = cur.fetchall()
-    return [_format_chat_message(row) for row in rows]
+        message_ids = [int(row["message_id"]) for row in rows]
+        attachments_by_message = _get_chat_attachments(cur, chat_id, message_ids)
+    return [
+        _format_chat_message(row, attachments_by_message.get(int(row["message_id"]), []))
+        for row in rows
+    ]
 
 
 def _parse_transfer_amount(value: Any) -> float:
@@ -2763,6 +2830,7 @@ async def startup_idle_income_worker() -> None:
     _ensure_idle_service_tables()
     _ensure_geyser_tables()
     _ensure_web_settings_table()
+    ensure_web_chat_media_schema()
     _ensure_daily_schema_compatibility()
     try:
         _catch_up_idle_income()
@@ -3037,6 +3105,40 @@ def chat_messages(request: Request, after_message_id: int | None = None) -> JSON
             "messages": messages,
         }
     )
+
+
+@app.get("/api/chat/media/{attachment_id}")
+def chat_media(request: Request, attachment_id: int) -> FileResponse:
+    _user_id, chat_id = _require_selected_user_chat(request)
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, chat_id, media_type, local_path, mime_type
+            FROM web_chat_attachments
+            WHERE id = ?
+                AND chat_id = ?
+                AND media_type = 'photo'
+            """,
+            (int(attachment_id), chat_id),
+        )
+        row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    media_root = Path(WEB_CHAT_MEDIA_DIR).resolve()
+    file_path = Path(str(row["local_path"] or "")).resolve()
+    try:
+        file_path.relative_to(media_root)
+    except ValueError:
+        logger.warning("Blocked web chat media path outside storage: attachment_id=%s", attachment_id)
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Attachment file not found")
+
+    return FileResponse(file_path, media_type=str(row["mime_type"] or "image/jpeg"))
 
 
 @app.post("/api/chat/messages")

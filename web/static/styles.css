@@ -923,6 +923,34 @@ a.web-chat-author:hover {
     font-weight: 400;
 }
 
+.web-chat-attachments {
+    display: grid;
+    grid-template-columns: minmax(0, max-content);
+    gap: 8px;
+    margin-top: 8px;
+    max-width: 100%;
+}
+
+.web-chat-attachment {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.web-chat-attachment.is-missing {
+    display: none;
+}
+
+.web-chat-photo {
+    display: block;
+    width: auto;
+    max-width: min(100%, 360px);
+    max-height: 300px;
+    object-fit: contain;
+    border-radius: 8px;
+    border: 1px solid rgba(104, 64, 125, 0.18);
+    background: rgba(255, 255, 255, 0.42);
+}
+
 .web-chat-day-divider {
     display: flex;
     justify-content: center;

@@ -146,6 +146,30 @@
 | `reactions_count` | INTEGER | Текущее суммарное количество реакций на сообщение. |
 | `date` | TEXT | Дата-время сохранения сообщения, обычно ISO timestamp. |
 
+Note: for Telegram media messages, `message_text` stores message text or caption.
+
+### `web_chat_attachments`
+
+Local web-chat attachments saved by the bot for protected rendering in the web UI.
+
+Key: `id`; unique message attachment slot: `(chat_id, message_id, attachment_index)`.
+
+| Field | Type | Description |
+|---|---:|---|
+| `id` | INTEGER | Attachment ID used by `/api/chat/media/{id}`. |
+| `chat_id` | INTEGER | Telegram chat ID. |
+| `message_id` | INTEGER | Telegram message ID inside the chat. |
+| `attachment_index` | INTEGER | Attachment order within the message; v1 uses `0`. |
+| `media_type` | TEXT | Attachment type; v1 supports `photo`. |
+| `telegram_file_id` | TEXT | Telegram file_id used for downloading. |
+| `telegram_file_unique_id` | TEXT | Telegram stable file unique ID, when available. |
+| `local_path` | TEXT | Local file path under `web_chat_media/`. |
+| `mime_type` | TEXT | MIME type used when serving the file. |
+| `width` | INTEGER | Image width from Telegram metadata. |
+| `height` | INTEGER | Image height from Telegram metadata. |
+| `file_size` | INTEGER | Telegram file size, when available. |
+| `created_at` | TEXT | ISO timestamp when attachment metadata was saved. |
+
 ### `sticker_stats`
 
 Подробная статистика по конкретным стикерам.

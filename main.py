@@ -40,6 +40,8 @@ from db import (
     get_user_display_name,
     add_sits,
     has_active_subscription,
+    ensure_web_chat_media_schema,
+    WEB_CHAT_MEDIA_DIR,
 )
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
@@ -1755,6 +1757,77 @@ async def maybe_create_ai_response_task(message: types.Message) -> None:
         )
 
 
+def _web_chat_photo_extension(file_path: str | None) -> tuple[str, str]:
+    suffix = Path(str(file_path or "")).suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return ".jpg", "image/jpeg"
+    if suffix == ".png":
+        return ".png", "image/png"
+    if suffix == ".webp":
+        return ".webp", "image/webp"
+    return ".jpg", "image/jpeg"
+
+
+async def _save_web_chat_photo_attachment(message: types.Message) -> None:
+    if not message.photo:
+        return
+
+    photo = message.photo[-1]
+    telegram_file = await message.bot.get_file(photo.file_id)
+    extension, mime_type = _web_chat_photo_extension(getattr(telegram_file, "file_path", None))
+    media_dir = Path(WEB_CHAT_MEDIA_DIR) / str(message.chat.id)
+    media_dir.mkdir(parents=True, exist_ok=True)
+    target_path = media_dir / f"{message.message_id}_0{extension}"
+    await message.bot.download_file(telegram_file.file_path, destination=str(target_path))
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO web_chat_attachments (
+                chat_id,
+                message_id,
+                attachment_index,
+                media_type,
+                telegram_file_id,
+                telegram_file_unique_id,
+                local_path,
+                mime_type,
+                width,
+                height,
+                file_size,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(chat_id, message_id, attachment_index) DO UPDATE SET
+                media_type = excluded.media_type,
+                telegram_file_id = excluded.telegram_file_id,
+                telegram_file_unique_id = excluded.telegram_file_unique_id,
+                local_path = excluded.local_path,
+                mime_type = excluded.mime_type,
+                width = excluded.width,
+                height = excluded.height,
+                file_size = excluded.file_size,
+                created_at = excluded.created_at
+            """,
+            (
+                message.chat.id,
+                message.message_id,
+                0,
+                "photo",
+                photo.file_id,
+                getattr(photo, "file_unique_id", None),
+                str(target_path),
+                mime_type,
+                getattr(photo, "width", None),
+                getattr(photo, "height", None),
+                getattr(photo, "file_size", None),
+                datetime.now().isoformat(),
+            ),
+        )
+        conn.commit()
+
+
 @dp.message()
 async def handle_message(message: types.Message):
 
@@ -1787,13 +1860,23 @@ async def handle_message(message: types.Message):
             message.chat.id,
             message.message_id,
             message.from_user.id,
-            message.text or "",
+            message.text or message.caption or "",
             0,
             datetime.now().isoformat() # Записываем локальное время сервера
         ))
         conn.commit()
 
     # проверка на тише мужло
+    if message.photo:
+        try:
+            await _save_web_chat_photo_attachment(message)
+        except Exception:
+            logging.exception(
+                "Failed to save web chat photo attachment: chat_id=%s message_id=%s",
+                message.chat.id,
+                message.message_id,
+            )
+
     if message.text:
         await maybe_create_ai_response_task(message)
 
@@ -2353,6 +2436,7 @@ async def main():
     BOT_ID = int(bot_me.id)
     BOT_USERNAME_RUNTIME = bot_me.username or BOT_USERNAME_RUNTIME
     logging.info("Bot identity loaded: id=%s username=%s", BOT_ID, BOT_USERNAME_RUNTIME)
+    await asyncio.to_thread(ensure_web_chat_media_schema)
 
     await group.initialize_group_runtime(bot, reset_state=True)
     # Запускаем фоновые задачи

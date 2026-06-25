@@ -2693,6 +2693,21 @@ function getWebChatDayParts(value) {
 
 function normalizeWebChatMessage(message) {
     const source = message && typeof message === "object" ? message : {};
+    const attachments = (Array.isArray(source.attachments) ? source.attachments : [])
+        .map((attachment) => {
+            const item = attachment && typeof attachment === "object" ? attachment : {};
+            const id = Number(item.id) || 0;
+            return {
+                id,
+                media_type: String(item.media_type || ""),
+                url: String(item.url || (id > 0 ? `/api/chat/media/${id}` : "")),
+                mime_type: String(item.mime_type || ""),
+                width: Number(item.width) || 0,
+                height: Number(item.height) || 0,
+                file_size: Number(item.file_size) || 0,
+            };
+        })
+        .filter((attachment) => attachment.id > 0 && attachment.url && attachment.media_type === "photo");
     return {
         chat_id: Number(source.chat_id) || 0,
         message_id: Number(source.message_id) || 0,
@@ -2703,11 +2718,24 @@ function normalizeWebChatMessage(message) {
             ? String(source.author_link || "")
             : buildTelegramProfileUrl(source.author_nick || ""),
         text: String(source.text || ""),
+        attachments,
         reactions_count: Math.max(0, Math.trunc(Number(source.reactions_count) || 0)),
         date: String(source.date || ""),
         pending: Boolean(source.pending),
         failed: Boolean(source.failed),
     };
+}
+
+function getWebChatPreviewText(message) {
+    const text = String((message && message.text) || "").trim();
+    if (text) {
+        return text;
+    }
+    const attachments = message && Array.isArray(message.attachments) ? message.attachments : [];
+    if (attachments.some((attachment) => attachment.media_type === "photo")) {
+        return "\u0424\u043e\u0442\u043e";
+    }
+    return "";
 }
 
 function formatWebChatTime(value) {
@@ -2797,7 +2825,8 @@ function renderChatPreview(options = {}) {
     }
     const force = Boolean(options.force);
     const latestMessage = getLatestWebChatMessage();
-    const isAvailable = Boolean(activeSelectedChatId != null && latestMessage && String(latestMessage.text || "").trim());
+    const latestPreviewText = getWebChatPreviewText(latestMessage);
+    const isAvailable = Boolean(activeSelectedChatId != null && latestMessage && latestPreviewText);
     if (!isAvailable) {
         chatPreviewMessage = null;
         clearChatPreviewAnimation();
@@ -2811,7 +2840,7 @@ function renderChatPreview(options = {}) {
     const nextMessage = {
         message_id: Number(latestMessage.message_id) || 0,
         author_name: String(latestMessage.author_name || ""),
-        text: String(latestMessage.text || ""),
+        text: latestPreviewText,
     };
     if (!chatPreviewMessage || force) {
         chatPreviewMessage = nextMessage;
@@ -2930,12 +2959,43 @@ function renderWebChatMessages(options = {}) {
         timeNode.textContent = message.pending ? "отправляется" : formatWebChatTime(message.date);
         head.appendChild(timeNode);
 
-        const text = document.createElement("div");
-        text.className = "web-chat-text";
-        text.textContent = message.text;
-
         row.appendChild(head);
-        row.appendChild(text);
+        if (String(message.text || "")) {
+            const text = document.createElement("div");
+            text.className = "web-chat-text";
+            text.textContent = message.text;
+            row.appendChild(text);
+        }
+        if (Array.isArray(message.attachments) && message.attachments.length) {
+            const attachments = document.createElement("div");
+            attachments.className = "web-chat-attachments";
+            message.attachments.forEach((attachment) => {
+                if (attachment.media_type !== "photo" || !attachment.url) {
+                    return;
+                }
+                const item = document.createElement("div");
+                item.className = "web-chat-attachment web-chat-attachment--photo";
+                const image = document.createElement("img");
+                image.className = "web-chat-photo";
+                image.src = attachment.url;
+                image.loading = "lazy";
+                image.alt = String(message.text || "") ? "" : "\u0424\u043e\u0442\u043e";
+                if (attachment.width > 0) {
+                    image.width = attachment.width;
+                }
+                if (attachment.height > 0) {
+                    image.height = attachment.height;
+                }
+                image.addEventListener("error", () => {
+                    item.classList.add("is-missing");
+                });
+                item.appendChild(image);
+                attachments.appendChild(item);
+            });
+            if (attachments.childElementCount > 0) {
+                row.appendChild(attachments);
+            }
+        }
         webChatMessages.appendChild(row);
     });
     if (shouldStickToBottom) {

@@ -5,3 +5,4 @@ stats.db
 ai_worker.local.bat
 deploy/searxng/settings.yml
 бекапы/stats.db
+web_chat_media/

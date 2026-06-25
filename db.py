@@ -8,12 +8,46 @@ from sits import to_sits
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "stats.db")
+WEB_CHAT_MEDIA_DIR = os.path.join(BASE_DIR, "web_chat_media")
 
 def get_connection():
     """Создаёт подключение к БД"""
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row  # строки будут как словари
     return conn
+
+
+def ensure_web_chat_media_schema() -> None:
+    os.makedirs(WEB_CHAT_MEDIA_DIR, exist_ok=True)
+    with closing(get_connection()) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_chat_attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                attachment_index INTEGER NOT NULL DEFAULT 0,
+                media_type TEXT NOT NULL,
+                telegram_file_id TEXT NOT NULL,
+                telegram_file_unique_id TEXT,
+                local_path TEXT NOT NULL,
+                mime_type TEXT DEFAULT 'image/jpeg',
+                width INTEGER,
+                height INTEGER,
+                file_size INTEGER,
+                created_at TEXT NOT NULL,
+                UNIQUE(chat_id, message_id, attachment_index)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_web_chat_attachments_message
+            ON web_chat_attachments(chat_id, message_id)
+            """
+        )
+        conn.commit()
 
 def initialize_db():
     with closing(get_connection()) as conn:
