@@ -180,6 +180,7 @@ let webChatPollTimeoutId = null;
 let webChatOpenedForChatId = null;
 let chatPreviewMessage = null;
 let chatPreviewAnimationTimeoutId = null;
+let webChatLightboxNode = null;
 let webSettings = {
     hide_base: false,
     reject_geyser_catch_by_guest: false,
@@ -2738,6 +2739,51 @@ function getWebChatPreviewText(message) {
     return "";
 }
 
+function closeWebChatPhotoLightbox() {
+    if (webChatLightboxNode) {
+        webChatLightboxNode.remove();
+        webChatLightboxNode = null;
+    }
+    document.body.classList.remove("is-web-chat-lightbox-open");
+}
+
+function openWebChatPhotoLightbox(attachment, message) {
+    if (!attachment || !attachment.url) {
+        return;
+    }
+    closeWebChatPhotoLightbox();
+
+    const overlay = document.createElement("div");
+    overlay.className = "web-chat-lightbox";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "web-chat-lightbox-close";
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.textContent = "x";
+    closeBtn.addEventListener("click", closeWebChatPhotoLightbox);
+
+    const image = document.createElement("img");
+    image.className = "web-chat-lightbox-image";
+    image.src = attachment.url;
+    image.alt = String((message && message.text) || "") || "\u0424\u043e\u0442\u043e";
+
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) {
+            closeWebChatPhotoLightbox();
+        }
+    });
+
+    overlay.appendChild(image);
+    overlay.appendChild(closeBtn);
+    document.body.appendChild(overlay);
+    document.body.classList.add("is-web-chat-lightbox-open");
+    webChatLightboxNode = overlay;
+    closeBtn.focus({ preventScroll: true });
+}
+
 function formatWebChatTime(value) {
     if (!value) {
         return "";
@@ -2973,8 +3019,10 @@ function renderWebChatMessages(options = {}) {
                 if (attachment.media_type !== "photo" || !attachment.url) {
                     return;
                 }
-                const item = document.createElement("div");
+                const item = document.createElement("button");
                 item.className = "web-chat-attachment web-chat-attachment--photo";
+                item.type = "button";
+                item.setAttribute("aria-label", "\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0444\u043e\u0442\u043e");
                 const image = document.createElement("img");
                 image.className = "web-chat-photo";
                 image.src = attachment.url;
@@ -2988,6 +3036,9 @@ function renderWebChatMessages(options = {}) {
                 }
                 image.addEventListener("error", () => {
                     item.classList.add("is-missing");
+                });
+                item.addEventListener("click", () => {
+                    openWebChatPhotoLightbox(attachment, message);
                 });
                 item.appendChild(image);
                 attachments.appendChild(item);
@@ -5381,6 +5432,9 @@ window.addEventListener("keydown", (event) => {
     }
     if (event.key === "Escape" && settingsMenuOpen) {
         setSettingsMenuOpen(false);
+    }
+    if (event.key === "Escape" && webChatLightboxNode) {
+        closeWebChatPhotoLightbox();
     }
 });
 

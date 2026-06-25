@@ -151,6 +151,7 @@ Note: for Telegram media messages, `message_text` stores message text or caption
 ### `web_chat_attachments`
 
 Local web-chat attachments saved by the bot for protected rendering in the web UI.
+Rows and local files are automatically cleaned after 7 days.
 
 Key: `id`; unique message attachment slot: `(chat_id, message_id, attachment_index)`.
 

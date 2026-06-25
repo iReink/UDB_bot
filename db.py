@@ -4,11 +4,13 @@ from contextlib import closing
 from typing import List, Dict, Optional
 from datetime import date, timedelta, datetime
 import os
+from pathlib import Path
 from sits import to_sits
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "stats.db")
 WEB_CHAT_MEDIA_DIR = os.path.join(BASE_DIR, "web_chat_media")
+WEB_CHAT_MEDIA_RETENTION_DAYS = 7
 
 def get_connection():
     """Создаёт подключение к БД"""
@@ -48,6 +50,95 @@ def ensure_web_chat_media_schema() -> None:
             """
         )
         conn.commit()
+
+
+def _safe_unlink_web_chat_media(path_value: str) -> bool:
+    if not path_value:
+        return False
+    media_root = Path(WEB_CHAT_MEDIA_DIR).resolve()
+    try:
+        file_path = Path(path_value).resolve()
+        file_path.relative_to(media_root)
+    except (OSError, ValueError):
+        logging.warning("Skipping unsafe web chat media path: %s", path_value)
+        return False
+    if not file_path.is_file():
+        return False
+    try:
+        file_path.unlink()
+        return True
+    except OSError:
+        logging.exception("Failed to delete web chat media file: %s", file_path)
+        return False
+
+
+def cleanup_web_chat_media(retention_days: int = WEB_CHAT_MEDIA_RETENTION_DAYS) -> dict[str, int]:
+    ensure_web_chat_media_schema()
+    retention_days = max(1, int(retention_days or WEB_CHAT_MEDIA_RETENTION_DAYS))
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    cutoff_iso = cutoff.isoformat()
+    media_root = Path(WEB_CHAT_MEDIA_DIR).resolve()
+    deleted_files = 0
+    deleted_rows = 0
+    deleted_orphans = 0
+
+    with closing(get_connection()) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, local_path
+            FROM web_chat_attachments
+            WHERE created_at < ?
+            """,
+            (cutoff_iso,),
+        )
+        expired_rows = cursor.fetchall()
+        for row in expired_rows:
+            if _safe_unlink_web_chat_media(str(row["local_path"] or "")):
+                deleted_files += 1
+        if expired_rows:
+            cursor.executemany(
+                "DELETE FROM web_chat_attachments WHERE id = ?",
+                [(int(row["id"]),) for row in expired_rows],
+            )
+            deleted_rows = len(expired_rows)
+
+        cursor.execute("SELECT local_path FROM web_chat_attachments")
+        referenced_paths = {
+            str(Path(str(row["local_path"] or "")).resolve())
+            for row in cursor.fetchall()
+            if row["local_path"]
+        }
+        conn.commit()
+
+    cutoff_ts = cutoff.timestamp()
+    if media_root.is_dir():
+        for file_path in media_root.rglob("*"):
+            if not file_path.is_file():
+                continue
+            resolved = str(file_path.resolve())
+            if resolved in referenced_paths:
+                continue
+            try:
+                if file_path.stat().st_mtime >= cutoff_ts:
+                    continue
+                file_path.unlink()
+                deleted_files += 1
+                deleted_orphans += 1
+            except OSError:
+                logging.exception("Failed to delete orphan web chat media file: %s", file_path)
+
+        for dir_path in sorted((p for p in media_root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+            try:
+                dir_path.rmdir()
+            except OSError:
+                pass
+
+    return {
+        "deleted_rows": deleted_rows,
+        "deleted_files": deleted_files,
+        "deleted_orphans": deleted_orphans,
+    }
 
 def initialize_db():
     with closing(get_connection()) as conn:

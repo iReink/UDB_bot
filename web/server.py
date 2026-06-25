@@ -79,7 +79,7 @@ from ai_tasks import (
     validate_type_check_output,
 )
 from web_search import WebSearchError, build_web_context
-from db import WEB_CHAT_MEDIA_DIR, ensure_web_chat_media_schema
+from db import WEB_CHAT_MEDIA_DIR, cleanup_web_chat_media, ensure_web_chat_media_schema
 from auth_code import (
     AuthCodeConflictError,
     AuthCodeExpiredError,
@@ -120,6 +120,7 @@ IDLE_UNLOCK_PREVIOUS_LEVEL = 10
 GEYSER_DAILY_LIMIT = 10
 GEYSER_REWARD_MIN_MILLISITS = 500
 GEYSER_REWARD_MAX_MILLISITS = 1000
+WEB_CHAT_MEDIA_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
 GROUP_PREPARE_DELAY_SECONDS = 10 * 60
 GROUP_JOIN_WINDOW_SECONDS = 5 * 60
 GROUP_EVENT_STICKER_FILE_ID = "CAACAgIAAyEFAASjKavKAAIDrGi31TwpfP-R-JI64M0v6eRnTCFxAAJMUAACITxRSq0hIi2dEdhQNgQ"
@@ -161,6 +162,7 @@ if admin_ids_raw:
     if parsed_admin_ids:
         ADMIN_IDS_SET = parsed_admin_ids
 idle_income_task: asyncio.Task[None] | None = None
+web_chat_media_cleanup_task: asyncio.Task[None] | None = None
 idle_catalog_ready = False
 idle_catalog_lock = threading.Lock()
 group_store = MasturbateStore()
@@ -803,6 +805,22 @@ async def _idle_income_worker() -> None:
         next_hour = _to_hour(now) + timedelta(hours=1)
         sleep_seconds = max((next_hour - now).total_seconds(), 1.0)
         await asyncio.sleep(sleep_seconds)
+
+
+async def _web_chat_media_cleanup_worker() -> None:
+    while True:
+        try:
+            result = await asyncio.to_thread(cleanup_web_chat_media)
+            if result.get("deleted_rows") or result.get("deleted_files"):
+                logger.info(
+                    "Web chat media cleanup: deleted_rows=%s deleted_files=%s deleted_orphans=%s",
+                    result.get("deleted_rows", 0),
+                    result.get("deleted_files", 0),
+                    result.get("deleted_orphans", 0),
+                )
+        except Exception:
+            logger.exception("Web chat media cleanup failed")
+        await asyncio.sleep(WEB_CHAT_MEDIA_CLEANUP_INTERVAL_SECONDS)
 
 
 def _require_selected_user_chat(request: Request) -> tuple[int, int]:
@@ -2824,7 +2842,7 @@ def logout() -> JSONResponse:
 
 @app.on_event("startup")
 async def startup_idle_income_worker() -> None:
-    global idle_income_task
+    global idle_income_task, web_chat_media_cleanup_task
     group_store.initialize(reset_runtime_state=False)
     _ensure_idle_catalog_ready(force=True)
     _ensure_idle_service_tables()
@@ -2838,19 +2856,23 @@ async def startup_idle_income_worker() -> None:
         logger.exception("Initial idle income catch-up failed")
     if idle_income_task is None or idle_income_task.done():
         idle_income_task = asyncio.create_task(_idle_income_worker())
+    if web_chat_media_cleanup_task is None or web_chat_media_cleanup_task.done():
+        web_chat_media_cleanup_task = asyncio.create_task(_web_chat_media_cleanup_worker())
 
 
 @app.on_event("shutdown")
 async def shutdown_idle_income_worker() -> None:
-    global idle_income_task
-    if idle_income_task is None:
-        return
-    idle_income_task.cancel()
-    try:
-        await idle_income_task
-    except asyncio.CancelledError:
-        pass
+    global idle_income_task, web_chat_media_cleanup_task
+    tasks = [task for task in (idle_income_task, web_chat_media_cleanup_task) if task is not None]
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     idle_income_task = None
+    web_chat_media_cleanup_task = None
 
 
 @app.get("/api/idle/buildings")
