@@ -177,6 +177,7 @@ body {
 }
 
 .scene-pet-egg {
+    position: absolute;
     width: 118px;
     height: 118px;
     padding: 0;
@@ -186,6 +187,7 @@ body {
     pointer-events: auto;
     filter: drop-shadow(0 8px 12px rgba(71, 28, 78, 0.28));
     transition: filter 0.16s ease;
+    overflow: visible;
 }
 
 .scene-pet-egg-shell {
@@ -209,10 +211,17 @@ body {
 }
 
 .scene-pet-egg .scene-pet-image {
+    position: absolute;
+    inset: 0;
     width: 118px;
     height: 118px;
     object-fit: contain;
+    opacity: 0;
     transition: transform 0.16s ease;
+}
+
+.scene-pet-egg .scene-pet-image.is-active {
+    opacity: 1;
 }
 
 .scene-pet-egg:not(:disabled):hover {

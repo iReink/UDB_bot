@@ -107,6 +107,10 @@ const DAILY_STAGECOACH_SCENE_POINT = { x: 326, y: 476 };
 const DAILY_STAGECOACH_ASSET = "/static/assets/daily/stagecoach.png";
 const DAILY_STAGECOACH_GLOW_ASSET = "/static/assets/daily/stagecoach_glow.png";
 const TAMAGOTCHI_ASSETS_BASE = "/static/assets/tamagotchi";
+const TAMAGOTCHI_EGG_STAGE_ASSETS = Array.from(
+    { length: 5 },
+    (_, index) => `${TAMAGOTCHI_ASSETS_BASE}/egg_stage_${index + 1}.png`,
+);
 const TAMAGOTCHI_EGG_SCENE_POINT = { x: 471, y: 785 };
 const TAMAGOTCHI_RABBIT_START_POINT = {
     x: TAMAGOTCHI_EGG_SCENE_POINT.x + 36,
@@ -720,7 +724,15 @@ function resetTamagotchiPet() {
 
 function tamagotchiEggAsset(stage) {
     const safeStage = Math.max(1, Math.min(5, Math.trunc(Number(stage) || 1)));
-    return `${TAMAGOTCHI_ASSETS_BASE}/egg_stage_${safeStage}.png`;
+    return TAMAGOTCHI_EGG_STAGE_ASSETS[safeStage - 1];
+}
+
+function preloadTamagotchiEggAssets() {
+    TAMAGOTCHI_EGG_STAGE_ASSETS.forEach((src) => {
+        const image = new Image();
+        image.decoding = "async";
+        image.src = src;
+    });
 }
 
 function clampRabbitPoint(point) {
@@ -858,15 +870,18 @@ function renderTamagotchiEgg(layerNode, scale, pet) {
     node.disabled = tamagotchiClickInFlight;
     node.setAttribute("aria-label", "Питомец");
 
-    const image = document.createElement("img");
-    image.className = "scene-pet-image";
-    image.src = tamagotchiEggAsset(pet.egg_stage);
-    image.alt = "";
-    image.decoding = "async";
-    image.loading = "lazy";
-    image.setAttribute("aria-hidden", "true");
-
-    node.appendChild(image);
+    const activeStage = Math.max(1, Math.min(5, Math.trunc(Number(pet.egg_stage) || 1)));
+    TAMAGOTCHI_EGG_STAGE_ASSETS.forEach((src, index) => {
+        const stage = index + 1;
+        const image = document.createElement("img");
+        image.className = `scene-pet-image scene-pet-egg-stage${stage === activeStage ? " is-active" : ""}`;
+        image.src = src;
+        image.alt = "";
+        image.decoding = "async";
+        image.loading = "eager";
+        image.setAttribute("aria-hidden", "true");
+        node.appendChild(image);
+    });
     node.addEventListener("click", () => {
         void clickTamagotchiEgg();
     });
@@ -5895,5 +5910,6 @@ setSettingsMenuOpen(false);
 setGroupEventState(createDefaultGroupEventState(), { silent: true });
 setGroupModalOpen(false);
 updateHeaderHeightVar();
+preloadTamagotchiEggAssets();
 loadScene();
 refresh();
