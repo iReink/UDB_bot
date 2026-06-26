@@ -118,8 +118,9 @@ const TAMAGOTCHI_RABBIT_BOUNDS = {
     minY: 620,
     maxY: 880,
 };
-const TAMAGOTCHI_RABBIT_MOVE_MIN_MS = 2400;
-const TAMAGOTCHI_RABBIT_MOVE_MAX_MS = 5200;
+const TAMAGOTCHI_PET_RUN_DURATION_MS = 1850;
+const TAMAGOTCHI_PET_IDLE_MIN_MS = 10 * 1000;
+const TAMAGOTCHI_PET_IDLE_MAX_MS = 30 * 1000;
 const TAMAGOTCHI_EGG_DECAY_DELAY_MS = 10 * 1000;
 const TAMAGOTCHI_HATCHED_SHELL_HOLD_MS = 10 * 1000;
 const TAMAGOTCHI_HATCHED_SHELL_FADE_MS = 5 * 1000;
@@ -189,6 +190,7 @@ let idlePlayersLoadedChatId = null;
 let playersSearchValue = "";
 const scenePetNodes = [];
 let scenePetMoveTimerId = null;
+let scenePetRunTimerId = null;
 let scenePetDecayTimerId = null;
 let scenePetCurrentBasePoint = null;
 let scenePetDirection = 1;
@@ -659,6 +661,10 @@ function clearScenePets() {
         window.clearTimeout(scenePetMoveTimerId);
         scenePetMoveTimerId = null;
     }
+    if (scenePetRunTimerId !== null) {
+        window.clearTimeout(scenePetRunTimerId);
+        scenePetRunTimerId = null;
+    }
     while (scenePetNodes.length) {
         const node = scenePetNodes.pop();
         if (node && node.parentNode) {
@@ -732,7 +738,12 @@ function randomRabbitPoint() {
     };
 }
 
-function positionRabbitNode(node, basePoint, scale) {
+function randomTamagotchiIdleDelay() {
+    return TAMAGOTCHI_PET_IDLE_MIN_MS
+        + Math.random() * (TAMAGOTCHI_PET_IDLE_MAX_MS - TAMAGOTCHI_PET_IDLE_MIN_MS);
+}
+
+function positionHatchedPetNode(node, basePoint, scale) {
     const mappedPoint = mapScenePointToViewport(clampRabbitPoint(basePoint));
     if (!mappedPoint) {
         return;
@@ -740,13 +751,13 @@ function positionRabbitNode(node, basePoint, scale) {
     node.style.left = `${mappedPoint.x}px`;
     node.style.top = `${mappedPoint.y}px`;
     node.style.transform = `scale(${scale})`;
-    const body = node.querySelector(".scene-pet-rabbit-body");
+    const body = node.querySelector(".scene-pet-camel-body");
     if (body) {
         body.style.transform = `scaleX(${scenePetDirection})`;
     }
 }
 
-function scheduleRabbitMovement(node) {
+function startHatchedPetRun(node) {
     if (!node || !node.isConnected || !currentTamagotchi || currentTamagotchi.state !== "rabbit") {
         return;
     }
@@ -754,13 +765,32 @@ function scheduleRabbitMovement(node) {
     const nextPoint = clampRabbitPoint(randomRabbitPoint());
     scenePetDirection = nextPoint.x < currentPoint.x ? -1 : 1;
     scenePetCurrentBasePoint = nextPoint;
-    positionRabbitNode(node, nextPoint, getSceneScale());
-    const delay = TAMAGOTCHI_RABBIT_MOVE_MIN_MS
-        + Math.random() * (TAMAGOTCHI_RABBIT_MOVE_MAX_MS - TAMAGOTCHI_RABBIT_MOVE_MIN_MS);
+    node.classList.add("is-running");
+    node.style.transitionDuration = `${TAMAGOTCHI_PET_RUN_DURATION_MS}ms`;
+    positionHatchedPetNode(node, nextPoint, getSceneScale());
+    scenePetRunTimerId = window.setTimeout(() => {
+        scenePetRunTimerId = null;
+        if (!node.isConnected) {
+            return;
+        }
+        node.classList.remove("is-running");
+        scheduleHatchedPetMovement(node);
+    }, TAMAGOTCHI_PET_RUN_DURATION_MS);
+}
+
+function scheduleHatchedPetMovement(node) {
+    if (!node || !node.isConnected || !currentTamagotchi || currentTamagotchi.state !== "rabbit") {
+        return;
+    }
+    if (scenePetMoveTimerId !== null) {
+        window.clearTimeout(scenePetMoveTimerId);
+        scenePetMoveTimerId = null;
+    }
+    node.classList.remove("is-running");
     scenePetMoveTimerId = window.setTimeout(() => {
         scenePetMoveTimerId = null;
-        scheduleRabbitMovement(node);
-    }, delay);
+        startHatchedPetRun(node);
+    }, randomTamagotchiIdleDelay());
 }
 
 async function clickTamagotchiEgg() {
@@ -844,41 +874,50 @@ function renderTamagotchiEgg(layerNode, scale, pet) {
     scenePetNodes.push(node);
 }
 
-function renderTamagotchiRabbit(layerNode, scale) {
+function renderTamagotchiHatchedPet(layerNode, scale) {
     if (!scenePetCurrentBasePoint) {
         scenePetCurrentBasePoint = { ...TAMAGOTCHI_RABBIT_START_POINT };
     }
     const node = document.createElement("div");
-    node.className = "scene-pet scene-pet-rabbit";
-    positionRabbitNode(node, scenePetCurrentBasePoint, scale);
+    node.className = "scene-pet scene-pet-camel";
+    positionHatchedPetNode(node, scenePetCurrentBasePoint, scale);
 
     const body = document.createElement("div");
-    body.className = "scene-pet-rabbit-body";
+    body.className = "scene-pet-camel-body";
     body.style.transform = `scaleX(${scenePetDirection})`;
 
+    const idleFrame = document.createElement("img");
+    idleFrame.className = "scene-pet-image scene-pet-camel-idle";
+    idleFrame.src = `${TAMAGOTCHI_ASSETS_BASE}/camel_idle.png`;
+    idleFrame.alt = "";
+    idleFrame.decoding = "async";
+    idleFrame.loading = "lazy";
+    idleFrame.setAttribute("aria-hidden", "true");
+
     const frameOne = document.createElement("img");
-    frameOne.className = "scene-pet-image scene-pet-rabbit-frame scene-pet-rabbit-frame-1";
-    frameOne.src = `${TAMAGOTCHI_ASSETS_BASE}/rabbit_run_1.png`;
+    frameOne.className = "scene-pet-image scene-pet-camel-frame scene-pet-camel-frame-1";
+    frameOne.src = `${TAMAGOTCHI_ASSETS_BASE}/camel_run_1.png`;
     frameOne.alt = "";
     frameOne.decoding = "async";
     frameOne.loading = "lazy";
     frameOne.setAttribute("aria-hidden", "true");
 
     const frameTwo = document.createElement("img");
-    frameTwo.className = "scene-pet-image scene-pet-rabbit-frame scene-pet-rabbit-frame-2";
-    frameTwo.src = `${TAMAGOTCHI_ASSETS_BASE}/rabbit_run_2.png`;
+    frameTwo.className = "scene-pet-image scene-pet-camel-frame scene-pet-camel-frame-2";
+    frameTwo.src = `${TAMAGOTCHI_ASSETS_BASE}/camel_run_2.png`;
     frameTwo.alt = "";
     frameTwo.decoding = "async";
     frameTwo.loading = "lazy";
     frameTwo.setAttribute("aria-hidden", "true");
 
+    body.appendChild(idleFrame);
     body.appendChild(frameOne);
     body.appendChild(frameTwo);
     node.appendChild(body);
     layerNode.appendChild(node);
     scenePetNodes.push(node);
     window.requestAnimationFrame(() => {
-        scheduleRabbitMovement(node);
+        scheduleHatchedPetMovement(node);
     });
 }
 
@@ -919,7 +958,7 @@ function renderScenePet(layerNode, scale) {
         return;
     }
     if (currentTamagotchi.state === "rabbit") {
-        renderTamagotchiRabbit(layerNode, scale);
+        renderTamagotchiHatchedPet(layerNode, scale);
         renderTamagotchiHatchedShell(layerNode, scale, currentTamagotchi);
         return;
     }

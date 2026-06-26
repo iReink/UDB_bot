@@ -223,37 +223,47 @@ body {
     transform: translateY(-3px);
 }
 
-.scene-pet-rabbit {
+.scene-pet-camel {
     z-index: 5;
-    width: 132px;
-    height: 94px;
+    width: 106px;
+    height: 75px;
     pointer-events: none;
-    transition: left 1.85s ease-in-out, top 1.85s ease-in-out;
+    transition-property: left, top;
+    transition-timing-function: ease-in-out;
     filter: drop-shadow(0 7px 8px rgba(53, 27, 54, 0.24));
 }
 
-.scene-pet-rabbit-body {
+.scene-pet-camel-body {
     position: relative;
-    width: 132px;
-    height: 94px;
+    width: 106px;
+    height: 75px;
     transform-origin: center bottom;
 }
 
-.scene-pet-rabbit-frame {
+.scene-pet-camel-idle,
+.scene-pet-camel-frame {
     position: absolute;
     left: 0;
     bottom: 0;
-    width: 132px;
-    height: 94px;
+    width: 106px;
+    height: 75px;
     object-fit: contain;
 }
 
-.scene-pet-rabbit-frame-1 {
-    animation: rabbit-run-frame-one 420ms steps(1, end) infinite;
+.scene-pet-camel-frame {
+    opacity: 0;
 }
 
-.scene-pet-rabbit-frame-2 {
-    animation: rabbit-run-frame-two 420ms steps(1, end) infinite;
+.scene-pet-camel.is-running .scene-pet-camel-idle {
+    opacity: 0;
+}
+
+.scene-pet-camel.is-running .scene-pet-camel-frame-1 {
+    animation: camel-run-frame-one 420ms steps(1, end) infinite;
+}
+
+.scene-pet-camel.is-running .scene-pet-camel-frame-2 {
+    animation: camel-run-frame-two 420ms steps(1, end) infinite;
 }
 
 .scene-building-placeholder {
@@ -374,7 +384,7 @@ body.is-night .backdrop {
     to { opacity: 1; }
 }
 
-@keyframes rabbit-run-frame-one {
+@keyframes camel-run-frame-one {
     0%, 49.999% {
         opacity: 1;
     }
@@ -383,7 +393,7 @@ body.is-night .backdrop {
     }
 }
 
-@keyframes rabbit-run-frame-two {
+@keyframes camel-run-frame-two {
     0%, 49.999% {
         opacity: 0;
     }
