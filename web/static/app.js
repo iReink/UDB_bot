@@ -1,4 +1,5 @@
 const appHeader = document.getElementById("appHeader");
+const appBrand = document.getElementById("appBrand");
 const authCard = document.getElementById("authCard");
 const codeAuthHint = document.getElementById("codeAuthHint");
 const authCodeInput = document.getElementById("authCodeInput");
@@ -105,6 +106,23 @@ const MASTUR_HALL_SCENE_POINT = { x: 1186, y: 652 };
 const DAILY_STAGECOACH_SCENE_POINT = { x: 326, y: 476 };
 const DAILY_STAGECOACH_ASSET = "/static/assets/daily/stagecoach.png";
 const DAILY_STAGECOACH_GLOW_ASSET = "/static/assets/daily/stagecoach_glow.png";
+const TAMAGOTCHI_ASSETS_BASE = "/static/assets/tamagotchi";
+const TAMAGOTCHI_EGG_SCENE_POINT = { x: 471, y: 785 };
+const TAMAGOTCHI_RABBIT_START_POINT = {
+    x: TAMAGOTCHI_EGG_SCENE_POINT.x + 36,
+    y: TAMAGOTCHI_EGG_SCENE_POINT.y + 28,
+};
+const TAMAGOTCHI_RABBIT_BOUNDS = {
+    minX: 130,
+    maxX: 1740,
+    minY: 620,
+    maxY: 880,
+};
+const TAMAGOTCHI_RABBIT_MOVE_MIN_MS = 2400;
+const TAMAGOTCHI_RABBIT_MOVE_MAX_MS = 5200;
+const TAMAGOTCHI_EGG_DECAY_DELAY_MS = 10 * 1000;
+const TAMAGOTCHI_HATCHED_SHELL_HOLD_MS = 10 * 1000;
+const TAMAGOTCHI_HATCHED_SHELL_FADE_MS = 5 * 1000;
 
 const SCENE_ITEM_STYLE_KEYS = [
     "left",
@@ -153,6 +171,9 @@ const sceneBuildingNodes = [];
 let screenLoaderDepth = 0;
 let currentBalanceSits = 0;
 let currentHourlyIncomeMicrosits = 0;
+let currentBaseLevel = null;
+let currentTamagotchi = null;
+let tamagotchiClickInFlight = false;
 let currentGeyserCaughtToday = 0;
 let currentGeyserDailyLimit = 10;
 let visitGeyserBlockedByOwner = false;
@@ -166,6 +187,11 @@ let activeGeyserNode = null;
 let idlePlayers = [];
 let idlePlayersLoadedChatId = null;
 let playersSearchValue = "";
+const scenePetNodes = [];
+let scenePetMoveTimerId = null;
+let scenePetDecayTimerId = null;
+let scenePetCurrentBasePoint = null;
+let scenePetDirection = 1;
 let transferModalOpen = false;
 let transferSubmitInFlight = false;
 let transferRecipientPlayer = null;
@@ -628,6 +654,278 @@ function clearSceneBuildings() {
     }
 }
 
+function clearScenePets() {
+    if (scenePetMoveTimerId !== null) {
+        window.clearTimeout(scenePetMoveTimerId);
+        scenePetMoveTimerId = null;
+    }
+    while (scenePetNodes.length) {
+        const node = scenePetNodes.pop();
+        if (node && node.parentNode) {
+            node.parentNode.removeChild(node);
+        }
+    }
+}
+
+function clearTamagotchiDecayTimer() {
+    if (scenePetDecayTimerId !== null) {
+        window.clearTimeout(scenePetDecayTimerId);
+        scenePetDecayTimerId = null;
+    }
+}
+
+function scheduleTamagotchiDecay() {
+    clearTamagotchiDecayTimer();
+    if (!currentTamagotchi || currentTamagotchi.state !== "egg" || currentTamagotchi.egg_stage <= 1) {
+        return;
+    }
+    scenePetDecayTimerId = window.setTimeout(() => {
+        scenePetDecayTimerId = null;
+        void decayTamagotchiEgg();
+    }, TAMAGOTCHI_EGG_DECAY_DELAY_MS);
+}
+
+function normalizeTamagotchiPet(rawPet) {
+    if (!rawPet || typeof rawPet !== "object") {
+        return null;
+    }
+    const state = String(rawPet.state || "egg") === "rabbit" ? "rabbit" : "egg";
+    const eggStage = Math.max(1, Math.min(5, Math.trunc(Number(rawPet.egg_stage) || 1)));
+    return {
+        ...rawPet,
+        state,
+        egg_stage: eggStage,
+    };
+}
+
+function setTamagotchiPet(rawPet) {
+    currentTamagotchi = normalizeTamagotchiPet(rawPet);
+    scheduleTamagotchiDecay();
+}
+
+function resetTamagotchiPet() {
+    currentTamagotchi = null;
+    tamagotchiClickInFlight = false;
+    scenePetCurrentBasePoint = null;
+    scenePetDirection = 1;
+    clearTamagotchiDecayTimer();
+    clearScenePets();
+}
+
+function tamagotchiEggAsset(stage) {
+    const safeStage = Math.max(1, Math.min(5, Math.trunc(Number(stage) || 1)));
+    return `${TAMAGOTCHI_ASSETS_BASE}/egg_stage_${safeStage}.png`;
+}
+
+function clampRabbitPoint(point) {
+    const parsedPoint = parseScenePoint(point) || TAMAGOTCHI_RABBIT_START_POINT;
+    return {
+        x: Math.max(TAMAGOTCHI_RABBIT_BOUNDS.minX, Math.min(TAMAGOTCHI_RABBIT_BOUNDS.maxX, parsedPoint.x)),
+        y: Math.max(TAMAGOTCHI_RABBIT_BOUNDS.minY, Math.min(TAMAGOTCHI_RABBIT_BOUNDS.maxY, parsedPoint.y)),
+    };
+}
+
+function randomRabbitPoint() {
+    return {
+        x: TAMAGOTCHI_RABBIT_BOUNDS.minX + Math.random() * (TAMAGOTCHI_RABBIT_BOUNDS.maxX - TAMAGOTCHI_RABBIT_BOUNDS.minX),
+        y: TAMAGOTCHI_RABBIT_BOUNDS.minY + Math.random() * (TAMAGOTCHI_RABBIT_BOUNDS.maxY - TAMAGOTCHI_RABBIT_BOUNDS.minY),
+    };
+}
+
+function positionRabbitNode(node, basePoint, scale) {
+    const mappedPoint = mapScenePointToViewport(clampRabbitPoint(basePoint));
+    if (!mappedPoint) {
+        return;
+    }
+    node.style.left = `${mappedPoint.x}px`;
+    node.style.top = `${mappedPoint.y}px`;
+    node.style.transform = `scale(${scale})`;
+    const body = node.querySelector(".scene-pet-rabbit-body");
+    if (body) {
+        body.style.transform = `scaleX(${scenePetDirection})`;
+    }
+}
+
+function scheduleRabbitMovement(node) {
+    if (!node || !node.isConnected || !currentTamagotchi || currentTamagotchi.state !== "rabbit") {
+        return;
+    }
+    const currentPoint = clampRabbitPoint(scenePetCurrentBasePoint || TAMAGOTCHI_RABBIT_START_POINT);
+    const nextPoint = clampRabbitPoint(randomRabbitPoint());
+    scenePetDirection = nextPoint.x < currentPoint.x ? -1 : 1;
+    scenePetCurrentBasePoint = nextPoint;
+    positionRabbitNode(node, nextPoint, getSceneScale());
+    const delay = TAMAGOTCHI_RABBIT_MOVE_MIN_MS
+        + Math.random() * (TAMAGOTCHI_RABBIT_MOVE_MAX_MS - TAMAGOTCHI_RABBIT_MOVE_MIN_MS);
+    scenePetMoveTimerId = window.setTimeout(() => {
+        scenePetMoveTimerId = null;
+        scheduleRabbitMovement(node);
+    }, delay);
+}
+
+async function clickTamagotchiEgg() {
+    if (tamagotchiClickInFlight || !currentTamagotchi || currentTamagotchi.state !== "egg") {
+        return;
+    }
+    tamagotchiClickInFlight = true;
+    renderSceneBuildings(lastIdleBuildings);
+    try {
+        const response = await fetch("/api/tamagotchi/egg/click", {
+            method: "POST",
+            credentials: "include",
+        });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail || "Tamagotchi click failed");
+        }
+        const payload = await response.json();
+        setTamagotchiPet(payload.tamagotchi);
+        if (currentTamagotchi && currentTamagotchi.state === "rabbit" && !scenePetCurrentBasePoint) {
+            scenePetCurrentBasePoint = { ...TAMAGOTCHI_RABBIT_START_POINT };
+        }
+    } catch (error) {
+        console.error(error);
+    } finally {
+        tamagotchiClickInFlight = false;
+        renderSceneBuildings(lastIdleBuildings);
+    }
+}
+
+async function decayTamagotchiEgg() {
+    if (!currentTamagotchi || currentTamagotchi.state !== "egg" || currentTamagotchi.egg_stage <= 1) {
+        return;
+    }
+    try {
+        const response = await fetch("/api/tamagotchi/egg/decay", {
+            method: "POST",
+            credentials: "include",
+        });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail || "Tamagotchi decay failed");
+        }
+        const payload = await response.json();
+        setTamagotchiPet(payload.tamagotchi);
+    } catch (error) {
+        console.error(error);
+        scheduleTamagotchiDecay();
+    } finally {
+        renderSceneBuildings(lastIdleBuildings);
+    }
+}
+
+function renderTamagotchiEgg(layerNode, scale, pet) {
+    const mappedPoint = mapScenePointToViewport(TAMAGOTCHI_EGG_SCENE_POINT);
+    if (!mappedPoint) {
+        return;
+    }
+    const node = document.createElement("button");
+    node.type = "button";
+    node.className = "scene-pet scene-pet-egg";
+    node.style.left = `${mappedPoint.x}px`;
+    node.style.top = `${mappedPoint.y}px`;
+    node.style.transform = `scale(${scale})`;
+    node.disabled = tamagotchiClickInFlight;
+    node.setAttribute("aria-label", "Питомец");
+
+    const image = document.createElement("img");
+    image.className = "scene-pet-image";
+    image.src = tamagotchiEggAsset(pet.egg_stage);
+    image.alt = "";
+    image.decoding = "async";
+    image.loading = "lazy";
+    image.setAttribute("aria-hidden", "true");
+
+    node.appendChild(image);
+    node.addEventListener("click", () => {
+        void clickTamagotchiEgg();
+    });
+    layerNode.appendChild(node);
+    scenePetNodes.push(node);
+}
+
+function renderTamagotchiRabbit(layerNode, scale) {
+    if (!scenePetCurrentBasePoint) {
+        scenePetCurrentBasePoint = { ...TAMAGOTCHI_RABBIT_START_POINT };
+    }
+    const node = document.createElement("div");
+    node.className = "scene-pet scene-pet-rabbit";
+    positionRabbitNode(node, scenePetCurrentBasePoint, scale);
+
+    const body = document.createElement("div");
+    body.className = "scene-pet-rabbit-body";
+    body.style.transform = `scaleX(${scenePetDirection})`;
+
+    const frameOne = document.createElement("img");
+    frameOne.className = "scene-pet-image scene-pet-rabbit-frame scene-pet-rabbit-frame-1";
+    frameOne.src = `${TAMAGOTCHI_ASSETS_BASE}/rabbit_run_1.png`;
+    frameOne.alt = "";
+    frameOne.decoding = "async";
+    frameOne.loading = "lazy";
+    frameOne.setAttribute("aria-hidden", "true");
+
+    const frameTwo = document.createElement("img");
+    frameTwo.className = "scene-pet-image scene-pet-rabbit-frame scene-pet-rabbit-frame-2";
+    frameTwo.src = `${TAMAGOTCHI_ASSETS_BASE}/rabbit_run_2.png`;
+    frameTwo.alt = "";
+    frameTwo.decoding = "async";
+    frameTwo.loading = "lazy";
+    frameTwo.setAttribute("aria-hidden", "true");
+
+    body.appendChild(frameOne);
+    body.appendChild(frameTwo);
+    node.appendChild(body);
+    layerNode.appendChild(node);
+    scenePetNodes.push(node);
+    window.requestAnimationFrame(() => {
+        scheduleRabbitMovement(node);
+    });
+}
+
+function renderTamagotchiHatchedShell(layerNode, scale, pet) {
+    const hatchedAtMs = Date.parse(String(pet && pet.hatched_at ? pet.hatched_at : ""));
+    const elapsedMs = Number.isFinite(hatchedAtMs) ? Date.now() - hatchedAtMs : 0;
+    const totalVisibleMs = TAMAGOTCHI_HATCHED_SHELL_HOLD_MS + TAMAGOTCHI_HATCHED_SHELL_FADE_MS;
+    if (elapsedMs >= totalVisibleMs) {
+        return;
+    }
+    const mappedPoint = mapScenePointToViewport(TAMAGOTCHI_EGG_SCENE_POINT);
+    if (!mappedPoint) {
+        return;
+    }
+    const node = document.createElement("div");
+    node.className = "scene-pet scene-pet-egg-shell";
+    node.style.left = `${mappedPoint.x}px`;
+    node.style.top = `${mappedPoint.y}px`;
+    node.style.transform = `scale(${scale})`;
+    node.style.animationDuration = `${TAMAGOTCHI_HATCHED_SHELL_FADE_MS}ms`;
+    node.style.animationDelay = `${TAMAGOTCHI_HATCHED_SHELL_HOLD_MS - elapsedMs}ms`;
+
+    const image = document.createElement("img");
+    image.className = "scene-pet-image";
+    image.src = tamagotchiEggAsset(5);
+    image.alt = "";
+    image.decoding = "async";
+    image.loading = "lazy";
+    image.setAttribute("aria-hidden", "true");
+
+    node.appendChild(image);
+    layerNode.appendChild(node);
+    scenePetNodes.push(node);
+}
+
+function renderScenePet(layerNode, scale) {
+    if (!layerNode || activeSelectedChatId == null || !currentTamagotchi) {
+        return;
+    }
+    if (currentTamagotchi.state === "rabbit") {
+        renderTamagotchiRabbit(layerNode, scale);
+        renderTamagotchiHatchedShell(layerNode, scale, currentTamagotchi);
+        return;
+    }
+    renderTamagotchiEgg(layerNode, scale, currentTamagotchi);
+}
+
 function getBuildingScenePoint(building) {
     const code = String(building.building_code || "");
     if (BUILDING_SCENE_POINTS[code]) {
@@ -775,12 +1073,14 @@ function renderDailyStagecoach(layerNode, scale) {
 
 function renderSceneBuildings(buildings) {
     clearSceneBuildings();
+    clearScenePets();
     const layerNode = sceneLayerNodes.foreground;
     if (!layerNode) {
         return;
     }
     const scale = getSceneScale();
     renderDailyStagecoach(layerNode, scale);
+    renderScenePet(layerNode, scale);
 
     const purchased = Array.isArray(buildings)
         ? buildings
@@ -1312,6 +1612,33 @@ function formatSitsFixed3(amount) {
     const [intPartRaw, fractionRaw] = Math.abs(rounded).toFixed(3).split(".");
     const intPart = formatWithNarrowSpace(Number(intPartRaw));
     return `${sign}${intPart},${fractionRaw}`;
+}
+
+function renderBrand() {
+    if (!appBrand) {
+        return;
+    }
+    const levelNode = appBrand.querySelector(".brand-level");
+    if (!levelNode) {
+        return;
+    }
+    if (currentBaseLevel === null) {
+        levelNode.textContent = "";
+        updateHeaderHeightVar();
+        return;
+    }
+    const safeLevel = Math.max(0, Math.trunc(Number(currentBaseLevel) || 0));
+    levelNode.textContent = `(${formatWithNarrowSpace(safeLevel)} \u0443\u0440.)`;
+    updateHeaderHeightVar();
+}
+
+function setBaseLevel(value) {
+    if (value === null || value === undefined) {
+        currentBaseLevel = null;
+    } else {
+        currentBaseLevel = Math.max(0, Math.trunc(Number(value) || 0));
+    }
+    renderBrand();
 }
 
 function renderHeaderBalance() {
@@ -4726,6 +5053,9 @@ async function purchaseBuilding(buildingCode) {
     if (payload && payload.balance !== undefined) {
         setHeaderBalance(payload.balance);
     }
+    if (payload && Object.prototype.hasOwnProperty.call(payload, "base_level")) {
+        setBaseLevel(payload.base_level);
+    }
     if (payload && Array.isArray(payload.buildings)) {
         lastIdleBuildings = payload.buildings;
         setHourlyIncomeMicrosits(calculateHourlyIncomeMicrosits(lastIdleBuildings));
@@ -4754,6 +5084,9 @@ async function refreshIdleBuildings(options = {}) {
             setVisitMode(false);
         }
         lastIdleBuildings = payload.buildings || [];
+        if (Object.prototype.hasOwnProperty.call(payload, "base_level")) {
+            setBaseLevel(payload.base_level);
+        }
         setHourlyIncomeMicrosits(calculateHourlyIncomeMicrosits(lastIdleBuildings));
         renderBuildingsPanel(lastIdleBuildings);
         renderSceneBuildings(lastIdleBuildings);
@@ -4840,6 +5173,7 @@ function renderState(state) {
         resetPlayersData();
         resetWebChatState();
         resetDailyState();
+        resetTamagotchiPet();
         clearBuildingsPanel();
         clearSceneBuildings();
         setHidden(authCard, false);
@@ -4855,6 +5189,7 @@ function renderState(state) {
         setGroupEventState(createDefaultGroupEventState(), { silent: true });
         void closeGroupModal({ clearResult: false });
         setHourlyIncomeMicrosits(0);
+        setBaseLevel(null);
         setHeaderBalance(0);
         return false;
     }
@@ -4879,6 +5214,7 @@ function renderState(state) {
         resetPlayersData();
         resetWebChatState();
         resetDailyState();
+        resetTamagotchiPet();
         clearBuildingsPanel();
         clearSceneBuildings();
         closeChatModal();
@@ -4894,6 +5230,7 @@ function renderState(state) {
         setGroupEventState(createDefaultGroupEventState(), { silent: true });
         void closeGroupModal({ clearResult: false });
         setHourlyIncomeMicrosits(0);
+        setBaseLevel(null);
         setHeaderBalance(0);
         setLoadingMessage("Аккаунты не найдены в базе. Напишите боту в нужном чате и повторите вход.");
         return false;
@@ -4912,6 +5249,7 @@ function renderState(state) {
         resetPlayersData();
         resetWebChatState();
         resetDailyState();
+        resetTamagotchiPet();
         clearBuildingsPanel();
         clearSceneBuildings();
         setGeyserProgress(0, 10, { visitBlockedByOwner: false });
@@ -4926,6 +5264,7 @@ function renderState(state) {
         setGroupEventState(createDefaultGroupEventState(), { silent: true });
         void closeGroupModal({ clearResult: false });
         setHourlyIncomeMicrosits(0);
+        setBaseLevel(null);
         setHeaderBalance(0);
         setLoadingMessage("");
         openChatModal(chats);
@@ -4937,6 +5276,8 @@ function renderState(state) {
         groupEventKnownReminders = new Set();
         dismissedGroupEventToken = null;
         setHourlyIncomeMicrosits(0);
+        setBaseLevel(null);
+        resetTamagotchiPet();
         resetWebChatState();
         resetDailyState();
     }
@@ -4962,7 +5303,10 @@ function renderState(state) {
         visitBlockedByOwner: Boolean(state.visit_geyser_blocked),
     });
     setGroupEventState(state.group_event || createDefaultGroupEventState(), { silent: true });
+    setBaseLevel(state.base_level);
+    setTamagotchiPet(state.tamagotchi);
     setHeaderBalance(state.balance);
+    renderSceneBuildings(lastIdleBuildings);
     if (!buildingsPanelAutoOpened) {
         if (!visitModeActive) {
             setActiveSidePanel("buildings");
@@ -5012,6 +5356,7 @@ async function selectChat(chatId, options = {}) {
         resetPlayersData();
         resetWebChatState();
         resetDailyState();
+        resetTamagotchiPet();
         clearSceneBuildings();
         clearBuildingsPanel();
         const response = await fetch("/api/select-chat", {
@@ -5501,9 +5846,6 @@ if (settingsLogoutBtn) {
 
 window.addEventListener("resize", () => {
     updateHeaderHeightVar();
-    if (!lastIdleBuildings.length) {
-        return;
-    }
     renderSceneBuildings(lastIdleBuildings);
 });
 

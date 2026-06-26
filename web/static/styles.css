@@ -159,6 +159,103 @@ body {
     filter: drop-shadow(0 12px 16px rgba(56, 25, 46, 0.42));
 }
 
+.scene-pet {
+    position: absolute;
+    z-index: 8;
+    transform-origin: left top;
+    max-width: none;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.scene-pet-image {
+    display: block;
+    max-width: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
+}
+
+.scene-pet-egg {
+    width: 118px;
+    height: 118px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    pointer-events: auto;
+    filter: drop-shadow(0 8px 12px rgba(71, 28, 78, 0.28));
+    transition: filter 0.16s ease;
+}
+
+.scene-pet-egg-shell {
+    width: 118px;
+    height: 118px;
+    pointer-events: none;
+    filter: drop-shadow(0 8px 12px rgba(71, 28, 78, 0.28));
+    animation-name: tamagotchi-shell-fade;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+}
+
+.scene-pet-egg-shell .scene-pet-image {
+    width: 118px;
+    height: 118px;
+    object-fit: contain;
+}
+
+.scene-pet-egg:disabled {
+    cursor: wait;
+}
+
+.scene-pet-egg .scene-pet-image {
+    width: 118px;
+    height: 118px;
+    object-fit: contain;
+    transition: transform 0.16s ease;
+}
+
+.scene-pet-egg:not(:disabled):hover {
+    filter: drop-shadow(0 11px 16px rgba(71, 28, 78, 0.36));
+}
+
+.scene-pet-egg:not(:disabled):hover .scene-pet-image {
+    transform: translateY(-3px);
+}
+
+.scene-pet-rabbit {
+    z-index: 5;
+    width: 132px;
+    height: 94px;
+    pointer-events: none;
+    transition: left 1.85s ease-in-out, top 1.85s ease-in-out;
+    filter: drop-shadow(0 7px 8px rgba(53, 27, 54, 0.24));
+}
+
+.scene-pet-rabbit-body {
+    position: relative;
+    width: 132px;
+    height: 94px;
+    transform-origin: center bottom;
+}
+
+.scene-pet-rabbit-frame {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 132px;
+    height: 94px;
+    object-fit: contain;
+}
+
+.scene-pet-rabbit-frame-1 {
+    animation: rabbit-run-frame-one 420ms steps(1, end) infinite;
+}
+
+.scene-pet-rabbit-frame-2 {
+    animation: rabbit-run-frame-two 420ms steps(1, end) infinite;
+}
+
 .scene-building-placeholder {
     min-width: 120px;
     min-height: 72px;
@@ -275,6 +372,33 @@ body.is-night .backdrop {
 @keyframes masturhall-glow {
     from { opacity: 0; }
     to { opacity: 1; }
+}
+
+@keyframes rabbit-run-frame-one {
+    0%, 49.999% {
+        opacity: 1;
+    }
+    50%, 100% {
+        opacity: 0;
+    }
+}
+
+@keyframes rabbit-run-frame-two {
+    0%, 49.999% {
+        opacity: 0;
+    }
+    50%, 100% {
+        opacity: 1;
+    }
+}
+
+@keyframes tamagotchi-shell-fade {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
 }
 
 .app-header {
@@ -405,8 +529,26 @@ body.is-night .backdrop {
 }
 
 .brand {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
     font-weight: 800;
     color: var(--accent-strong);
+}
+
+.brand-main,
+.brand-short,
+.brand-level {
+    min-width: 0;
+}
+
+.brand-short {
+    display: none;
+}
+
+.brand-level {
+    white-space: nowrap;
 }
 
 .header-center {
@@ -2838,8 +2980,9 @@ body.is-web-chat-lightbox-open {
     }
 
     .brand {
-        font-size: 0;
+        font-size: 26px;
         line-height: 1;
+        max-width: 100%;
     }
 
     .brand::before {
@@ -2848,6 +2991,24 @@ body.is-web-chat-lightbox-open {
         line-height: 1;
         font-weight: 800;
         color: var(--accent-strong);
+    }
+
+    .brand::before {
+        content: none;
+        display: none;
+    }
+
+    .brand-main {
+        display: none;
+    }
+
+    .brand-short {
+        display: inline;
+    }
+
+    .brand-level {
+        font-size: 16px;
+        line-height: 1;
     }
 
     .header-controls {

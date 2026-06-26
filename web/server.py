@@ -333,6 +333,222 @@ def _ensure_web_settings_table() -> None:
         conn.commit()
 
 
+def _ensure_tamagotchi_schema() -> None:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tamagotchi_pets (
+                user_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                state TEXT NOT NULL DEFAULT 'egg' CHECK(state IN ('egg', 'rabbit')),
+                egg_stage INTEGER NOT NULL DEFAULT 1 CHECK(egg_stage BETWEEN 1 AND 5),
+                level INTEGER NOT NULL DEFAULT 1,
+                experience INTEGER NOT NULL DEFAULT 0,
+                ascension_level INTEGER NOT NULL DEFAULT 0,
+                size REAL NOT NULL DEFAULT 1.0,
+                weight REAL NOT NULL DEFAULT 1.0,
+                mood INTEGER NOT NULL DEFAULT 100,
+                hunger INTEGER NOT NULL DEFAULT 0,
+                hygiene INTEGER NOT NULL DEFAULT 100,
+                energy INTEGER NOT NULL DEFAULT 100,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                hatched_at TEXT,
+                PRIMARY KEY (user_id, chat_id)
+            )
+            """
+        )
+        conn.commit()
+
+
+def _format_tamagotchi_timestamp(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "T" in text:
+        return text
+    return f"{text.replace(' ', 'T')}Z"
+
+
+def _normalize_tamagotchi_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "user_id": int(row["user_id"]),
+        "chat_id": int(row["chat_id"]),
+        "state": str(row["state"] or "egg"),
+        "egg_stage": max(1, min(5, int(row["egg_stage"] or 1))),
+        "level": int(row["level"] or 1),
+        "experience": int(row["experience"] or 0),
+        "ascension_level": int(row["ascension_level"] or 0),
+        "size": float(row["size"] or 1.0),
+        "weight": float(row["weight"] or 1.0),
+        "mood": int(row["mood"] or 100),
+        "hunger": int(row["hunger"] or 0),
+        "hygiene": int(row["hygiene"] or 100),
+        "energy": int(row["energy"] or 100),
+        "created_at": _format_tamagotchi_timestamp(row["created_at"]),
+        "updated_at": _format_tamagotchi_timestamp(row["updated_at"]),
+        "hatched_at": _format_tamagotchi_timestamp(row["hatched_at"]) if row["hatched_at"] else None,
+    }
+
+
+def _get_or_create_tamagotchi_pet(user_id: int, chat_id: int) -> dict[str, Any]:
+    _ensure_tamagotchi_schema()
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO tamagotchi_pets (
+                user_id,
+                chat_id,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (user_id, chat_id),
+        )
+        cur.execute(
+            """
+            SELECT *
+            FROM tamagotchi_pets
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        row = cur.fetchone()
+        conn.commit()
+    if not row:
+        raise HTTPException(status_code=500, detail="Tamagotchi state is unavailable")
+    return _normalize_tamagotchi_row(row)
+
+
+def _click_tamagotchi_egg(user_id: int, chat_id: int) -> dict[str, Any]:
+    _ensure_tamagotchi_schema()
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO tamagotchi_pets (
+                user_id,
+                chat_id,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (user_id, chat_id),
+        )
+        cur.execute(
+            """
+            SELECT *
+            FROM tamagotchi_pets
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=500, detail="Tamagotchi state is unavailable")
+
+        state = str(row["state"] or "egg")
+        egg_stage = max(1, min(5, int(row["egg_stage"] or 1)))
+        if state == "egg" and egg_stage < 5:
+            cur.execute(
+                """
+                UPDATE tamagotchi_pets
+                SET egg_stage = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (egg_stage + 1, user_id, chat_id),
+            )
+        elif state == "egg":
+            cur.execute(
+                """
+                UPDATE tamagotchi_pets
+                SET state = 'rabbit',
+                    egg_stage = 5,
+                    hatched_at = COALESCE(hatched_at, CURRENT_TIMESTAMP),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (user_id, chat_id),
+            )
+
+        cur.execute(
+            """
+            SELECT *
+            FROM tamagotchi_pets
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        updated_row = cur.fetchone()
+        conn.commit()
+    if not updated_row:
+        raise HTTPException(status_code=500, detail="Tamagotchi state is unavailable")
+    return _normalize_tamagotchi_row(updated_row)
+
+
+def _decay_tamagotchi_egg(user_id: int, chat_id: int) -> dict[str, Any]:
+    _ensure_tamagotchi_schema()
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO tamagotchi_pets (
+                user_id,
+                chat_id,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (user_id, chat_id),
+        )
+        cur.execute(
+            """
+            SELECT *
+            FROM tamagotchi_pets
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=500, detail="Tamagotchi state is unavailable")
+
+        state = str(row["state"] or "egg")
+        egg_stage = max(1, min(5, int(row["egg_stage"] or 1)))
+        if state == "egg" and egg_stage > 1:
+            cur.execute(
+                """
+                UPDATE tamagotchi_pets
+                SET egg_stage = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND chat_id = ?
+                """,
+                (egg_stage - 1, user_id, chat_id),
+            )
+
+        cur.execute(
+            """
+            SELECT *
+            FROM tamagotchi_pets
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (user_id, chat_id),
+        )
+        updated_row = cur.fetchone()
+        conn.commit()
+    if not updated_row:
+        raise HTTPException(status_code=500, detail="Tamagotchi state is unavailable")
+    return _normalize_tamagotchi_row(updated_row)
+
+
 def _get_web_settings(user_id: int, chat_id: int) -> dict[str, bool]:
     _ensure_web_settings_table()
     with _get_connection() as conn:
@@ -1955,6 +2171,25 @@ def _get_idle_chat_players_state(user_id: int, chat_id: int) -> list[dict[str, A
     return players
 
 
+def _get_idle_base_level(user_id: int, chat_id: int) -> int:
+    with _get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(CASE WHEN current_level > 0 THEN current_level ELSE 0 END), 0) AS base_level
+                FROM idle_player_buildings
+                WHERE user_id = ?
+                  AND chat_id = ?
+                """,
+                (user_id, chat_id),
+            )
+        except sqlite3.OperationalError:
+            return 0
+        row = cur.fetchone()
+    return int(row["base_level"] or 0) if row else 0
+
+
 def _purchase_idle_building_legacy(user_id: int, chat_id: int, building_code: str) -> dict[str, Any]:
     with _get_connection() as conn:
         cur = conn.cursor()
@@ -2639,9 +2874,13 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     visit_geyser_blocked = False
     geyser_caught_today = 0
     geyser_owner_user_id = user_id
+    base_level = 0
+    tamagotchi: dict[str, Any] | None = None
     if selected:
         selected_chat = int(selected["chat_id"])
         selected_settings = _get_web_settings(user_id, selected_chat)
+        base_level = _get_idle_base_level(user_id, selected_chat)
+        tamagotchi = _get_or_create_tamagotchi_pet(user_id, selected_chat)
         geyser_owner_user_id = int(visit_target["user_id"]) if visit_target else user_id
         if visit_target:
             visit_settings = _get_web_settings(geyser_owner_user_id, selected_chat)
@@ -2682,6 +2921,8 @@ def _prepare_state(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
         "selected_chat_id": selected["chat_id"] if selected else None,
         "selected_chat_label": selected["label"] if selected else None,
         "balance": selected["balance"] if selected else None,
+        "base_level": base_level if selected else None,
+        "tamagotchi": tamagotchi,
         "geyser_caught_today": geyser_caught_today if selected else 0,
         "geyser_daily_limit": GEYSER_DAILY_LIMIT,
         "geyser_owner_user_id": geyser_owner_user_id if selected else None,
@@ -2728,6 +2969,45 @@ def get_state(request: Request) -> JSONResponse:
     response = JSONResponse(state)
     _set_session_cookie(response, next_payload)
     return response
+
+
+@app.get("/api/tamagotchi/state")
+def get_tamagotchi_state(request: Request) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "tamagotchi": _get_or_create_tamagotchi_pet(user_id, chat_id),
+        }
+    )
+
+
+@app.post("/api/tamagotchi/egg/click")
+def click_tamagotchi_egg(request: Request) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "tamagotchi": _click_tamagotchi_egg(user_id, chat_id),
+        }
+    )
+
+
+@app.post("/api/tamagotchi/egg/decay")
+def decay_tamagotchi_egg(request: Request) -> JSONResponse:
+    user_id, chat_id = _require_selected_user_chat(request)
+    return JSONResponse(
+        {
+            "ok": True,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "tamagotchi": _decay_tamagotchi_egg(user_id, chat_id),
+        }
+    )
 
 
 @app.post("/api/auth/telegram")
@@ -2848,6 +3128,7 @@ async def startup_idle_income_worker() -> None:
     _ensure_idle_service_tables()
     _ensure_geyser_tables()
     _ensure_web_settings_table()
+    _ensure_tamagotchi_schema()
     ensure_web_chat_media_schema()
     _ensure_daily_schema_compatibility()
     try:
@@ -2903,6 +3184,7 @@ def get_idle_buildings(request: Request) -> JSONResponse:
         {
             "chat_id": chat_id,
             "user_id": user_id,
+            "base_level": _get_idle_base_level(user_id, chat_id),
             "buildings_owner_user_id": buildings_owner_user_id,
             "view_mode": "visit" if visit_target else "self",
             "visit": {
@@ -3021,6 +3303,7 @@ def purchase_idle_building(request: Request, data: PurchaseIdleBuildingRequest) 
             "ok": True,
             "chat_id": chat_id,
             "user_id": user_id,
+            "base_level": _get_idle_base_level(user_id, chat_id),
             "balance": purchased["balance"],
             "purchased": purchased,
             "buildings": buildings,
