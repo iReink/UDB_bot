@@ -115,7 +115,14 @@ async def award_weekly_top(chat_id, users):
     lines = ["🏆 Топ-10 флудеров недели:"]
     for i, (msgs, uid, name) in enumerate(top10):
         reward = WEEKLY_TOP_REWARDS[i]
-        add_sits(chat_id, uid, reward)
+        add_sits(
+            chat_id,
+            uid,
+            reward,
+            action_code="weekly_top_messages_award",
+            action_ru=f"Недельная награда за сообщения: {i + 1} место",
+            metadata={"place": i + 1, "messages": msgs},
+        )
         display_name = get_user_display_name(uid, chat_id)
         lines.append(f"{i+1}. {display_name} — {msgs} сообщений (+{reward} сит)")
 
@@ -139,7 +146,7 @@ async def award_stickerbomber(chat_id, users):
     winner_name = get_user_display_name(winner_id, chat_id)
 
     # Начисляем ситы
-    add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+    add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_sticker_bomber_award", action_ru="Недельная награда «Стикербомбер»")
 
     # Определяем пол победителя
     sex = get_user_sex(winner_id, chat_id)
@@ -189,7 +196,7 @@ async def award_flooder(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         # Начисляем сит
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_flooder_award", action_ru="Недельная награда «Флудер»")
 
         # Получаем пол пользователя
         sex = get_user_sex(winner_id, chat_id)
@@ -258,7 +265,7 @@ async def award_dushnila(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         # Начисляем сит
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_dushnila_award", action_ru="Недельная награда «Душнила»")
 
         # Получаем пол пользователя
         sex = get_user_sex(winner_id, chat_id)
@@ -321,7 +328,7 @@ async def award_skomrnyashka(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         # Начисляем сит
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_skomnyashka_award", action_ru="Недельная награда «Скромняшка»")
 
         # Получаем пол пользователя
         sex = get_user_sex(winner_id, chat_id)
@@ -426,7 +433,7 @@ async def award_likes_collector(chat_id: int):
 
         # добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "likes_collector")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_likes_collector_award", action_ru="Недельная награда «Сборщик лайков»")
 
         # получаем правильное название ачивки из БД
         sex = get_user_sex(winner_id, chat_id)
@@ -466,7 +473,7 @@ async def award_dobroe_serdtse(chat_id: int):
 
         # Добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "dobroe_serdtse")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_kind_heart_award", action_ru="Недельная награда «Доброе сердце»")
 
         # Получаем название ачивки из БД
         sex = get_user_sex(winner_id, chat_id)
@@ -511,7 +518,7 @@ async def award_tsarsky_like(chat_id: int):
 
         # Добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "tsarsky_like")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_royal_like_award", action_ru="Недельная награда «Царский лайк»")
 
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("tsarsky_like", sex)
@@ -550,7 +557,7 @@ async def award_kolobok(chat_id: int):
 
         # Добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "kolobok")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_kolobok_award", action_ru="Недельная награда «Колобок»")
 
         # Получаем название ачивки с учётом пола пользователя
         sex = get_user_sex(winner_id, chat_id)
@@ -591,7 +598,7 @@ async def award_biter(chat_id: int):
 
         # Записываем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "biter")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_biter_award", action_ru="Недельная награда «Кусака»")
 
         # Определяем пол
         sex = get_user_sex(winner_id, chat_id)
@@ -632,7 +639,7 @@ async def award_bitten(chat_id: int):
 
         # Записываем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "bitten")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_bitten_award", action_ru="Недельная награда «Месиво»")
 
         # Пол юзера
         sex = get_user_sex(winner_id, chat_id)
@@ -677,7 +684,7 @@ async def award_matsturbator(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         add_or_update_user_achievement(winner_id, chat_id, "matsturbator")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_group_participant_award", action_ru="Недельная награда за участие в групповых событиях")
 
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("matsturbator", sex)
@@ -722,7 +729,7 @@ async def award_matershinnik(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         add_or_update_user_achievement(winner_id, chat_id, "matershinnik")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD)
+        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_profanity_award", action_ru="Недельная награда за мат")
 
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("matershinnik", sex)

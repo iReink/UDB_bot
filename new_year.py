@@ -220,5 +220,11 @@ async def run_new_year(bot):
     for user, greeting in zip(users, greetings):
         text = format_greeting(user, greeting)
         await bot.send_message(CHAT_ID, text)
-        add_sits(CHAT_ID, user["user_id"], greeting["gift_sits"])
+        add_sits(
+            CHAT_ID,
+            user["user_id"],
+            greeting["gift_sits"],
+            action_code="new_year_gift",
+            action_ru="Новогодний подарок",
+        )
         await asyncio.sleep(MESSAGE_DELAY)

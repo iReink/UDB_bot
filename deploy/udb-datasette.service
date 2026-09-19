@@ -1,0 +1,29 @@
+[Unit]
+Description=UDB Datasette database browser
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/UDB_bot
+EnvironmentFile=/etc/udb-datasette.env
+ExecStart=/root/UDB_bot/venv/bin/datasette /root/UDB_bot/stats.db --host 0.0.0.0 --port 8001 --metadata /etc/udb-datasette-metadata.json --setting default_page_size 50 --setting max_returned_rows 1000 --setting sql_time_limit_ms 3000 --setting num_sql_threads 2 --setting allow_download off
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+MemoryMax=160M
+CPUQuota=30%
+TasksMax=32
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

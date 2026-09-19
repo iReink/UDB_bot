@@ -19,6 +19,8 @@ from urllib.parse import urlencode, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as UrlRequest, urlopen
 from zoneinfo import ZoneInfo
+import photo_albums
+from web.asset_version import PHOTO_ASSET_VERSION
 
 from ai_tasks import (
     TASK_STATUS_PROCESSING,
@@ -79,7 +81,14 @@ from ai_tasks import (
     validate_type_check_output,
 )
 from web_search import WebSearchError, build_web_context
-from db import WEB_CHAT_MEDIA_DIR, cleanup_web_chat_media, ensure_web_chat_media_schema
+from db import (
+    WEB_CHAT_MEDIA_DIR,
+    cleanup_web_chat_media,
+    ensure_web_chat_media_schema,
+    get_connection as get_db_connection,
+    apply_sit_change,
+    InsufficientSitsError,
+)
 from auth_code import (
     AuthCodeConflictError,
     AuthCodeExpiredError,
@@ -95,12 +104,6 @@ from pydantic import BaseModel, Field
 from sits import normalize_sits
 from group_event_engine import EVENT_COST, GroupEventEngine, JOIN_COST
 from masturbate_store import MasturbateStore
-from google_calendar_integration import (
-    TARGET_CHAT_ID,
-    create_calendar_event,
-    delete_calendar_event,
-    update_calendar_event,
-)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -120,10 +123,11 @@ IDLE_UNLOCK_PREVIOUS_LEVEL = 10
 GEYSER_DAILY_LIMIT = 10
 GEYSER_REWARD_MIN_MILLISITS = 500
 GEYSER_REWARD_MAX_MILLISITS = 1000
-WEB_CHAT_MEDIA_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
+WEB_CHAT_MEDIA_CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60
 GROUP_PREPARE_DELAY_SECONDS = 10 * 60
 GROUP_JOIN_WINDOW_SECONDS = 5 * 60
 GROUP_EVENT_STICKER_FILE_ID = "CAACAgIAAyEFAASjKavKAAIDrGi31TwpfP-R-JI64M0v6eRnTCFxAAJMUAACITxRSq0hIi2dEdhQNgQ"
+GROUP_START_ANNOUNCEMENT = "Групповая мастурбация начнётся через 10 минут!"
 GROUP_JOIN_ANNOUNCE_MESSAGES = [
     "{name} пристраивается сбоку",
     "{name} садится на диван и смотрит",
@@ -140,7 +144,8 @@ GROUP_JOIN_ANNOUNCE_MESSAGES = [
 DAILY_TIMEZONE = ZoneInfo("Asia/Yekaterinburg")
 DAILY_EXPIRED_PAGE_SIZE_DEFAULT = 10
 DAILY_EXPIRED_PAGE_SIZE_MAX = 50
-ADMIN_IDS_DEFAULT = {6010666986, 884940984, 749027951}
+from settings import ADMIN_IDS as ADMIN_IDS_DEFAULT
+CALENDAR_TARGET_CHAT_ID = int(os.getenv("UDB_CALENDAR_TARGET_CHAT_ID", "-1002730880821"))
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip()
@@ -148,19 +153,6 @@ SESSION_SECRET = os.getenv("WEB_SESSION_SECRET", "").strip()
 AI_WORKER_TOKEN = os.getenv("AI_WORKER_TOKEN", "").strip()
 logger = logging.getLogger(__name__)
 ADMIN_IDS_SET = set(ADMIN_IDS_DEFAULT)
-admin_ids_raw = os.getenv("ADMIN_IDS", "").strip()
-if admin_ids_raw:
-    parsed_admin_ids: set[int] = set()
-    for chunk in admin_ids_raw.replace(";", ",").split(","):
-        token = chunk.strip()
-        if not token:
-            continue
-        try:
-            parsed_admin_ids.add(int(token))
-        except ValueError:
-            logger.warning("Skipping invalid ADMIN_IDS value: %s", token)
-    if parsed_admin_ids:
-        ADMIN_IDS_SET = parsed_admin_ids
 idle_income_task: asyncio.Task[None] | None = None
 web_chat_media_cleanup_task: asyncio.Task[None] | None = None
 idle_catalog_ready = False
@@ -230,9 +222,17 @@ class DailyEventUpsertRequest(BaseModel):
 
 
 def _get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return get_db_connection()
+
+
+def _get_calendar_integration():
+    from google_calendar_integration import (
+        create_calendar_event,
+        delete_calendar_event,
+        update_calendar_event,
+    )
+
+    return create_calendar_event, delete_calendar_event, update_calendar_event
 
 
 def _table_exists(cur: sqlite3.Cursor, table_name: str) -> bool:
@@ -733,6 +733,7 @@ def _catch_geyser_for_today(
         if not beneficiary_row:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Получатель награды не найден в выбранном чате")
+        beneficiary_name = str(beneficiary_row["name"] or "")
 
         new_caught_today = caught_today + 1
         cur.execute(
@@ -746,75 +747,35 @@ def _catch_geyser_for_today(
             (geyser_owner_user_id, chat_id, date_key, new_caught_today),
         )
 
-        catcher_balance = float(user_row["sits"] or 0)
-        beneficiary_balance = float(beneficiary_row["sits"] or 0)
-        beneficiary_name = str(beneficiary_row["name"] or "")
-
         if effective_beneficiary_user_id == user_id:
-            new_beneficiary_balance = normalize_sits(beneficiary_balance + reward_sits)
+            _, new_beneficiary_balance = apply_sit_change(
+                conn,
+                chat_id,
+                user_id,
+                reward_sits,
+                action_code="web_geyser_catch_reward",
+                action_ru="Награда за поимку веб-гейзера",
+            )
             new_catcher_balance = new_beneficiary_balance
-            cur.execute(
-                """
-                UPDATE users
-                SET sits = ?
-                WHERE user_id = ? AND chat_id = ?
-                """,
-                (new_beneficiary_balance, user_id, chat_id),
-            )
         else:
-            new_beneficiary_balance = normalize_sits(beneficiary_balance + reward_sits)
-            new_catcher_balance = normalize_sits(catcher_balance + visitor_reward_sits)
-            cur.execute(
-                """
-                UPDATE users
-                SET sits = ?
-                WHERE user_id = ? AND chat_id = ?
-                """,
-                (new_beneficiary_balance, effective_beneficiary_user_id, chat_id),
+            _, new_beneficiary_balance = apply_sit_change(
+                conn,
+                chat_id,
+                effective_beneficiary_user_id,
+                reward_sits,
+                action_code="web_geyser_owner_reward",
+                action_ru="Доход владельца веб-гейзера",
+                metadata={"catcher_user_id": user_id},
             )
-            cur.execute(
-                """
-                UPDATE users
-                SET sits = ?
-                WHERE user_id = ? AND chat_id = ?
-                """,
-                (new_catcher_balance, user_id, chat_id),
+            _, new_catcher_balance = apply_sit_change(
+                conn,
+                chat_id,
+                user_id,
+                visitor_reward_sits,
+                action_code="web_geyser_visitor_reward",
+                action_ru="Награда гостю за поимку веб-гейзера",
+                metadata={"owner_user_id": effective_beneficiary_user_id},
             )
-
-        if _table_exists(cur, "sit_stats"):
-            now = datetime.now()
-            date_value = now.date().isoformat()
-            time_value = now.strftime("%H:%M:%S")
-            cur.execute(
-                """
-                INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    date_value,
-                    time_value,
-                    chat_id,
-                    effective_beneficiary_user_id,
-                    beneficiary_name,
-                    reward_sits,
-                ),
-            )
-            if effective_beneficiary_user_id != user_id and visitor_reward_sits > 0:
-                catcher_name = str(user_row["name"] or "")
-                cur.execute(
-                    """
-                    INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        date_value,
-                        time_value,
-                        chat_id,
-                        user_id,
-                        catcher_name,
-                        visitor_reward_sits,
-                    ),
-                )
         conn.commit()
 
     return {
@@ -956,37 +917,21 @@ def _apply_idle_income_for_hour(hour_start: datetime) -> bool:
         )
         income_rows = cur.fetchall()
 
-        can_write_sit_stats = _table_exists(cur, "sit_stats")
         for row in income_rows:
             income_microsits = int(row["income_microsits"] or 0)
             if income_microsits <= 0:
                 continue
 
             income_sits = income_microsits / IDLE_MICROSITS_IN_SIT
-            cur.execute(
-                """
-                UPDATE users
-                SET sits = ROUND(COALESCE(sits, 0) + ?, 3)
-                WHERE user_id = ? AND chat_id = ?
-                """,
-                (income_sits, int(row["user_id"]), int(row["chat_id"])),
+            apply_sit_change(
+                conn,
+                int(row["chat_id"]),
+                int(row["user_id"]),
+                income_sits,
+                action_code="idle_buildings_income",
+                action_ru="Доход от построек",
+                metadata={"income_hour": hour_key},
             )
-
-            if can_write_sit_stats:
-                cur.execute(
-                    """
-                    INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        date_value,
-                        time_value,
-                        int(row["chat_id"]),
-                        int(row["user_id"]),
-                        str(row["name"] or ""),
-                        income_sits,
-                    ),
-                )
 
         conn.commit()
         return True
@@ -1593,6 +1538,7 @@ def _serialize_daily_event(
 
     return {
         "id": int(row["id"]),
+        **photo_albums.daily_summary(int(row['id']), int(row['chat_id'])),
         "chat_id": int(row["chat_id"]),
         "creator_user_id": int(row["creator_user_id"]),
         "name": str(row["name"] or ""),
@@ -1916,48 +1862,38 @@ def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw
                 },
             )
 
-        receiver_balance = float(receiver_row["sits"] or 0)
-        receiver_balance_millisits = _to_microsits(receiver_balance)
-        new_sender_balance_millisits = sender_balance_millisits - amount_millisits
-        new_receiver_balance_millisits = receiver_balance_millisits + amount_millisits
         transferred_sits = normalize_sits(amount_millisits / IDLE_MICROSITS_IN_SIT)
-        new_sender_balance = normalize_sits(new_sender_balance_millisits / IDLE_MICROSITS_IN_SIT)
-        new_receiver_balance = normalize_sits(new_receiver_balance_millisits / IDLE_MICROSITS_IN_SIT)
-
-        cur.execute(
-            """
-            UPDATE users
-            SET sits = ?
-            WHERE user_id = ? AND chat_id = ?
-            """,
-            (new_sender_balance, user_id, chat_id),
-        )
-        cur.execute(
-            """
-            UPDATE users
-            SET sits = ?
-            WHERE user_id = ? AND chat_id = ?
-            """,
-            (new_receiver_balance, receiver_user_id, chat_id),
-        )
-
-        if _table_exists(cur, "sit_stats"):
-            sender_name = str(sender_row["name"] or "")
-            receiver_name = str(receiver_row["name"] or "")
-            cur.execute(
-                """
-                INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (date_value, time_value, chat_id, user_id, sender_name, -transferred_sits),
+        try:
+            _, new_sender_balance = apply_sit_change(
+                conn,
+                chat_id,
+                user_id,
+                -transferred_sits,
+                action_code="web_transfer_sent",
+                action_ru="Веб-перевод другому игроку",
+                metadata={"counterparty_user_id": receiver_user_id},
+                require_sufficient=True,
             )
-            cur.execute(
-                """
-                INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (date_value, time_value, chat_id, receiver_user_id, receiver_name, transferred_sits),
+            _, new_receiver_balance = apply_sit_change(
+                conn,
+                chat_id,
+                receiver_user_id,
+                transferred_sits,
+                action_code="web_transfer_received",
+                action_ru="Веб-перевод от другого игрока",
+                metadata={"counterparty_user_id": user_id},
             )
+        except InsufficientSitsError as exc:
+            conn.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "INSUFFICIENT_FUNDS",
+                    "message": "Недостаточно сита",
+                    "balance": normalize_sits(exc.balance),
+                    "requested": transferred_sits,
+                },
+            ) from exc
 
         conn.commit()
 
@@ -2247,14 +2183,19 @@ def _purchase_idle_building_legacy(user_id: int, chat_id: int, building_code: st
             conn.rollback()
             raise HTTPException(status_code=409, detail="недостаточно сита")
 
-        new_balance = normalize_sits(balance - upgrade_cost)
-        cur.execute(
-            """
-            UPDATE users
-            SET sits = ?
-            WHERE user_id = ? AND chat_id = ?
-            """,
-            (new_balance, user_id, chat_id),
+        _, new_balance = apply_sit_change(
+            conn,
+            chat_id,
+            user_id,
+            -upgrade_cost,
+            action_code="idle_building_upgrade",
+            action_ru="Покупка или улучшение постройки",
+            metadata={
+                "building_code": building_code,
+                "building_name": str(target_level_row["building_name"]),
+                "target_level": target_level,
+            },
+            require_sufficient=True,
         )
 
         if owned_row:
@@ -2385,14 +2326,19 @@ def _purchase_idle_building(user_id: int, chat_id: int, building_code: str) -> d
             conn.rollback()
             raise HTTPException(status_code=409, detail="недостаточно сита")
 
-        new_balance = normalize_sits(balance - upgrade_cost)
-        cur.execute(
-            """
-            UPDATE users
-            SET sits = ?
-            WHERE user_id = ? AND chat_id = ?
-            """,
-            (new_balance, user_id, chat_id),
+        _, new_balance = apply_sit_change(
+            conn,
+            chat_id,
+            user_id,
+            -upgrade_cost,
+            action_code="idle_building_upgrade",
+            action_ru="Покупка или улучшение постройки",
+            metadata={
+                "building_code": building_code,
+                "building_name": str(target_level_row["building_name"]),
+                "target_level": target_level,
+            },
+            require_sufficient=True,
         )
 
         if owned_row:
@@ -2949,7 +2895,8 @@ def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"bot_username": BOT_USERNAME},
+        context={"bot_username": BOT_USERNAME, "photo_asset_version": PHOTO_ASSET_VERSION},
+        headers={"Cache-Control": "no-cache"},
     )
 
 
@@ -3131,6 +3078,7 @@ async def startup_idle_income_worker() -> None:
     _ensure_tamagotchi_schema()
     ensure_web_chat_media_schema()
     _ensure_daily_schema_compatibility()
+    photo_albums.ensure_schema()
     try:
         _catch_up_idle_income()
     except Exception:
@@ -3482,6 +3430,11 @@ def _get_serialized_daily_event_or_404(chat_id: int, daily_id: int, viewer_user_
     return _serialize_daily_event(row=row, viewer_user_id=viewer_user_id, participants=participants)
 
 
+from web.photo_api import install as install_photo_api
+install_photo_api(app, _require_session, _require_selected_user_chat,
+                  _serialize_daily_event, _get_daily_participants_map)
+
+
 @app.get("/api/daily/upcoming")
 def daily_upcoming(request: Request) -> JSONResponse:
     user_id, chat_id = _require_selected_user_chat(request)
@@ -3617,18 +3570,20 @@ async def daily_create_event(request: Request, data: DailyEventUpsertRequest) ->
         conn.commit()
 
     calendar_event_id: str | None = None
-    try:
-        calendar_event_id = await create_calendar_event(
-            chat_id=chat_id,
-            daily_name=name,
-            daily_description=description,
-            daily_datetime=parsed_datetime,
-            daily_link=link,
-            daily_id=daily_id,
-            bot_instance=None,
-        )
-    except Exception:
-        logger.exception("Daily create calendar sync failed for daily_id=%s", daily_id)
+    if chat_id == CALENDAR_TARGET_CHAT_ID:
+        try:
+            create_calendar_event, _, _ = _get_calendar_integration()
+            calendar_event_id = await create_calendar_event(
+                chat_id=chat_id,
+                daily_name=name,
+                daily_description=description,
+                daily_datetime=parsed_datetime,
+                daily_link=link,
+                daily_id=daily_id,
+                bot_instance=None,
+            )
+        except Exception:
+            logger.exception("Daily create calendar sync failed for daily_id=%s", daily_id)
     if calendar_event_id:
         try:
             with _get_connection() as conn:
@@ -3641,7 +3596,7 @@ async def daily_create_event(request: Request, data: DailyEventUpsertRequest) ->
         except sqlite3.OperationalError:
             logger.exception("daily_events has no calendar_event_id column, skipping persistence")
 
-    if chat_id == TARGET_CHAT_ID:
+    if chat_id == CALENDAR_TARGET_CHAT_ID:
         if calendar_event_id:
             _enqueue_group_html_text(chat_id, f"✅ Веб: дейлик <b>{escape(name)}</b> добавлен в Google Календарь.")
         else:
@@ -3712,6 +3667,7 @@ async def daily_update_event(request: Request, daily_id: int, data: DailyEventUp
     calendar_event_id = str(updated_row["calendar_event_id"] or "").strip() if "calendar_event_id" in updated_row.keys() else ""
     if calendar_event_id:
         try:
+            _, _, update_calendar_event = _get_calendar_integration()
             await update_calendar_event(
                 calendar_event_id=calendar_event_id,
                 chat_id=chat_id,
@@ -3722,11 +3678,11 @@ async def daily_update_event(request: Request, daily_id: int, data: DailyEventUp
                 daily_id=int(updated_row["id"]),
                 bot_instance=None,
             )
-            if chat_id == TARGET_CHAT_ID:
+            if chat_id == CALENDAR_TARGET_CHAT_ID:
                 _enqueue_group_html_text(chat_id, f"✅ Веб: дейлик <b>{escape(updated_name)}</b> обновлён в Google Календаре.")
         except Exception:
             logger.exception("Daily update calendar sync failed for daily_id=%s", daily_id)
-            if chat_id == TARGET_CHAT_ID:
+            if chat_id == CALENDAR_TARGET_CHAT_ID:
                 _enqueue_group_html_text(chat_id, f"⚠️ Веб: ошибка синхронизации дейлика <b>{escape(updated_name)}</b> с Google Календарём.")
 
     event_payload = _get_serialized_daily_event_or_404(chat_id=chat_id, daily_id=daily_id, viewer_user_id=user_id)
@@ -3746,6 +3702,7 @@ async def daily_delete_event(request: Request, daily_id: int) -> JSONResponse:
     calendar_event_id = ""
     daily_name = ""
     with _get_connection() as conn:
+        conn.execute('BEGIN IMMEDIATE')
         cur = conn.cursor()
         row = _fetch_daily_event_row(cur, chat_id=chat_id, daily_id=daily_id)
         if not row:
@@ -3757,22 +3714,25 @@ async def daily_delete_event(request: Request, daily_id: int) -> JSONResponse:
 
         daily_name = str(row["name"] or "")
         calendar_event_id = str(row["calendar_event_id"] or "").strip() if "calendar_event_id" in row.keys() else ""
+        if photo_albums.has_protected_photos(daily_id, chat_id):
+            raise HTTPException(status_code=409, detail='Сначала удалите фотографии дейлика')
         cur.execute("DELETE FROM daily_participants WHERE daily_id = ?", (daily_id,))
         cur.execute("DELETE FROM daily_events WHERE id = ? AND chat_id = ?", (daily_id, chat_id))
         conn.commit()
 
     if calendar_event_id:
         try:
+            _, delete_calendar_event, _ = _get_calendar_integration()
             await delete_calendar_event(
                 calendar_event_id=calendar_event_id,
                 chat_id=chat_id,
                 bot_instance=None,
             )
-            if chat_id == TARGET_CHAT_ID:
+            if chat_id == CALENDAR_TARGET_CHAT_ID:
                 _enqueue_group_html_text(chat_id, f"🗑️ Веб: дейлик <b>{escape(daily_name)}</b> удалён из Google Календаря.")
         except Exception:
             logger.exception("Daily delete calendar sync failed for daily_id=%s", daily_id)
-            if chat_id == TARGET_CHAT_ID:
+            if chat_id == CALENDAR_TARGET_CHAT_ID:
                 _enqueue_group_html_text(chat_id, f"⚠️ Веб: ошибка удаления дейлика <b>{escape(daily_name)}</b> из Google Календаря.")
 
     return JSONResponse(
@@ -3976,13 +3936,14 @@ def group_event_start(request: Request, _: GroupEventActionRequest) -> JSONRespo
     if not result.ok:
         raise _group_event_http_error(result.code)
 
-    _enqueue_group_text(chat_id=chat_id, text=f"С твоего счёта списано {EVENT_COST} сит за запуск ивента")
     if GROUP_EVENT_STICKER_FILE_ID:
         group_store.enqueue_outbox(
             chat_id=chat_id,
             kind="send_sticker",
             payload={"sticker": GROUP_EVENT_STICKER_FILE_ID, "thread_id": None},
         )
+    _enqueue_group_text(chat_id=chat_id, text=GROUP_START_ANNOUNCEMENT)
+    _enqueue_group_text(chat_id=chat_id, text=f"С твоего счёта списано {EVENT_COST} сит за запуск ивента")
     _enqueue_group_start_flow(chat_id=chat_id)
 
     balance = _get_user_balance(user_id, chat_id)

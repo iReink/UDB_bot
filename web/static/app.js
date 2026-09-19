@@ -209,6 +209,7 @@ let webChatLoadedChatId = null;
 let webChatLoading = false;
 let webChatSending = false;
 let webChatPollTimeoutId = null;
+let webChatPollFailures = 0;
 let webChatOpenedForChatId = null;
 let chatPreviewMessage = null;
 let chatPreviewAnimationTimeoutId = null;
@@ -222,6 +223,7 @@ let webSettings = {
 const TRANSFER_NOTE_TEXT = "Хочется сказать, что если вы передали миллиситы по ошибке, то это ваша проблема и решать вам её самостоятельно";
 let groupEventState = null;
 let groupEventPollTimeoutId = null;
+let groupEventPollFailures = 0;
 let groupEventLiveTickIntervalId = null;
 let groupModalOpen = false;
 let dismissedGroupEventToken = null;
@@ -258,8 +260,10 @@ const GEYSER_SPAWN_CHANCE = 0.4;
 const GEYSER_REWARD_TOAST_SHOW_MS = 3000;
 const GEYSER_REWARD_TOAST_FADE_MS = 2000;
 const GROUP_EVENT_POLL_MS = 2500;
+const GROUP_EVENT_IDLE_POLL_MS = 10000;
 const GROUP_EVENT_LIVE_TICK_MS = 250;
-const WEB_CHAT_POLL_MS = 2500;
+const WEB_CHAT_POLL_MS = 7500;
+const WEB_CHAT_POLL_MAX_MS = 30000;
 const WEB_CHAT_BOTTOM_STICKY_THRESHOLD = 20;
 const GROUP_HALL_ASSET = "/static/assets/masturbate/modals/sit_hall.png";
 const GROUP_HALL_RESULT_ASSET = "/static/assets/masturbate/modals/sit_hall_sit.png";
@@ -2460,6 +2464,7 @@ function setGroupModalOpen(isOpen) {
     groupModalOpen = Boolean(isOpen);
     setHidden(groupModal, !groupModalOpen);
     if (!groupModalOpen) {
+        clearGroupEventPolling();
         clearGroupEventLiveTicker();
         clearGroupAvatarAnimations();
         lastGroupAvatarLayoutKey = "";
@@ -2475,6 +2480,7 @@ function setGroupModalOpen(isOpen) {
     } else {
         renderGroupModal();
         ensureGroupEventLiveTicker();
+        scheduleGroupEventPolling();
     }
     renderGroupEventBanner();
 }
@@ -2614,12 +2620,16 @@ function ensureGroupEventLiveTicker() {
 
 function scheduleGroupEventPolling() {
     clearGroupEventPolling();
-    if (activeSelectedChatId == null) {
+    if (activeSelectedChatId == null || !groupModalOpen || document.hidden) {
         return;
     }
+    const state = groupEventState || createDefaultGroupEventState();
+    const baseDelay = state.active ? GROUP_EVENT_POLL_MS : GROUP_EVENT_IDLE_POLL_MS;
+    const delayMs = Math.min(baseDelay * (2 ** groupEventPollFailures), WEB_CHAT_POLL_MAX_MS);
     groupEventPollTimeoutId = window.setTimeout(async () => {
         try {
             const payload = await fetchGroupEventState();
+            groupEventPollFailures = 0;
             if (activeSelectedChatId == null || Number(payload.chat_id) !== Number(activeSelectedChatId)) {
                 scheduleGroupEventPolling();
                 return;
@@ -2628,11 +2638,11 @@ function scheduleGroupEventPolling() {
                 setGroupEventState(payload.group_event, { silent: true });
             }
         } catch (_error) {
-            // no-op
+            groupEventPollFailures = Math.min(groupEventPollFailures + 1, 3);
         } finally {
             scheduleGroupEventPolling();
         }
-    }, GROUP_EVENT_POLL_MS);
+    }, delayMs);
 }
 
 function renderSettingsControls() {
@@ -3506,19 +3516,36 @@ function clearWebChatPolling() {
 
 function scheduleWebChatPolling() {
     clearWebChatPolling();
-    if (activeSelectedChatId == null) {
+    if (activeSelectedChatId == null || !webChatPanelOpen || document.hidden) {
         return;
     }
+    const delayMs = Math.min(WEB_CHAT_POLL_MS * (2 ** webChatPollFailures), WEB_CHAT_POLL_MAX_MS);
     webChatPollTimeoutId = window.setTimeout(async () => {
         try {
             await fetchWebChatMessages({ reset: false });
+            webChatPollFailures = 0;
         } catch (error) {
+            webChatPollFailures = Math.min(webChatPollFailures + 1, 2);
             setWebChatStatus(error.message || "Не удалось обновить чат", true);
         } finally {
             scheduleWebChatPolling();
         }
-    }, WEB_CHAT_POLL_MS);
+    }, delayMs);
 }
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+        clearWebChatPolling();
+        clearGroupEventPolling();
+        return;
+    }
+    if (webChatPanelOpen) {
+        scheduleWebChatPolling();
+    }
+    if (groupModalOpen) {
+        scheduleGroupEventPolling();
+    }
+});
 
 function resetWebChatState() {
     clearWebChatPolling();
@@ -3617,6 +3644,7 @@ async function submitWebChatMessage() {
 }
 
 function resetDailyState() {
+    if (typeof resetDailyDiscovery === 'function') resetDailyDiscovery();
     dailyUpcoming = [];
     dailyExpired = [];
     dailyExpiredCursor = null;
@@ -3712,6 +3740,7 @@ function findDailyEventById(dailyId) {
     const id = Number(dailyId);
     return dailyUpcoming.find((item) => Number(item.id) === id)
         || dailyExpired.find((item) => Number(item.id) === id)
+        || dailyDiscoveryResults.find((item) => Number(item.id) === id)
         || null;
 }
 
@@ -3719,6 +3748,7 @@ function removeDailyEventById(dailyId, { preserveOpen = false } = {}) {
     const id = Number(dailyId);
     dailyUpcoming = dailyUpcoming.filter((item) => Number(item.id) !== id);
     dailyExpired = dailyExpired.filter((item) => Number(item.id) !== id);
+    dailyDiscoveryResults = dailyDiscoveryResults.filter((item) => Number(item.id) !== id);
     if (!preserveOpen) {
         dailyOpenCards.delete(id);
     }
@@ -3738,6 +3768,7 @@ function upsertDailyEvent(event) {
         dailyUpcoming.push(normalized);
     }
     sortDailyCollections();
+    if (dailyDiscoveryActive()) void refreshDailyDiscovery();
     if (wasOpened) {
         dailyOpenCards.add(normalizedId);
     }
@@ -4055,7 +4086,7 @@ function renderDailyCard(event, options = {}) {
     emoji.textContent = "🎉";
     const title = document.createElement("span");
     title.className = "daily-card-title";
-    title.textContent = String(event.name || "Новый дейлик");
+    title.textContent = String(event.name || "Новый дейлик") + (event.photo_count > 0 ? ' 📷' : '');
     titleWrap.appendChild(emoji);
     titleWrap.appendChild(title);
     const chevron = document.createElement("span");
@@ -4327,6 +4358,13 @@ function renderDailyCard(event, options = {}) {
             void tagDailyParticipants(dailyId);
         });
         subActions.appendChild(tagBtn);
+        if (event.photo_count > 0 && event.album_url) {
+            const photos = document.createElement('a');
+            photos.className = 'daily-btn daily-btn--secondary';
+            photos.textContent = '📷 Фото';
+            photos.href = event.album_url + '?from=daily';
+            subActions.appendChild(photos);
+        }
         subActions.appendChild(joinBtn);
         actions.appendChild(subActions);
         body.appendChild(actions);
@@ -4362,7 +4400,8 @@ function renderDailyPanel() {
     const nextOpenStates = new Map();
     let draftRevealUsed = false;
     dailyList.innerHTML = "";
-    const allEvents = [...dailyUpcoming, ...dailyExpired];
+    const allEvents = typeof dailyDiscoveryActive === 'function' && dailyDiscoveryActive()
+        ? dailyDiscoveryResults : [...dailyUpcoming, ...dailyExpired];
     const visibleEvents = allEvents.filter((item) => isDailyVisibleByFilter(item));
     if (Number(dailyEditingId) === 0 && dailyEditDraft) {
         const draftEvent = normalizeDailyEvent({
@@ -4423,7 +4462,7 @@ function renderDailyPanel() {
     });
 
     if (dailyLoadOldBtn) {
-        const shouldShow = !dailyExpiredInitialLoaded || dailyExpiredHasMore;
+        const shouldShow = !(typeof dailyDiscoveryActive === 'function' && dailyDiscoveryActive()) && (!dailyExpiredInitialLoaded || dailyExpiredHasMore);
         dailyLoadOldBtn.classList.toggle("hidden", !shouldShow);
         dailyLoadOldBtn.disabled = dailyLoadingExpired;
         dailyLoadOldBtn.textContent = dailyLoadingExpired ? "Загрузка..." : "Загрузить старые";
@@ -4439,12 +4478,15 @@ function renderDailyPanel() {
     if (!visibleEvents.length && dailyEditingId !== 0) {
         const empty = document.createElement("div");
         empty.className = "daily-empty-state";
-        empty.textContent = dailyOnlyMineFilter
+        empty.textContent = typeof dailyDiscoveryActive === 'function' && dailyDiscoveryActive()
+            ? (dailyDiscoveryLoading ? 'Поиск…' : 'Дейлики по выбранным условиям не найдены.')
+            : dailyOnlyMineFilter
             ? "Нет дейликов, где вы участвуете."
             : "Дейликов пока нет. Нажмите «Добавить».";
         dailyList.appendChild(empty);
     }
     dailyLastOpenStates = nextOpenStates;
+    if (typeof appendDailyDiscoveryMore === 'function') appendDailyDiscoveryMore();
     if (draftRevealUsed) {
         dailyCreateRevealPending = false;
     }
@@ -4643,6 +4685,7 @@ async function confirmDailyDelete() {
 }
 
 function handleDailyListScroll() {
+    if (dailyDiscoveryActive()) return;
     if (!dailyPanelOpen || !dailyList || !dailyExpiredInitialLoaded || !dailyExpiredHasMore || dailyLoadingExpired) {
         return;
     }
@@ -4716,6 +4759,9 @@ function setActiveSidePanel(panelName) {
             }, 0);
         }
         void ensureWebChatLoaded();
+    } else {
+        clearWebChatPolling();
+        webChatPollFailures = 0;
     }
     if (dailyPanelOpen) {
         void ensureDailyLoaded({ force: false });
@@ -5203,6 +5249,14 @@ function fillChatSwitch(chats, selectedChatId) {
 }
 
 function renderState(state) {
+    if (state.authorized) {
+        const albumReturn = sessionStorage.getItem('albumReturn');
+        if (albumReturn && /^\/albums\/[A-Za-z0-9_-]{40,60}$/.test(albumReturn)) {
+            sessionStorage.removeItem('albumReturn');
+            window.location.replace(albumReturn);
+            return;
+        }
+    }
     setServerClock(state && typeof state === "object" ? state.server_now_iso : null);
     applyNightFilterForNow();
     updateHeaderHeightVar();
@@ -5383,6 +5437,12 @@ function renderState(state) {
     scheduleWebChatPolling();
     scheduleGroupEventPolling();
     updateHeaderHeightVar();
+    const entryUrl = new URL(window.location.href);
+    if (entryUrl.searchParams.get('panel') === 'daily') {
+        entryUrl.searchParams.delete('panel');
+        history.replaceState(history.state, '', entryUrl);
+        setActiveSidePanel('daily');
+    }
     return true;
 }
 
@@ -5597,6 +5657,7 @@ if (dailyOnlyMineSwitch) {
     dailyOnlyMineSwitch.addEventListener("click", (event) => {
         consumeDailyActionClick(event);
         dailyOnlyMineFilter = !dailyOnlyMineFilter;
+        refreshDailyDiscovery();
         renderDailyPanel();
     });
 }
@@ -5608,6 +5669,7 @@ if (dailyOnlyMineRow) {
         }
         consumeDailyActionClick(event);
         dailyOnlyMineFilter = !dailyOnlyMineFilter;
+        refreshDailyDiscovery();
         renderDailyPanel();
     });
 }

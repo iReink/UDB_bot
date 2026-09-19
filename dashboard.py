@@ -3,12 +3,6 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Iterable, List
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 from aiogram import Dispatcher
@@ -375,6 +369,11 @@ def _draw_dashboard(
     user_id: int,
     user_name: str,
 ) -> bytes:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.dates as mdates
+    import matplotlib.pyplot as plt
+
     flood_stats = _get_last_days_messages(user_id, chat_id)
     react_taken, react_given = _get_reaction_totals(user_id, chat_id)
     coffee_rows, coffee_pos = _get_coffee_ranking(chat_id, user_id)

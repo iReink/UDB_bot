@@ -7,7 +7,20 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from contextlib import closing
 
-from db import get_connection, get_all_chats, add_or_update_user, add_geyser_event, get_pending_geyser_events, update_geyser_event_status, update_geyser_event_message_id, update_geyser_event_caught_by, add_sits, get_user, get_user_display_name # Добавляем get_user
+from db import (
+    add_geyser_event,
+    add_sits,
+    claim_geyser_event_with_reward,
+    expire_geyser_event_if_sent,
+    get_all_chats,
+    get_connection,
+    get_geyser_event,
+    get_pending_geyser_events,
+    get_user,
+    get_user_display_name,
+    update_geyser_event_message_id,
+    update_geyser_event_status,
+)
 from settings import get_setting # Для проверки включения гейзера
 
 # --- Константы ---
@@ -136,24 +149,33 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
     message_id = callback.message.message_id
     event_id = int(callback.data.split(":")[1]) # Извлекаем event_id из callback_data
 
-    if message_id not in active_geysers: # Проверяем по message_id
+    event = get_geyser_event(event_id)
+    if (
+        event is None
+        or int(event["chat_id"]) != chat_id
+        or int(event["message_id"] or 0) != message_id
+        or event["status"] != "sent"
+    ):
         await callback.answer("❌ Этот гейзер уже неактивен!", show_alert=True)
-        await callback.message.edit_reply_markup(reply_markup=None)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         return
 
-    geyser_data = active_geysers[message_id] # Доступ по message_id
-    if geyser_data["winner_id"] is not None: # Кто-то уже поймал
-        await callback.answer("❌ Кто-то уже успел поймать сито!", show_alert=True)
+    scheduled_at = datetime.combine(
+        datetime.strptime(event["date"], "%Y-%m-%d").date(),
+        datetime.strptime(event["scheduled_time"], "%H:%M").time(),
+    )
+    now = datetime.now()
+    if now < scheduled_at - GEYSER_SEND_GRACE or now - scheduled_at > GEYSER_TIMEOUT + GEYSER_SEND_GRACE:
+        expire_geyser_event_if_sent(event_id)
+        await callback.answer("❌ Этот гейзер уже неактивен!", show_alert=True)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         return
-    
-    # Назначаем победителя и отменяем таймаут
-    geyser_data["winner_id"] = user_id
-    if geyser_data["timeout_task"]:
-        geyser_data["timeout_task"].cancel()
-    
-    # Обновляем статус в БД на 'caught'
-    update_geyser_event_status(event_id, 'caught')
-    update_geyser_event_caught_by(event_id, user_id)
 
     # Определяем окончание глагола в зависимости от пола пользователя
     user_data = get_user(user_id, chat_id)
@@ -164,6 +186,16 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
     stumble_verb = "споткнулась" if user_sex == 'f' else "споткнулся"
 
     sit_reward = random.randint(GEYSER_SIT_REWARD_MIN, GEYSER_SIT_REWARD_MAX)
+
+    if not claim_geyser_event_with_reward(event_id, chat_id, message_id, user_id, sit_reward):
+        await callback.answer("❌ Кто-то уже успел поймать сито!", show_alert=True)
+        return
+
+    geyser_data = active_geysers.get(message_id)
+    if geyser_data:
+        geyser_data["winner_id"] = user_id
+        if geyser_data["timeout_task"]:
+            geyser_data["timeout_task"].cancel()
 
     if sit_reward == 0:
         result_message = f"{user_name} успешно {caught_verb} сит, но ведро оказалось дырявым. +0 сит"
@@ -181,16 +213,6 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
         await callback.message.answer(result_message) # Убираем @ и добавляем окончание
     except Exception as e:
         logging.error(f"[Geyser] Ошибка при обновлении сообщения гейзера или отправке победы: {e}")
-
-    # Увеличиваем баланс сит
-    # add_or_update_user, но только для sits
-    # with closing(get_connection()) as conn:
-    #     cur = conn.cursor()
-    #     cur.execute("""
-    #         UPDATE users SET sits = sits + ? WHERE user_id = ? AND chat_id = ?
-    #     """, (GEYSER_SIT_REWARD, user_id, chat_id))
-    #     conn.commit()
-    add_sits(chat_id, user_id, sit_reward) # Используем новую функцию add_sits
 
     if sit_reward >= 5:
         today_str = date.today().isoformat()
@@ -217,7 +239,14 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
                     f"{bonus_user_name} {grabbed_verb} капельку себе в карман (+1 сит)"
                 )
 
-            add_sits(chat_id, bonus_user_id, bonus_amount)
+            add_sits(
+                chat_id,
+                bonus_user_id,
+                bonus_amount,
+                action_code="geyser_bonus_reward",
+                action_ru="Дополнительная награда из гейзера",
+                metadata={"catcher_user_id": user_id},
+            )
             try:
                 await callback.message.answer(bonus_message)
             except Exception as e:
@@ -227,7 +256,7 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
         f"[Geyser] Пользователь {user_name} ({user_id}) поймал гейзер в чате {chat_id}, "
         f"event_id: {event_id}, reward: {sit_reward}"
     )
-    del active_geysers[message_id] # Удаляем из активных гейзеров
+    active_geysers.pop(message_id, None)
     await callback.answer() # Закрываем callback
 
 def register_geyser_handlers(dp: Dispatcher):
@@ -279,7 +308,12 @@ async def geyser_loop_task(bot: Bot):
                 update_geyser_event_status(event["id"], "missed")
                 continue
 
-            logging.info(f"[Geyser Loop] Запускаю гейзер {event["id"]} в чате {event["chat_id"]} по расписанию {event["scheduled_time"]}")
+            logging.info(
+                "[Geyser Loop] Запускаю гейзер %s в чате %s по расписанию %s",
+                event["id"],
+                event["chat_id"],
+                event["scheduled_time"],
+            )
             await send_geyser_event(bot, event["chat_id"], event["id"]) # Передаем event_id
         
         await asyncio.sleep(30) # Проверяем каждые 30 секунд

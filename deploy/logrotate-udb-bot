@@ -1,0 +1,11 @@
+/root/UDB_bot/bot.log {
+        su root root
+        rotate 7
+        daily
+        maxsize 20M
+        missingok
+        notifempty
+        compress
+        delaycompress
+        copytruncate
+}

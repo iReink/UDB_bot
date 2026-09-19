@@ -3,6 +3,9 @@ services:
     image: searxng/searxng:latest
     container_name: udb-searxng
     restart: unless-stopped
+    mem_limit: 192m
+    cpus: 0.35
+    pids_limit: 64
     ports:
       - "127.0.0.1:8888:8080"
     volumes:

@@ -6,3 +6,4 @@ ai_worker.local.bat
 deploy/searxng/settings.yml
 бекапы/stats.db
 web_chat_media/
+daily_photo_media/

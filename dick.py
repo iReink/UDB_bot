@@ -80,7 +80,14 @@ def process_top1_throne_for_chat(chat_id: int) -> str | None:
     reward = _throne_reward(days)
 
     if reward > 0:
-        add_sits(chat_id, top_user_id, reward)
+        add_sits(
+            chat_id,
+            top_user_id,
+            reward,
+            action_code="dick_throne_reward",
+            action_ru="Награда за удержание трона",
+            metadata={"days_on_throne": days},
+        )
 
     if penalty > 0:
         top_length = update_dick_length(top_user_id, chat_id, -penalty)
@@ -545,7 +552,14 @@ def register_dick_handlers(dp):
                 if balance < price:
                     await query.answer("Недостаточно сит для покупки 😢", show_alert=True)
                     return
-                add_sits(chat_id, owner_id, -price)
+                add_sits(
+                    chat_id,
+                    owner_id,
+                    -price,
+                    action_code="dick_upgrade_purchase",
+                    action_ru="Покупка увеличения члена",
+                    metadata={"centimeters": cm},
+                )
                 new_length = update_dick_length(owner_id, chat_id, cm)
                 await query.message.answer(
                     f"✅ Покупка успешна! Списано {price} сит, новая длина — {new_length} см."

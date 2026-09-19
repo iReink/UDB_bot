@@ -270,7 +270,14 @@ async def finalize_fight(bot: Bot, fight: FightSession, winner_id: int, winner_r
 
     reward_bonus = random.randint(WIN_SITS_MIN, WIN_SITS_MAX)
     reward_total = BET_COST + reward_bonus
-    add_sits(fight.chat_id, winner_id, reward_total)
+    add_sits(
+        fight.chat_id,
+        winner_id,
+        reward_total,
+        action_code="fight_club_win",
+        action_ru="Выигрыш в бойцовском клубе",
+        metadata={"fight_id": fight.fight_id},
+    )
     winner_name = get_user_display_name(winner_id, fight.chat_id)
     current_balance = await get_current_sits(winner_id, fight.chat_id)
 
@@ -394,7 +401,14 @@ async def challenge_timeout_check(bot: Bot, chat_id: int, challenge_id: int) -> 
         if not challenge or challenge.challenge_id != challenge_id:
             return
 
-        add_sits(chat_id, challenge.challenger_id, BET_COST)
+        add_sits(
+            chat_id,
+            challenge.challenger_id,
+            BET_COST,
+            action_code="fight_club_bet_refund",
+            action_ru="Возврат ставки бойцовского клуба",
+            metadata={"challenge_id": challenge_id, "reason": "timeout"},
+        )
         ACTIVE_CHALLENGES.pop(chat_id, None)
 
         await bot.edit_message_text(
@@ -481,7 +495,14 @@ def register_fight_club_handlers(dp: Dispatcher):
             return
 
         challenger_name = get_user_display_name(challenger_id, chat_id)
-        add_sits(chat_id, challenger_id, -BET_COST)
+        add_sits(
+            chat_id,
+            challenger_id,
+            -BET_COST,
+            action_code="fight_club_bet",
+            action_ru="Ставка в бойцовском клубе",
+            metadata={"role": "challenger"},
+        )
 
         challenge_id = next_fight_id()
         await callback.message.edit_text(
@@ -536,7 +557,14 @@ def register_fight_club_handlers(dp: Dispatcher):
             )
             return
 
-        add_sits(chat_id, accepter_id, -BET_COST)
+        add_sits(
+            chat_id,
+            accepter_id,
+            -BET_COST,
+            action_code="fight_club_bet",
+            action_ru="Ставка в бойцовском клубе",
+            metadata={"role": "accepter", "challenge_id": challenge.challenge_id},
+        )
         accepter_name = get_user_display_name(accepter_id, chat_id)
         await safe_callback_answer(callback, "Вызов принят. Бой начался.")
         await start_fight(callback.bot, challenge, accepter_id, accepter_name)

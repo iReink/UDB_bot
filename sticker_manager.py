@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta
 from db import get_connection  # твоя функция подключения к SQLite
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramMigrateToChat
 
 # ====== НАСТРОЙКИ ======
 SILENCE_STICKER_ID = "CAACAgIAAyEFAASixe81AAEBKBZonrxM7qEb65AQWLINQj-igCqgZQACjHYAAu1RQErYR3VajrrA1TYE"
@@ -14,6 +14,7 @@ CHECK_INTERVAL_SECONDS = 300  # 5 минут
 
 # ====== ВНУТРЕННЕЕ СОСТОЯНИЕ ======
 _last_sent_date: dict[int, datetime.date] = {}
+_migrated_chats: set[int] = set()
 
 bot: Bot = None  # будет инициализирован в main.py
 
@@ -36,6 +37,9 @@ async def silence_checker_task():
                     chat_ids = [row[0] for row in cur.fetchall()]
 
                     for chat_id in chat_ids:
+                        if chat_id in _migrated_chats:
+                            continue
+
                         cur.execute(
                             "SELECT MAX(date) FROM messages_reactions WHERE chat_id = ?", # Использование поля 'date'
                             (chat_id,)
@@ -58,6 +62,14 @@ async def silence_checker_task():
                             await bot.send_sticker(chat_id, SILENCE_STICKER_ID)
                             _last_sent_date[chat_id] = now.date()
                             logging.info(f"[silence_checker] sent sticker to chat {chat_id} at {now.isoformat()}")
+                        except TelegramMigrateToChat as e:
+                            _migrated_chats.add(chat_id)
+                            new_chat_id = getattr(e, "migrate_to_chat_id", None)
+                            logging.warning(
+                                "[silence_checker] chat %s was migrated to supergroup %s, skipping old chat_id",
+                                chat_id,
+                                new_chat_id,
+                            )
                         except TelegramBadRequest as e:
                             message = str(e).lower()
                             if "chat not found" in message:

@@ -1,0 +1,20 @@
+{
+  "title": "UDB Bot database",
+  "databases": {
+    "stats": {
+      "allow": {
+        "id": "admin"
+      },
+      "allow_sql": {
+        "id": "admin"
+      }
+    }
+  },
+  "plugins": {
+    "datasette-auth-passwords": {
+      "admin_password_hash": {
+        "$env": "DATASETTE_PASSWORD_HASH"
+      }
+    }
+  }
+}

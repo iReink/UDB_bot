@@ -44,6 +44,9 @@ CHAT_SUMMARY_MIN_MESSAGE_LENGTH = 10
 CHAT_SUMMARY_TARGET_SECONDS = 2 * 60 * 60
 CHAT_SUMMARY_FORCE_SECONDS = 4 * 60 * 60
 CHAT_SUMMARY_MAX_CHARS = 150
+CHAT_SUMMARY_MAX_MESSAGES = 120
+CHAT_SUMMARY_MESSAGES_CHAR_LIMIT = 12_000
+CHAT_SUMMARY_FAILURE_BACKOFF_SECONDS = 4 * 60 * 60
 RESPONSE_MODEL = "gemma4:e4b"
 RESPONSE_PRIORITY = 200
 RESPONSE_MAX_RETRY_ATTEMPT = 2
@@ -1788,9 +1791,37 @@ def get_latest_done_chat_summary(chat_id: int) -> sqlite3.Row | None:
         return cur.fetchone()
 
 
+def get_latest_terminal_chat_summary(chat_id: int) -> sqlite3.Row | None:
+    ensure_ai_summary_table()
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT *
+            FROM ai_summary
+            WHERE chat_id = ? AND status IN (?, ?)
+            ORDER BY window_end DESC, id DESC
+            LIMIT 1
+            """,
+            (chat_id, TASK_STATUS_DONE, TASK_STATUS_FAILED),
+        )
+        return cur.fetchone()
+
+
+def _chat_summary_failure_backoff_left(summary: sqlite3.Row | None, *, now_dt: datetime) -> float:
+    if not summary or summary["status"] != TASK_STATUS_FAILED:
+        return 0.0
+    finished_raw = summary["finished_at"] or summary["updated_at"] or summary["created_at"]
+    finished_dt = _summary_dt(finished_raw)
+    if not finished_dt:
+        return 0.0
+    elapsed = max(0.0, (now_dt - finished_dt).total_seconds())
+    return max(0.0, CHAT_SUMMARY_FAILURE_BACKOFF_SECONDS - elapsed)
+
+
 def get_chat_summary_window(chat_id: int, *, now_dt: datetime | None = None) -> tuple[datetime, datetime, float]:
     now_dt = _summary_dt(now_dt) or local_now()
-    latest = get_latest_done_chat_summary(chat_id)
+    latest = get_latest_terminal_chat_summary(chat_id)
     if latest and latest["window_end"]:
         window_start = _summary_dt(latest["window_end"]) or (now_dt - timedelta(seconds=CHAT_SUMMARY_FORCE_SECONDS))
         elapsed_seconds = max(0.0, (now_dt - window_start).total_seconds())
@@ -1798,6 +1829,27 @@ def get_chat_summary_window(chat_id: int, *, now_dt: datetime | None = None) -> 
         window_start = now_dt - timedelta(seconds=CHAT_SUMMARY_FORCE_SECONDS)
         elapsed_seconds = float(CHAT_SUMMARY_FORCE_SECONDS)
     return window_start, now_dt, elapsed_seconds
+
+
+def limit_chat_summary_messages(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int, bool]:
+    if not messages:
+        return [], 0, False
+
+    selected: list[dict[str, Any]] = []
+    used_chars = 0
+    for item in reversed(messages):
+        text = str(item.get("text") or "").replace("\r", " ").replace("\n", " ").strip()
+        line_chars = len(text) + 120
+        if selected and used_chars + line_chars > CHAT_SUMMARY_MESSAGES_CHAR_LIMIT:
+            break
+        selected.append(item)
+        used_chars += line_chars
+        if len(selected) >= CHAT_SUMMARY_MAX_MESSAGES:
+            break
+
+    selected.reverse()
+    omitted = max(0, len(messages) - len(selected))
+    return selected, omitted, omitted > 0
 
 
 def get_chat_summary_messages(
@@ -1851,6 +1903,8 @@ def build_chat_summary_prompt(
     window_start: str,
     window_end: str,
     messages: list[dict[str, Any]],
+    source_message_count: int | None = None,
+    omitted_message_count: int = 0,
     previous_response: str | None = None,
     previous_error: str | None = None,
 ) -> str:
@@ -1877,6 +1931,13 @@ def build_chat_summary_prompt(
             f"- [{item['date']}] user_id={item['user_id']} name={name} nick={nick}: {text}"
         )
     messages_block = "\n".join(message_lines)
+    source_message_count = len(messages) if source_message_count is None else int(source_message_count)
+    truncation_note = ""
+    if omitted_message_count > 0:
+        truncation_note = (
+            f"- Сообщений в полном окне до усечения: {source_message_count}\n"
+            f"- В prompt включены последние {len(messages)} сообщений; пропущено старых сообщений: {omitted_message_count}\n"
+        )
 
     return f"""Ты сжимаешь короткий период переписки Telegram-чата в компактное summary для долговременной памяти бота.
 
@@ -1884,6 +1945,8 @@ def build_chat_summary_prompt(
 - chat_id: {chat_id}
 - window_start: {window_start}
 - window_end: {window_end}
+- source_message_count: {source_message_count}
+{truncation_note}
 - сообщений после фильтра: {len(messages)}
 
 Контракт ответа:
@@ -1912,6 +1975,17 @@ def create_chat_summary_task_for_chat(
     if has_pending_chat_summary(chat_id):
         return {"chat_id": chat_id, "created": 0, "skipped_reason": "summary_already_pending"}
 
+    now_dt = _summary_dt(now_dt) or local_now()
+    latest_terminal = get_latest_terminal_chat_summary(chat_id)
+    backoff_left = _chat_summary_failure_backoff_left(latest_terminal, now_dt=now_dt)
+    if backoff_left > 0:
+        return {
+            "chat_id": chat_id,
+            "created": 0,
+            "skipped_reason": "failed_backoff",
+            "backoff_left_seconds": int(backoff_left),
+        }
+
     window_start_dt, window_end_dt, elapsed_seconds = get_chat_summary_window(chat_id, now_dt=now_dt)
     if elapsed_seconds < CHAT_SUMMARY_TARGET_SECONDS:
         return {"chat_id": chat_id, "created": 0, "skipped_reason": "too_early"}
@@ -1930,17 +2004,22 @@ def create_chat_summary_task_for_chat(
     if not messages:
         return {"chat_id": chat_id, "created": 0, "skipped_reason": "no_messages"}
 
+    limited_messages, omitted_message_count, _ = limit_chat_summary_messages(messages)
     prompt = build_chat_summary_prompt(
         chat_id=chat_id,
         window_start=window_start,
         window_end=window_end,
-        messages=messages,
+        messages=limited_messages,
+        source_message_count=len(messages),
+        omitted_message_count=omitted_message_count,
     )
     payload = {
         "chat_id": chat_id,
         "window_start": window_start,
         "window_end": window_end,
         "message_count": len(messages),
+        "included_message_count": len(limited_messages),
+        "omitted_message_count": omitted_message_count,
         "source": "messages_reactions",
     }
     now = now_iso()
@@ -3083,7 +3162,7 @@ def mark_chat_summary_task_done(task_id: int, *, summary_text: str) -> None:
         cur.execute(
             """
             UPDATE ai_tasks
-            SET status = ?, result_text = ?, error_text = NULL, lease_until = NULL,
+            SET status = ?, prompt = '', result_text = ?, error_text = NULL, lease_until = NULL,
                 updated_at = ?, finished_at = ?
             WHERE id = ?
             """,
@@ -3107,11 +3186,14 @@ def _rebuild_chat_summary_retry_prompt(
         window_start=window_start,
         window_end=window_end,
     )
+    limited_messages, omitted_message_count, _ = limit_chat_summary_messages(messages)
     return build_chat_summary_prompt(
         chat_id=chat_id,
         window_start=window_start,
         window_end=window_end,
-        messages=messages,
+        messages=limited_messages,
+        source_message_count=len(messages),
+        omitted_message_count=omitted_message_count,
         previous_response=previous_response,
         previous_error=previous_error,
     )
@@ -3164,7 +3246,7 @@ def requeue_or_fail_chat_summary_task(
         cur.execute(
             """
             UPDATE ai_tasks
-            SET status = ?, error_text = ?, lease_until = NULL, updated_at = ?, finished_at = ?
+            SET status = ?, prompt = '', error_text = ?, lease_until = NULL, updated_at = ?, finished_at = ?
             WHERE id = ?
             """,
             (TASK_STATUS_FAILED, error_text, now, now, task_id),

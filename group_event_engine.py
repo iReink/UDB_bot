@@ -44,7 +44,14 @@ class GroupEventEngine:
         if balance < EVENT_COST:
             return EngineResult(ok=False, code="insufficient_sits", display_name=display_name)
 
-        add_sits(chat_id, user_id, -EVENT_COST)
+        add_sits(
+            chat_id,
+            user_id,
+            -EVENT_COST,
+            action_code="group_event_start",
+            action_ru="Запуск групповой мастурбации",
+            metadata={"source": source},
+        )
         status = self.store.create_event(
             chat_id=chat_id,
             started_by_user_id=user_id,
@@ -53,7 +60,14 @@ class GroupEventEngine:
             source=source,
         )
         if status != "started":
-            add_sits(chat_id, user_id, EVENT_COST)
+            add_sits(
+                chat_id,
+                user_id,
+                EVENT_COST,
+                action_code="group_event_start_refund",
+                action_ru="Возврат за неудачный запуск групповой мастурбации",
+                metadata={"source": source, "status": status},
+            )
             if status == "active_exists":
                 return EngineResult(ok=False, code="event_already_active")
             return EngineResult(ok=False, code="unexpected_error")
@@ -94,7 +108,14 @@ class GroupEventEngine:
                 return EngineResult(ok=False, code="no_active_event", display_name=display_name, thread_id=event["thread_id"])
             return EngineResult(ok=True, code="joined_as_freebie", display_name=display_name, thread_id=event["thread_id"])
 
-        add_sits(chat_id, user_id, -JOIN_COST)
+        add_sits(
+            chat_id,
+            user_id,
+            -JOIN_COST,
+            action_code="group_event_join",
+            action_ru="Участие в групповой мастурбации",
+            metadata={"source": source},
+        )
         status = self.store.add_member(
             chat_id=chat_id,
             user_id=user_id,
@@ -104,7 +125,14 @@ class GroupEventEngine:
             source=source,
         )
         if status != "added":
-            add_sits(chat_id, user_id, JOIN_COST)
+            add_sits(
+                chat_id,
+                user_id,
+                JOIN_COST,
+                action_code="group_event_join_refund",
+                action_ru="Возврат за неудачное участие в групповой мастурбации",
+                metadata={"source": source, "status": status},
+            )
             if status == "already_joined":
                 return EngineResult(ok=False, code="already_joined", display_name=display_name, thread_id=event["thread_id"])
             if status == "join_closed":

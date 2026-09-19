@@ -689,7 +689,8 @@ def register_daily_handlers(dp: Dispatcher):
 
 
     @dp.message(Command("daily"))
-    async def daily_menu(message: types.Message):
+    async def daily_menu(message: types.Message, edit: bool = False):
+        send = message.edit_text if edit else message.answer
         chat_id = message.chat.id
         now_dt = datetime.now()
         today_str = now_dt.strftime("%Y-%m-%d")
@@ -704,10 +705,11 @@ def register_daily_handlers(dp: Dispatcher):
             rows = cur.fetchall()
             if not rows:
                 keyboard = InlineKeyboardBuilder()
-                keyboard.add(
+                keyboard.row(InlineKeyboardButton(text="🔎 Найти дейлик", callback_data="dsearch:open"))
+                keyboard.row(
                     InlineKeyboardButton(text="👾 Создать новый дейлик", callback_data="daily_new_daily")
                 )
-                await message.answer("Запланированных дейли нет.", reply_markup=keyboard.as_markup())
+                await send("Запланированных дейли нет.", reply_markup=keyboard.as_markup())
                 return
 
             columns = [column[0] for column in cur.description]
@@ -763,13 +765,14 @@ def register_daily_handlers(dp: Dispatcher):
         kb.row(
             InlineKeyboardButton(text="📆 Все дейли", callback_data="daily_all_dailies")
         )
+        kb.row(InlineKeyboardButton(text="🔎 Найти дейлик", callback_data="dsearch:open"))
         kb.row(
             InlineKeyboardButton(text="👾 Создать новый дейлик", callback_data="daily_new_daily")
         )
         kb.row(
             InlineKeyboardButton(text="✍️ Редактировать дейлик", callback_data="daily_edit_daily")
         )
-        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
+        await send(text, reply_markup=kb.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
 
     # ==========================
     # CALLBACK-ОБРАБОТЧИКИ
@@ -1001,6 +1004,7 @@ def register_daily_handlers(dp: Dispatcher):
         elif data.startswith("daily_confirm_delete:"):
             daily_id = int(data.split(":")[1])
             with closing(sqlite3.connect(DB_PATH)) as conn:
+                conn.execute('BEGIN IMMEDIATE')
                 cur = conn.cursor()
                 # Получаем calendar_event_id перед удалением дейлика
                 cur.execute("SELECT name, creator_user_id, calendar_event_id FROM daily_events WHERE id=?", (daily_id,))
@@ -1009,6 +1013,10 @@ def register_daily_handlers(dp: Dispatcher):
                     await query.answer("Дейлик уже удалён", show_alert=True)
                     return
                 daily_name, creator_id, calendar_event_id = row
+                import photo_albums
+                if photo_albums.has_protected_photos(daily_id, chat_id):
+                    await query.answer('Сначала удалите фотографии дейлика', show_alert=True)
+                    return
                 # Проверка прав
                 if user_id != creator_id and user_id not in admin_ids:
                     await query.answer("Удалять может только создатель или админ", show_alert=True)
@@ -1083,6 +1091,9 @@ def register_daily_handlers(dp: Dispatcher):
             
             await query.message.answer(message_text, parse_mode="HTML", disable_web_page_preview=True)
             await query.answer("Участники отмечены!")
+
+    import daily_search_bot
+    daily_search_bot.register(dp, lambda message: daily_menu(message, edit=True))
 
 import asyncio
 from datetime import datetime, timedelta

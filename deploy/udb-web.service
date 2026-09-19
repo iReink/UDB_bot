@@ -7,7 +7,7 @@ User=root
 Group=root
 WorkingDirectory=/root/UDB_bot
 EnvironmentFile=/root/UDB_bot/.env.web
-ExecStart=/root/UDB_bot/venv/bin/uvicorn web.server:app --host 127.0.0.1 --port 8080
+ExecStart=/root/UDB_bot/venv/bin/uvicorn web.server:app --host 127.0.0.1 --port 8080 --no-access-log
 Restart=always
 RestartSec=3
 

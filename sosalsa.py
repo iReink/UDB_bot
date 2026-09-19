@@ -333,7 +333,7 @@ async def process_daily_regeneration():
 
         conn.commit()
 
-    # ��������� ��������� � ��� �� ����������, ������ �������� ���� ��������������.
+    # Сервисное сообщение в чат не отправляем, только логируем факт восстановления.
     restored = sum(len(lines) for lines in chat_reports.values())
     if restored > 0:
         logging.info("[daily_regeneration] restored body parts for %d users", restored)
@@ -493,7 +493,14 @@ def register_sos_handlers(dp):
 
             target_name = get_user_display_name(target_id, chat_id)
             increment_sosalsa(chat_id, user_id, target_id, shpeh=False)
-            add_sits(chat_id, user_id, -cost)
+            add_sits(
+                chat_id,
+                user_id,
+                -cost,
+                action_code="sosalsa_purchase",
+                action_ru="Покупка действия «сосаться»",
+                metadata={"target_user_id": target_id},
+            )
 
             await query.message.answer(f"💋 {buyer_name} {verb_sos(buyer_sex)} с {target_name}")
 
@@ -522,11 +529,25 @@ def register_sos_handlers(dp):
             increment_sosalsa(chat_id, user_id, target_id, shpeh=True)
 
             # Снимаем 5 ситов у инициатора
-            add_sits(chat_id, user_id, -cost)
+            add_sits(
+                chat_id,
+                user_id,
+                -cost,
+                action_code="shpeh_purchase",
+                action_ru="Покупка действия «шпёхаться»",
+                metadata={"target_user_id": target_id},
+            )
 
             # Случайная награда партнёру: 1–3 сита
             reward = random.randint(1, 3)
-            add_sits(chat_id, target_id, reward)
+            add_sits(
+                chat_id,
+                target_id,
+                reward,
+                action_code="shpeh_partner_reward",
+                action_ru="Награда партнёру за шпёх",
+                metadata={"initiator_user_id": user_id},
+            )
 
             await query.message.answer(
                 f"🔥 {buyer_name} {verb_shpeh(buyer_sex)} с {target_name}\n"
@@ -572,7 +593,13 @@ def register_sos_handlers(dp):
                     return
 
                 # Списываем сит
-                add_sits(chat_id, user_id, -cost)
+                add_sits(
+                    chat_id,
+                    user_id,
+                    -cost,
+                    action_code="bite_purchase",
+                    action_ru="Покупка укуса",
+                )
 
                 # Выбираем случайного «жертву»
                 victim_id = random.choice(users_with_parts)

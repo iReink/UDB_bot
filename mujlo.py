@@ -117,7 +117,13 @@ async def handle_mujlo_buy(callback: types.CallbackQuery):
             return
 
         # Обновляем данные
-        add_sits(chat_id, target_user_id, -2)
+        add_sits(
+            chat_id,
+            target_user_id,
+            -2,
+            action_code="mujlo_freedom_purchase",
+            action_ru="Покупка освобождения",
+        )
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute("UPDATE mujlo SET mujlo_freed=1 WHERE chat_id=? AND user_id=?", (chat_id, target_user_id))

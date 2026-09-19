@@ -9,6 +9,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 
 # from main import ADMIN_IDS # Импортируем список админов - Эту строку удаляем
 ADMIN_IDS = {6010666986, 884940984, 749027951} # Переносим определение ADMIN_IDS сюда
+import os
+_admin_override = os.getenv('ADMIN_IDS', '').replace(';', ',')
+_parsed_admins = {int(value.strip()) for value in _admin_override.split(',') if value.strip().isdigit()}
+if _parsed_admins:
+    ADMIN_IDS = _parsed_admins
 
 DB_PATH = "stats.db"
 AI_RESPONSE_CHANCE_SETTING = "ai_response_chance_percent"

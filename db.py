@@ -1,3 +1,4 @@
+import json
 import logging
 import sqlite3
 from contextlib import closing
@@ -10,12 +11,16 @@ from sits import to_sits
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "stats.db")
 WEB_CHAT_MEDIA_DIR = os.path.join(BASE_DIR, "web_chat_media")
-WEB_CHAT_MEDIA_RETENTION_DAYS = 7
+WEB_CHAT_MEDIA_RETENTION_DAYS = 3
+SQLITE_BUSY_TIMEOUT_MS = 5_000
 
 def get_connection():
-    """Создаёт подключение к БД"""
-    conn = sqlite3.connect(DB_FILE)
+    """Create a consistently configured SQLite connection."""
+    conn = sqlite3.connect(DB_FILE, timeout=SQLITE_BUSY_TIMEOUT_MS / 1_000)
     conn.row_factory = sqlite3.Row  # строки будут как словари
+    conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA wal_autocheckpoint=1000")
     return conn
 
 
@@ -143,6 +148,13 @@ def cleanup_web_chat_media(retention_days: int = WEB_CHAT_MEDIA_RETENTION_DAYS) 
 def initialize_db():
     with closing(get_connection()) as conn:
         cursor = conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(users)")
+            user_columns = {row["name"] for row in cursor.fetchall()}
+            if "nick" not in user_columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN nick TEXT")
         # Таблица для отслеживания гейзеров (обновленная структура)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS geyser_events (
@@ -171,6 +183,36 @@ def initialize_db():
                 amount REAL NOT NULL
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sit_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                date TEXT NOT NULL,
+                time TEXT NOT NULL,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                nick TEXT NOT NULL DEFAULT '',
+                display_name TEXT NOT NULL DEFAULT '',
+                amount REAL NOT NULL,
+                balance_before REAL NOT NULL,
+                balance_after REAL NOT NULL,
+                action_code TEXT NOT NULL,
+                action_ru TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sit_ledger_user_chat_created
+            ON sit_ledger(user_id, chat_id, created_at)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sit_ledger_chat_created
+            ON sit_ledger(chat_id, created_at)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sit_ledger_action_created
+            ON sit_ledger(action_code, created_at)
+        """)
         # Совместимость со статистикой укусов в sosalsa/weekly_awards.
         # В старых БД этих колонок может не быть.
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_stats'")
@@ -190,6 +232,15 @@ def initialize_db():
                 cursor.execute("ALTER TABLE total_stats ADD COLUMN bites_given INTEGER DEFAULT 0")
             if "bites_received" not in total_stats_columns:
                 cursor.execute("ALTER TABLE total_stats ADD COLUMN bites_received INTEGER DEFAULT 0")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='messages_reactions'")
+        if cursor.fetchone():
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_messages_reactions_chat_date
+                ON messages_reactions(chat_id, date)
+                """
+            )
 
         # Базовые ачивки укусов (если таблица achievements существует).
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='achievements'")
@@ -452,6 +503,97 @@ def increment_total_stats(user_id: int, chat_id: int,
         """, (user_id, chat_id, messages, words, chars, stickers, coffee, rounds, profanity_count))
         conn.commit()
 
+
+def record_message_activity(
+    *,
+    user_id: int,
+    chat_id: int,
+    user_name: str,
+    nick: str | None,
+    message_id: int,
+    message_text: str,
+    date_str: str,
+    message_datetime: str,
+    messages: int = 0,
+    words: int = 0,
+    chars: int = 0,
+    stickers: int = 0,
+    rounds: int = 0,
+    profanity_count: int = 0,
+    sticker_file_id: str | None = None,
+    sticker_set_name: str | None = None,
+) -> None:
+    """Persist one Telegram message and its counters in a single transaction."""
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute(
+                """
+                INSERT INTO users (user_id, chat_id, name, nick)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, chat_id) DO UPDATE SET
+                    name = excluded.name,
+                    nick = COALESCE(excluded.nick, users.nick)
+                WHERE users.name IS NOT excluded.name
+                   OR (excluded.nick IS NOT NULL AND users.nick IS NOT excluded.nick)
+                """,
+                (user_id, chat_id, user_name, nick),
+            )
+            cur.execute(
+                """
+                INSERT INTO daily_stats
+                    (user_id, chat_id, date, messages, words, chars, stickers, rounds, profanity_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, chat_id, date) DO UPDATE SET
+                    messages = daily_stats.messages + excluded.messages,
+                    words = daily_stats.words + excluded.words,
+                    chars = daily_stats.chars + excluded.chars,
+                    stickers = daily_stats.stickers + excluded.stickers,
+                    rounds = daily_stats.rounds + excluded.rounds,
+                    profanity_count = daily_stats.profanity_count + excluded.profanity_count
+                """,
+                (user_id, chat_id, date_str, messages, words, chars, stickers, rounds, profanity_count),
+            )
+            cur.execute(
+                """
+                INSERT INTO total_stats
+                    (user_id, chat_id, messages, words, chars, stickers, rounds, profanity_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, chat_id) DO UPDATE SET
+                    messages = total_stats.messages + excluded.messages,
+                    words = total_stats.words + excluded.words,
+                    chars = total_stats.chars + excluded.chars,
+                    stickers = total_stats.stickers + excluded.stickers,
+                    rounds = total_stats.rounds + excluded.rounds,
+                    profanity_count = total_stats.profanity_count + excluded.profanity_count
+                """,
+                (user_id, chat_id, messages, words, chars, stickers, rounds, profanity_count),
+            )
+            cur.execute(
+                """
+                INSERT OR IGNORE INTO messages_reactions
+                    (chat_id, message_id, user_id, message_text, reactions_count, date)
+                VALUES (?, ?, ?, ?, 0, ?)
+                """,
+                (chat_id, message_id, user_id, message_text, message_datetime),
+            )
+            if sticker_file_id:
+                cur.execute(
+                    """
+                    INSERT INTO sticker_stats (chat_id, file_id, set_name, date, count)
+                    VALUES (?, ?, ?, ?, 1)
+                    ON CONFLICT(chat_id, file_id, date) DO UPDATE SET
+                        count = sticker_stats.count + 1,
+                        set_name = COALESCE(excluded.set_name, sticker_stats.set_name)
+                    """,
+                    (chat_id, sticker_file_id, sticker_set_name, date_str),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
 def increment_sticker_stats(chat_id: int, file_id: str, set_name: str | None = None, date_str: str | None = None):
     """
     Увеличивает счётчик для (chat_id, file_id, date).
@@ -539,31 +681,162 @@ def has_active_subscription(chat_id: int, user_id: int) -> bool:
             return False
     return has_active_subscription_str(row["subscription_till"] if row else "")
 
-def add_sits(chat_id: int, user_id: int, amount: float):
-    """Добавляет или вычитает сит для пользователя."""
-    # Убеждаемся, что пользователь существует
+class InsufficientSitsError(ValueError):
+    def __init__(self, balance: float):
+        super().__init__("insufficient sits")
+        self.balance = to_sits(balance)
+
+
+def apply_sit_change(
+    conn: sqlite3.Connection,
+    chat_id: int,
+    user_id: int,
+    amount: float,
+    *,
+    action_code: str,
+    action_ru: str,
+    metadata: Optional[dict] = None,
+    require_sufficient: bool = False,
+) -> tuple[float, float]:
+    """Change a balance and append its audit row using the caller's transaction."""
     delta = to_sits(amount)
     if delta == 0:
-        return
+        raise ValueError("sit change amount must not be zero")
+    if not action_code.strip() or not action_ru.strip():
+        raise ValueError("action_code and action_ru are required")
 
-    user = get_user(user_id, chat_id)
-    if user is None:
-        # Если пользователя нет, создаем его с указанным количеством сит
-        add_or_update_user(user_id, chat_id, name="", sits=delta)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT COALESCE(name, '') AS name,
+               COALESCE(nick, '') AS nick,
+               COALESCE(sits, 0) AS sits
+        FROM users
+        WHERE user_id = ? AND chat_id = ?
+        """,
+        (user_id, chat_id),
+    )
+    row = cur.fetchone()
+    balance_before = to_sits(row["sits"] if row else 0)
+    balance_after = to_sits(balance_before + delta)
+    if require_sufficient and delta < 0 and balance_after < 0:
+        raise InsufficientSitsError(balance_before)
+
+    if row is None:
+        cur.execute(
+            """
+            INSERT INTO users (user_id, chat_id, name, sits)
+            VALUES (?, ?, '', ?)
+            """,
+            (user_id, chat_id, balance_after),
+        )
+        display_name = ""
+        nick = ""
     else:
-        # Если пользователь есть, обновляем его количество сит
-        new_sits = to_sits((user["sits"] or 0) + delta)
-        add_or_update_user(user_id, chat_id, name=user["name"], sits=new_sits)
+        cur.execute(
+            """
+            UPDATE users
+            SET sits = ?
+            WHERE user_id = ? AND chat_id = ?
+            """,
+            (balance_after, user_id, chat_id),
+        )
+        display_name = str(row["name"] or "")
+        nick = str(row["nick"] or "")
+
+    if nick and not nick.startswith("@"):
+        nick = f"@{nick}"
+    now = datetime.now()
+    date_value = now.date().isoformat()
+    time_value = now.strftime("%H:%M:%S")
+    cur.execute(
+        """
+        INSERT INTO sit_ledger (
+            created_at, date, time, chat_id, user_id, nick, display_name,
+            amount, balance_before, balance_after, action_code, action_ru,
+            metadata_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            now.isoformat(timespec="seconds"),
+            date_value,
+            time_value,
+            chat_id,
+            user_id,
+            nick,
+            display_name,
+            delta,
+            balance_before,
+            balance_after,
+            action_code.strip(),
+            action_ru.strip(),
+            json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+        ),
+    )
+
+    # Keep the legacy income table intact for existing reports.
     if delta > 0:
-        now = datetime.now()
-        name = get_user_display_name(user_id, chat_id)
-        with closing(get_connection()) as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (now.date().isoformat(), now.strftime("%H:%M:%S"), chat_id, user_id, name, delta))
+        cur.execute(
+            """
+            INSERT INTO sit_stats (date, time, chat_id, user_id, name, amount)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (date_value, time_value, chat_id, user_id, display_name or nick, delta),
+        )
+    return balance_before, balance_after
+
+
+def change_sits(
+    chat_id: int,
+    user_id: int,
+    amount: float,
+    *,
+    action_code: str,
+    action_ru: str,
+    metadata: Optional[dict] = None,
+    require_sufficient: bool = False,
+) -> tuple[float, float]:
+    """Atomically change a user's balance and record the movement."""
+    with closing(get_connection()) as conn:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            result = apply_sit_change(
+                conn,
+                chat_id,
+                user_id,
+                amount,
+                action_code=action_code,
+                action_ru=action_ru,
+                metadata=metadata,
+                require_sufficient=require_sufficient,
+            )
             conn.commit()
+            return result
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def add_sits(
+    chat_id: int,
+    user_id: int,
+    amount: float,
+    *,
+    action_code: str,
+    action_ru: str,
+    metadata: Optional[dict] = None,
+) -> float:
+    """Return the new balance after an audited change."""
+    _, balance_after = change_sits(
+        chat_id,
+        user_id,
+        amount,
+        action_code=action_code,
+        action_ru=action_ru,
+        metadata=metadata,
+    )
+    return balance_after
 
 # --- Функции для работы с гейзером ---
 def add_geyser_event(chat_id: int, date_str: str, scheduled_time: str, status: str = 'pending'):
@@ -599,5 +872,75 @@ def update_geyser_event_caught_by(event_id: int, user_id: int):
         cur.execute("UPDATE geyser_events SET caught_by=? WHERE id=?", (user_id, event_id))
         conn.commit()
 
-# Вызываем инициализацию при загрузке модуля
-initialize_db()
+
+def expire_geyser_event_if_sent(event_id: int) -> bool:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE geyser_events SET status = 'expired' WHERE id = ? AND status = 'sent'",
+            (event_id,),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def get_geyser_event(event_id: int) -> Optional[sqlite3.Row]:
+    with closing(get_connection()) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, chat_id, date, scheduled_time, status, message_id, caught_by
+            FROM geyser_events
+            WHERE id = ?
+            """,
+            (event_id,),
+        )
+        return cur.fetchone()
+
+
+def claim_geyser_event_with_reward(
+    event_id: int,
+    chat_id: int,
+    message_id: int,
+    user_id: int,
+    reward: float,
+) -> bool:
+    """Atomically claim a sent geyser and apply its non-zero reward."""
+    with closing(get_connection()) as conn:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE geyser_events
+                SET status = 'caught', caught_by = ?
+                WHERE id = ?
+                  AND chat_id = ?
+                  AND message_id = ?
+                  AND status = 'sent'
+                """,
+                (user_id, event_id, chat_id, message_id),
+            )
+            if cur.rowcount != 1:
+                conn.rollback()
+                return False
+
+            if to_sits(reward) != 0:
+                apply_sit_change(
+                    conn,
+                    chat_id,
+                    user_id,
+                    reward,
+                    action_code="geyser_catch_reward",
+                    action_ru="Награда за поимку гейзера",
+                    metadata={"event_id": event_id, "message_id": message_id},
+                )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+
+# Тестовый раннер отключает побочный эффект импорта и создаёт отдельные БД в setUp.
+if os.getenv("UDB_SKIP_DB_INIT") != "1":
+    initialize_db()

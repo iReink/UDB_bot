@@ -26,6 +26,7 @@ from quest import update_quest_progress
 logger = logging.getLogger(__name__)
 
 STICKER_FILE_ID = "CAACAgIAAyEFAASjKavKAAIDrGi31TwpfP-R-JI64M0v6eRnTCFxAAJMUAACITxRSq0hIi2dEdhQNgQ"
+GROUP_START_ANNOUNCEMENT = "Групповая мастурбация начнётся через 10 минут!"
 
 PREPARE_DELAY_SEC = 10 * 60
 JOIN_WINDOW_SEC = 5 * 60
@@ -244,6 +245,13 @@ async def _outbox_worker(bot: Bot) -> None:
                     sticker = str(payload.get("sticker") or "")
                     if sticker:
                         await bot.send_sticker(chat_id, sticker, **send_kwargs)
+                elif kind == "send_group_reminder_prompt":
+                    await bot.send_message(
+                        chat_id,
+                        "Хочешь напоминание о старте? Нажми кнопку!",
+                        reply_markup=remind_keyboard(),
+                        **send_kwargs,
+                    )
                 elif kind == "edit_reply_markup":
                     message_id = int(payload["message_id"])
                     await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
@@ -372,7 +380,6 @@ def register_group_handlers(dp):
 async def start_group_event(message: types.Message, user_id: int):
     chat_id = message.chat.id
     thread_id = _resolve_group_thread_id(chat_id, message.message_thread_id)
-    send_kwargs = _send_kwargs_from_thread_id(chat_id, thread_id)
     fallback_name = message.from_user.full_name or (f"@{message.from_user.username}" if message.from_user.username else str(user_id))
     display_name = _engine.resolve_display_name(chat_id, user_id, fallback_name)
 
@@ -396,6 +403,19 @@ async def start_group_event(message: types.Message, user_id: int):
         await message.answer("Не удалось запустить ивент. Попробуй ещё раз.")
         return
 
+    # Queue the complete launch announcement before optional side effects.  This
+    # keeps it durable and prevents a Telegram send error from skipping it.
+    _enqueue_outbox_sticker(chat_id=chat_id, sticker=STICKER_FILE_ID, thread_id=result.thread_id)
+    _enqueue_outbox_text(
+        chat_id=chat_id,
+        text=GROUP_START_ANNOUNCEMENT,
+        thread_id=result.thread_id,
+    )
+    _enqueue_outbox_text(
+        chat_id=chat_id,
+        text=f"С твоего счёта списано {EVENT_COST} сит за запуск ивента",
+        thread_id=result.thread_id,
+    )
     _enqueue_outbox_start_event_flow(chat_id)
 
     try:
@@ -409,19 +429,16 @@ async def start_group_event(message: types.Message, user_id: int):
         suffix="Сит-премиум, сбор объявлен. Если хочешь участвовать, жди открытия окна и жми кнопку.",
     )
     if subscription_ping_text:
-        await message.answer(subscription_ping_text, **send_kwargs)
+        _enqueue_outbox_text(
+            chat_id=chat_id,
+            text=subscription_ping_text,
+            thread_id=result.thread_id,
+        )
 
-    _enqueue_outbox_sticker(chat_id=chat_id, sticker=STICKER_FILE_ID, thread_id=result.thread_id)
-    _enqueue_outbox_text(
+    _store.enqueue_outbox(
         chat_id=chat_id,
-        text=f"С твоего счёта списано {EVENT_COST} сит за запуск ивента",
-        thread_id=result.thread_id,
-    )
-
-    await message.answer(
-        "Хочешь напоминание о старте? Нажми кнопку!",
-        reply_markup=remind_keyboard(),
-        **send_kwargs,
+        kind="send_group_reminder_prompt",
+        payload={"thread_id": result.thread_id},
     )
 
 
@@ -555,7 +572,13 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         winner_mention = get_winner_mention(chat_id, winner_id, winner_name)
         reward = len(participants) + 1
         winner_reward_sits = float(reward)
-        add_sits(chat_id, winner_id, reward)
+        add_sits(
+            chat_id,
+            winner_id,
+            reward,
+            action_code="group_event_win",
+            action_ru="Победа в групповой мастурбации",
+        )
         await bot.send_message(chat_id, f"🎉 Победитель: {winner_mention}! Получает {reward} сит!", **send_kwargs)
         await update_quest_progress(winner_id, chat_id, "group_win", 1, bot=bot)
         try:
@@ -568,7 +591,13 @@ async def _run_event_flow(bot: Bot, chat_id: int):
             lucky_freebie_name = freebie_names.get(lucky_freebie) or get_user_display_name(lucky_freebie, chat_id)
             lucky_freebie_user_id = lucky_freebie
             lucky_freebie_name = lucky_freebie_name
-            add_sits(chat_id, lucky_freebie, 1)
+            add_sits(
+                chat_id,
+                lucky_freebie,
+                1,
+                action_code="group_event_freebie_reward",
+                action_ru="Случайная награда зрителю групповой мастурбации",
+            )
             await bot.send_message(chat_id, f"✨ Также немножко капнуло на {lucky_freebie_name} — +1 сит!", **send_kwargs)
 
     _store.save_event_result(

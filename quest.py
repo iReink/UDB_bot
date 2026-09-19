@@ -50,13 +50,19 @@ async def update_quest_progress(user_id: int, chat_id: int, quest_type: str, inc
     if result:
         new_progress, target, reward = result
         if new_progress >= target:
-            await complete_quest(user_id, chat_id, reward, bot)
+            await complete_quest(user_id, chat_id, reward, bot, quest_type=quest_type)
 
 # ==============================
 # ЗАВЕРШЕНИЕ КВЕСТА
 # ==============================
 
-async def complete_quest(user_id: int, chat_id: int, reward: int, bot: Optional[Bot] = None):
+async def complete_quest(
+    user_id: int,
+    chat_id: int,
+    reward: int,
+    bot: Optional[Bot] = None,
+    quest_type: str = "unknown",
+):
     """Отмечает квест выполненным, выдает награду и шлёт сообщение в чат."""
     today = date.today().isoformat()
 
@@ -73,7 +79,14 @@ async def complete_quest(user_id: int, chat_id: int, reward: int, bot: Optional[
     await asyncio.to_thread(db_logic)
 
     user_name = get_user_display_name(user_id, chat_id)
-    add_sits(chat_id, user_id, reward)
+    add_sits(
+        chat_id,
+        user_id,
+        reward,
+        action_code="quest_reward",
+        action_ru="Награда за выполнение квеста",
+        metadata={"quest_type": quest_type},
+    )
     logging.info(f"Квест выполнен: {user_name} (user_id={user_id}) получил {reward} сит")
 
     if bot:

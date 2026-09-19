@@ -3,10 +3,11 @@ import asyncio
 import io
 import re
 import html
+from time import perf_counter
 from pathlib import Path
 from datetime import datetime, time, timedelta, date
 from collections import defaultdict
-from aiogram import Bot, Dispatcher, types
+from aiogram import BaseMiddleware, Bot, Dispatcher, types
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 import logging
@@ -22,9 +23,6 @@ import weekly_awards
 import sticker_manager
 import sqlite3
 import db
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from db import get_connection, get_chat_users, get_total_stats
 from contextlib import closing
 from db import (
@@ -39,7 +37,11 @@ from db import (
     increment_sticker_stats,
     get_user_display_name,
     add_sits,
+    apply_sit_change,
+    change_sits,
+    InsufficientSitsError,
     has_active_subscription,
+    record_message_activity,
     ensure_web_chat_media_schema,
     WEB_CHAT_MEDIA_DIR,
 )
@@ -63,7 +65,29 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 
 # from daily import daily_reminder_loop
 
+SLOW_UPDATE_WARNING_SECONDS = 1.0
+
+
+class SlowUpdateLoggingMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        started_at = perf_counter()
+        try:
+            return await handler(event, data)
+        finally:
+            elapsed = perf_counter() - started_at
+            if elapsed >= SLOW_UPDATE_WARNING_SECONDS:
+                logging.warning(
+                    "Slow Telegram update: update_id=%s elapsed_ms=%s",
+                    getattr(event, "update_id", None),
+                    round(elapsed * 1000),
+                )
+
+
 dp = Dispatcher()
+dp.update.outer_middleware(SlowUpdateLoggingMiddleware())
+import photo_bot
+import photo_albums
+photo_bot.register(dp)
 
 
 @dp.errors()
@@ -151,6 +175,40 @@ bot = Bot(token=TOKEN)
 sticker_manager.bot = bot
 BOT_ID: int | None = None
 BOT_USERNAME_RUNTIME = "udb_flood_bot"
+QUEST_PROGRESS_QUEUE_MAXSIZE = 1_000
+quest_progress_queue: asyncio.Queue[tuple[int, int, str, int]] = asyncio.Queue(
+    maxsize=QUEST_PROGRESS_QUEUE_MAXSIZE
+)
+
+
+def queue_quest_progress(user_id: int, chat_id: int, quest_type: str, increment: int = 1) -> None:
+    try:
+        quest_progress_queue.put_nowait((user_id, chat_id, quest_type, increment))
+    except asyncio.QueueFull:
+        logging.warning(
+            "Quest progress queue is full; dropping event user_id=%s chat_id=%s type=%s",
+            user_id,
+            chat_id,
+            quest_type,
+        )
+
+
+async def quest_progress_worker() -> None:
+    while True:
+        user_id, chat_id, quest_type, increment = await quest_progress_queue.get()
+        try:
+            await update_quest_progress(user_id, chat_id, quest_type, increment, bot)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.exception(
+                "Quest progress worker failed: user_id=%s chat_id=%s type=%s",
+                user_id,
+                chat_id,
+                quest_type,
+            )
+        finally:
+            quest_progress_queue.task_done()
 
 
 async def ignore_forbidden_request(make_request, bot_instance, method):
@@ -232,6 +290,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
+logging.getLogger("aiogram.event").setLevel(logging.WARNING)
 
 
 #переменная для счётчика количества лайков, за которые Виталик получил запрлату
@@ -310,28 +369,28 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
     username = message.from_user.username
     nick = f"@{username}" if username else None
 
-    # Гарантируем пользователя в БД
-    add_or_update_user(user_id, chat_id, user_name, nick=nick)
-
     today_str = date.today().isoformat()
 
     # Определяем тип контента
     is_sticker = getattr(message, "sticker", None) is not None
     is_round = getattr(message, "video_note", None) is not None
+    messages = 0
+    words = 0
+    chars = 0
+    stickers = 0
+    rounds = 0
+    profanity_count = 0
+    quest_type = "messages_sent"
+    sticker_file_id = None
+    sticker_set_name = None
 
     # === 1️⃣ Обработка стикеров ===
     if is_sticker:
+        stickers = 1
+        quest_type = "stickers_sent"
         if message.sticker and message.sticker.set_name in TRACKED_STICKERPACKS:
-            increment_sticker_stats(
-                chat_id=message.chat.id,
-                file_id=message.sticker.file_id,
-                set_name=message.sticker.set_name,
-                date_str=today_str
-            )
-
-        increment_daily_stats(user_id, chat_id, today_str, stickers=1)
-        increment_total_stats(user_id, chat_id, stickers=1)
-        asyncio.create_task(update_quest_progress(user_id, chat_id, "stickers_sent", 1, bot))
+            sticker_file_id = message.sticker.file_id
+            sticker_set_name = message.sticker.set_name
 
         if not chat_name:
             chat_name = chat_id
@@ -346,25 +405,25 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
             f"animated: {getattr(sticker, 'is_animated', None)}, "
             f"video: {getattr(sticker, 'is_video', None)}"
         )
-        logging.info(
+        logging.debug(
             f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, +1 стикер | {sticker_info}"
         )
 
 
     # === 2️⃣ Обработка кружочков (видео) ===
     elif is_round:
-        increment_daily_stats(user_id, chat_id, today_str, rounds=1)
-        increment_total_stats(user_id, chat_id, rounds=1)
-        asyncio.create_task(update_quest_progress(user_id, chat_id, "round", 1, bot))
+        rounds = 1
+        quest_type = "round"
 
         if not chat_name:
             chat_name = chat_id
-        logging.info(
+        logging.debug(
             f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, +1 📹 кружочек"
         )
 
     # === 3️⃣ Остальные сообщения ===
     else:
+        messages = 1
         text = getattr(message, "text", None) or getattr(message, "caption", None)
         if text:
             words = len(text.split())
@@ -375,32 +434,33 @@ def update_stats(chat_id, user_id, user_name, message, chat_name=None):
             chars = 1
             profanity_count = 0
 
-        increment_daily_stats(
-            user_id,
-            chat_id,
-            today_str,
-            messages=1,
-            words=words,
-            chars=chars,
-            profanity_count=profanity_count,
-        )
-        increment_total_stats(
-            user_id,
-            chat_id,
-            messages=1,
-            words=words,
-            chars=chars,
-            profanity_count=profanity_count,
-        )
-        asyncio.create_task(update_quest_progress(user_id, chat_id, "messages_sent", 1, bot))
-
         if not chat_name:
             chat_name = chat_id
 
-        logging.info(
+        logging.debug(
             f"Обновлена статистика: чат \"{chat_name}\", пользователь {user_name}, "
             f"+1 сообщение, +{words} слов, +{chars} символов"
         )
+
+    record_message_activity(
+        user_id=user_id,
+        chat_id=chat_id,
+        user_name=user_name,
+        nick=nick,
+        message_id=message.message_id,
+        message_text=message.text or message.caption or "",
+        date_str=today_str,
+        message_datetime=datetime.now().isoformat(),
+        messages=messages,
+        words=words,
+        chars=chars,
+        stickers=stickers,
+        rounds=rounds,
+        profanity_count=profanity_count,
+        sticker_file_id=sticker_file_id,
+        sticker_set_name=sticker_set_name,
+    )
+    queue_quest_progress(user_id, chat_id, quest_type)
 
 
 
@@ -1013,6 +1073,10 @@ def get_weekly_message_totals(chat_id: int, user_id: int, weeks: int = 26) -> tu
 
 @dp.message(Command("graph"))
 async def send_graph(message: types.Message):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
     chat_id = message.chat.id
     user_id = message.from_user.id
 
@@ -1367,7 +1431,14 @@ async def charity_command(message: types.Message):
         return
 
     # Начисляем ситы
-    add_sits(message.chat.id, target_user_id, amount)
+    add_sits(
+        message.chat.id,
+        target_user_id,
+        amount,
+        action_code="admin_charity_grant",
+        action_ru="Начисление администратором командой charity",
+        metadata={"admin_user_id": message.from_user.id},
+    )
 
     # Получаем имя пользователя для упоминания
     target_name = get_user_display_name(target_user_id, message.chat.id)
@@ -1433,9 +1504,35 @@ async def handle_give(message: types.Message):
         )
         return
 
-    # Списываем/начисляем
-    add_sits(chat_id, sender_id, -amount)
-    add_sits(chat_id, receiver_id, amount)
+    # Списание и начисление выполняются одной транзакцией.
+    try:
+        with get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            apply_sit_change(
+                conn,
+                chat_id,
+                sender_id,
+                -amount,
+                action_code="transfer_sent",
+                action_ru="Перевод другому игроку",
+                metadata={"counterparty_user_id": receiver_id},
+                require_sufficient=True,
+            )
+            apply_sit_change(
+                conn,
+                chat_id,
+                receiver_id,
+                amount,
+                action_code="transfer_received",
+                action_ru="Перевод от другого игрока",
+                metadata={"counterparty_user_id": sender_id},
+            )
+            conn.commit()
+    except InsufficientSitsError as exc:
+        await message.answer(
+            f"❌ Недостаточно сит. Нужно: {format_sits(amount)}, у тебя: {format_sits(exc.balance)}"
+        )
+        return
 
     sender_name = get_user_display_name(sender_id, chat_id)
     receiver_name = get_user_display_name(receiver_id, chat_id)
@@ -1849,23 +1946,6 @@ async def handle_message(message: types.Message):
         chat_name=chat_name
     )
 
-    # ---- Добавляем сообщение в базу для реакций ----
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT OR IGNORE INTO messages_reactions
-            (chat_id, message_id, user_id, message_text, reactions_count, date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            message.chat.id,
-            message.message_id,
-            message.from_user.id,
-            message.text or message.caption or "",
-            0,
-            datetime.now().isoformat() # Записываем локальное время сервера
-        ))
-        conn.commit()
-
     # проверка на тише мужло
     if message.photo:
         try:
@@ -1899,7 +1979,7 @@ async def on_reaction(event: MessageReactionUpdated):
     old = [r.type for r in event.old_reaction] if event.old_reaction else []
     new = [r.type for r in event.new_reaction] if event.new_reaction else []
 
-    logging.info(
+    logging.debug(
         f"В чате '{event.chat.title or 'личный чат'}' пользователь {event.user.full_name if event.user else 'неизвестный'} "
         f"поменял реакции на сообщение {msg_id}: {new} (старые: {old})"
     )
@@ -1945,7 +2025,7 @@ async def on_reaction(event: MessageReactionUpdated):
         """, (chat_id, user_id, delta_given, delta_given))
 
         #отправка события в обработчик квестов на отправленные лайки
-        asyncio.create_task(update_quest_progress(user_id, chat_id, "likes_given", 1, bot))
+        queue_quest_progress(user_id, chat_id, "likes_given")
 
         global last_reward_react_given
         # --- Проверка на достижение кратности 300 реакций для конкретного пользователя ---
@@ -1976,7 +2056,7 @@ async def on_reaction(event: MessageReactionUpdated):
         """, (chat_id, author_id, delta_given, delta_given))
 
         # отправка события в обработчик квестов на полученные лайки
-        asyncio.create_task(update_quest_progress(author_id, chat_id, "likes_received", 1, bot))
+        queue_quest_progress(author_id, chat_id, "likes_received")
 
         conn.commit()
 
@@ -1992,7 +2072,7 @@ async def on_reaction_count(event: MessageReactionCountUpdated):
     total = sum(r.count for r in event.reactions)
     reactions_text = ", ".join(f"{r.type}: {r.count}" for r in event.reactions)
 
-    logging.info(
+    logging.debug(
         f"В чате '{event.chat.title or 'личный чат'}' сообщение {msg_id} теперь имеет реакции: {reactions_text}. "
         f"Общее количество: {total}"
     )
@@ -2019,24 +2099,32 @@ def get_sits(chat_id: int, user_id: int) -> int | float:
 
 
 
-def spend_sits(chat_id: int, user_id: int, amount: int | float) -> tuple[bool, int | float]:
+def spend_sits(
+    chat_id: int,
+    user_id: int,
+    amount: int | float,
+    *,
+    action_code: str,
+    action_ru: str,
+    metadata: dict | None = None,
+) -> tuple[bool, int | float]:
     """
     Пытается списать amount сит.
     Возвращает (успех: bool, новый_или_текущий_баланс: int).
     """
-    user = get_user(user_id, chat_id)
-    if user and user["chat_id"] == chat_id:
-        current = normalize_sits(user["sits"] or 0)
-        if current >= amount:
-            new_balance = normalize_sits(current - amount)
-            add_or_update_user(user_id, chat_id, user["name"], sits=new_balance)
-            return True, new_balance
-        else:
-            return False, current
-    else:
-        # создаем пользователя с нулевым балансом, если нет
-        add_or_update_user(user_id, chat_id, "", sits=0)
-        return False, 0
+    try:
+        _, new_balance = change_sits(
+            chat_id,
+            user_id,
+            -amount,
+            action_code=action_code,
+            action_ru=action_ru,
+            metadata=metadata,
+            require_sufficient=True,
+        )
+        return True, new_balance
+    except InsufficientSitsError as exc:
+        return False, exc.balance
 
 # Разрешённые user_id для использования команды
 # ADMIN_IDS = {6010666986, 884940984, 749027951} # Удаляем старое определение
@@ -2077,7 +2165,14 @@ async def handle_group_shop_start(callback: types.CallbackQuery):
 async def _handle_group_subscription_purchase(callback: types.CallbackQuery, days: int, price: int):
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
-    ok, balance_or_new = spend_sits(chat_id, user_id, price)
+    ok, balance_or_new = spend_sits(
+        chat_id,
+        user_id,
+        price,
+        action_code=f"premium_{days}d_purchase",
+        action_ru=f"Покупка сит-премиума на {days} дней",
+        metadata={"days": days},
+    )
     if not ok:
         await callback.answer(
             f"❌ Недостаточно сита. Твой баланс: {format_sits(balance_or_new)}",
@@ -2087,7 +2182,14 @@ async def _handle_group_subscription_purchase(callback: types.CallbackQuery, day
 
     new_till = extend_subscription(chat_id, user_id, days)
     if new_till is None:
-        add_sits(chat_id, user_id, price)
+        add_sits(
+            chat_id,
+            user_id,
+            price,
+            action_code="premium_purchase_refund",
+            action_ru="Возврат за неудачную покупку сит-премиума",
+            metadata={"days": days},
+        )
         await callback.answer("❌ Не удалось продлить подписку. Сначала запусти миграцию БД.", show_alert=True)
         return
 
@@ -2189,7 +2291,14 @@ async def handle_shop_buy(callback: types.CallbackQuery):
             return
 
         price = item["price"]
-        ok, new_balance = spend_sits(chat_id, user_id, price)
+        ok, new_balance = spend_sits(
+            chat_id,
+            user_id,
+            price,
+            action_code="shop_purchase",
+            action_ru=f"Покупка в магазине: {item['name']}",
+            metadata={"item_key": item_key, "item_name": item["name"]},
+        )
 
         if ok:
             buy_text = item["buy_text"].format(user_name=user_name)
@@ -2275,13 +2384,19 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
             return
 
         if n >= 4:
-            add_sits(chat_id, user_id, 1)
+            add_sits(
+                chat_id,
+                user_id,
+                1,
+                action_code="coffee_filter_reward",
+                action_ru="Награда за фильтр",
+            )
             new_bal = normalize_sits(get_user(user_id, chat_id)["sits"])
             msg = f"{user_name} получил 1 сит за фильтр. Остаток: {format_sits(new_bal)} сит"
             await callback.message.answer(msg)
             from quest import update_quest_progress
             if n >= 5:
-                asyncio.create_task(update_quest_progress(user_id, chat_id, "coffee_safe", 1, bot))
+                queue_quest_progress(user_id, chat_id, "coffee_safe")
             return
 
 
@@ -2306,7 +2421,14 @@ async def action_send_spider(callback: types.CallbackQuery, item: dict):
 
     try:
         if not is_tass and price > 0:
-            ok, new_balance = spend_sits(chat_id, user_id, price)
+            ok, new_balance = spend_sits(
+                chat_id,
+                user_id,
+                price,
+                action_code="shop_spider_purchase",
+                action_ru="Покупка паука в магазине",
+                metadata={"item_name": item.get("name", "Паук")},
+            )
             if not ok:
                 await callback.answer(
                     f"❌ Недостаточно сит. Твой баланс: {format_sits(get_sits(chat_id, user_id))}",
@@ -2343,13 +2465,25 @@ async def action_send_spider(callback: types.CallbackQuery, item: dict):
     except FileNotFoundError:
         logging.exception(f"Файл товара не найден: {file_path}")
         if not is_tass and price > 0:
-            add_sits(chat_id, user_id, price)
+            add_sits(
+                chat_id,
+                user_id,
+                price,
+                action_code="shop_spider_refund",
+                action_ru="Возврат за неудачную покупку паука",
+            )
         await callback.answer("❌ Ошибка: файл товара не найден на сервере.", show_alert=True)
         return
     except Exception as e:
         logging.exception(f"Ошибка при отправке паука: {e}")
         if not is_tass and price > 0:
-            add_sits(chat_id, user_id, price)
+            add_sits(
+                chat_id,
+                user_id,
+                price,
+                action_code="shop_spider_refund",
+                action_ru="Возврат за неудачную покупку паука",
+            )
         await callback.answer("❌ Произошла ошибка при отправке товара.", show_alert=True)
         return
 
@@ -2400,7 +2534,14 @@ async def reward_daily_top(bot: Bot):
         for i, (uid, count, name) in enumerate(top3):
             amount = rewards[i]
             # Добавляем ситы
-            add_sits(chat_id, uid, amount=amount)
+            add_sits(
+                chat_id,
+                uid,
+                amount=amount,
+                action_code="daily_activity_award",
+                action_ru=f"Ежедневная награда за активность: {i + 1} место",
+                metadata={"place": i + 1, "messages": count},
+            )
             text_lines.append(f"{i + 1} место — {name} — {amount} сит")
 
         # Отправка сообщения в чат
@@ -2437,6 +2578,8 @@ async def main():
     BOT_USERNAME_RUNTIME = bot_me.username or BOT_USERNAME_RUNTIME
     logging.info("Bot identity loaded: id=%s username=%s", BOT_ID, BOT_USERNAME_RUNTIME)
     await asyncio.to_thread(ensure_web_chat_media_schema)
+    await asyncio.to_thread(photo_albums.ensure_schema)
+    asyncio.create_task(photo_bot.worker(bot))
 
     await group.initialize_group_runtime(bot, reset_state=True)
     # Запускаем фоновые задачи
@@ -2461,6 +2604,7 @@ async def main():
     asyncio.create_task(chat_summary.publish_daily_summary_task(bot))
     asyncio.create_task(profile_update_scheduler_task())
     asyncio.create_task(ai_summary_scheduler_task())
+    asyncio.create_task(quest_progress_worker())
 
     # Цикл polling с автоперезапуском при ошибках
     while True:
@@ -2469,6 +2613,7 @@ async def main():
                 bot,
                 allowed_updates=["message", "callback_query", "message_reaction", "message_reaction_count"]
             )
+            break
         except (TelegramNetworkError, TelegramServerError) as e:
             logging.warning(f"Ошибка Telegram: {e}. Перезапуск polling через 5 секунд...")
             await asyncio.sleep(5)

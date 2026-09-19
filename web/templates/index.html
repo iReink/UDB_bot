@@ -228,6 +228,12 @@
                 <button id="dailyAddBtn" class="daily-add-btn" type="button">Добавить</button>
             </div>
         </div>
+        <div class="daily-search-bar">
+            <input id="dailySearchInput" type="search" placeholder="Поиск дейликов за всё время" aria-label="Поиск дейликов">
+            <button id="dailyCalendarToggle" type="button" aria-label="Календарь">📅</button>
+        </div>
+        <div id="dailyCalendar" class="daily-calendar hidden"></div>
+        <div id="dailySearchStatus" role="status"></div>
         <div class="daily-list" id="dailyList">
             <button id="dailyLoadOldBtn" class="daily-load-old-btn hidden" type="button">Загрузить старые</button>
             <div id="dailyLoadHint" class="daily-load-hint hidden"></div>
@@ -341,6 +347,8 @@
     </div>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{ photo_asset_version }}"></script>
+<script src="/static/daily-discovery.js?v={{ photo_asset_version }}"></script>
+<link rel="stylesheet" href="/static/daily-photos.css?v={{ photo_asset_version }}">
 </body>
 </html>
