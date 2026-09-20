@@ -1,5 +1,6 @@
 # settings.py
 import sqlite3
+import db
 from contextlib import closing
 from aiogram.filters import Command
 from aiogram import Dispatcher, types
@@ -47,11 +48,20 @@ SETTINGS_OPTIONS = [
         "text_off": "Включить Гейзер",
         "confirm_on": "✅ Гейзер выключен",
         "confirm_off": "✅ Гейзер включен"
+    },
+    {
+        "name": "enable_cepen",
+        "text_on": "Выключить цепня",
+        "text_off": "Включить цепня",
+        "confirm_on": "✅ Цепень выключен; состояние сохранено",
+        "confirm_off": "✅ Цепень включён"
     }
 ]
 
 # --- Утилиты для работы с БД ---
 def get_setting(chat_id: int, name: str) -> int:
+    if name == "enable_cepen":
+        return int(db.cepen_enabled(chat_id))
     with closing(sqlite3.connect(DB_PATH)) as conn:
         cur = conn.cursor()
         cur.execute("SELECT value FROM settings WHERE chat_id=? AND name=?", (chat_id, name))

@@ -23,6 +23,7 @@ import weekly_awards
 import sticker_manager
 import sqlite3
 import db
+import cepen
 from db import get_connection, get_chat_users, get_total_stats
 from contextlib import closing
 from db import (
@@ -40,7 +41,6 @@ from db import (
     apply_sit_change,
     change_sits,
     InsufficientSitsError,
-    has_active_subscription,
     record_message_activity,
     ensure_web_chat_media_schema,
     WEB_CHAT_MEDIA_DIR,
@@ -83,8 +83,29 @@ class SlowUpdateLoggingMiddleware(BaseMiddleware):
                 )
 
 
+class CepenMessageMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        result = await handler(event, data)
+        if not isinstance(event, types.Message) or not event.from_user or event.from_user.is_bot:
+            return result
+        kind = "sticker" if event.sticker else "round" if event.video_note else None
+        if kind:
+            notice = cepen.attempt_primary(event.chat.id, event.from_user.id, kind)
+            if notice:
+                await event.reply(notice, parse_mode="HTML")
+        source = getattr(getattr(event, "reply_to_message", None), "from_user", None)
+        if source and not source.is_bot and source.id != event.from_user.id:
+            notice = cepen.attempt_secondary(
+                event.chat.id, event.from_user.id, source.id, "reply", cepen.REPLY_CHANCE
+            )
+            if notice:
+                await event.reply(notice, parse_mode="HTML")
+        return result
+
+
 dp = Dispatcher()
 dp.update.outer_middleware(SlowUpdateLoggingMiddleware())
+dp.message.outer_middleware(CepenMessageMiddleware())
 import photo_bot
 import photo_albums
 photo_bot.register(dp)
@@ -134,6 +155,7 @@ mujlo.register_mujlo_handlers(dp)
 
 import geyser
 geyser.register_geyser_handlers(dp) # Регистрируем хэндлеры гейзера
+cepen.register_handlers(dp)
 
 import dick
 dick.register_dick_handlers(dp)
@@ -266,6 +288,11 @@ SHOP_ITEMS = {
             "f": "{user_name} сладко попила фильтра и улыбнулась ☕️☕️☕️"
         },
         "action": "drink_coffee"
+    },
+    "cepen_cure": {
+        "name": "🩺 Вылечить цепня",
+        "price": 50,
+        "action": "cepen_cure",
     },
     "sticker1000": {
         "name": "📝 Купить стикер",
@@ -854,6 +881,8 @@ async def flood_stats(message: types.Message):
     )
     text += f"\n☕️ Всего кофе: {total_coffee}"
     text += f"\n🍆 Длина члена: {dick_length} см"
+    if db.cepen_enabled(chat_id):
+        text += f"\n🪱 Длина цепня: {format_sits(user.get('cepen') or 0)} см. Подробнее в /cepen"
     if sits_balance > 0:
         text += f"\n💦 Баланс сита: {format_sits(sits_balance)}"
 
@@ -877,7 +906,7 @@ async def show_shop(message: types.Message):
         "🏪 Магазинчик Дяди Доктора\n"
         f"Твой баланс: {format_sits(balance)} сит\n\n"
         "Выбирай товар:",
-        reply_markup=build_shop_keyboard()
+        reply_markup=build_shop_keyboard(message.chat.id)
     )
 
 
@@ -1641,7 +1670,7 @@ async def cmd_all(message: types.Message):
         return
 
     mention_list = [
-        f"{row['nick']} 👑" if has_active_subscription(chat_id, int(row["user_id"])) else row["nick"]
+        get_user_display_name(int(row["user_id"]), chat_id, name_override=row["nick"])
         for row in rows
     ]
     await send_mentions_in_batches(
@@ -2131,9 +2160,11 @@ def spend_sits(
 from settings import ADMIN_IDS # Импортируем ADMIN_IDS из settings.py
 
 #клавиатура магазина сита
-def build_shop_keyboard() -> InlineKeyboardMarkup:
+def build_shop_keyboard(chat_id: int) -> InlineKeyboardMarkup:
     buttons = []
     for key, item in SHOP_ITEMS.items():
+        if key == "cepen_cure" and not db.cepen_enabled(chat_id):
+            continue
         buttons.append([InlineKeyboardButton(
             text=f"{item['name']} ({item['price']} сит)",
             callback_data=f"shop:buy:{key}"
@@ -2148,7 +2179,7 @@ async def handle_shop_menu(callback: types.CallbackQuery):
         "🏪 Магазинчик Дяди Доктора\n"
         f"Твой баланс: {format_sits(balance)} сит\n\n"
         "Выбирай товар:",
-        reply_markup=build_shop_keyboard(),
+        reply_markup=build_shop_keyboard(callback.message.chat.id),
     )
     await callback.answer()
 
@@ -2173,6 +2204,7 @@ async def _handle_group_subscription_purchase(callback: types.CallbackQuery, day
         action_ru=f"Покупка сит-премиума на {days} дней",
         metadata={"days": days},
     )
+
     if not ok:
         await callback.answer(
             f"❌ Недостаточно сита. Твой баланс: {format_sits(balance_or_new)}",
@@ -2282,6 +2314,21 @@ async def handle_shop_buy(callback: types.CallbackQuery):
         if action == "drink_coffee":
             await action_drink_coffee(callback, item)
             return
+        if action == "cepen_cure":
+            result = cepen.cure(chat_id, user_id, price=50)
+            if result == "cured":
+                await callback.message.answer(
+                    f"Цепень {cepen.mention(chat_id, user_id)} исцелён!", parse_mode="HTML"
+                )
+                await callback.answer()
+            elif result == "insufficient":
+                await callback.answer("Недостаточно сит для лечения. Нужно 50.", show_alert=True)
+            else:
+                await callback.answer(
+                    "Цепень отключён в этом чате." if result == "disabled" else "У тебя нет цепня.",
+                    show_alert=True,
+                )
+            return
         if action == "group":
             await callback.message.edit_text(
                 build_group_shop_text(chat_id, user_id),
@@ -2348,6 +2395,10 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
         increment_daily_stats(user_id, chat_id, today_str, coffee=1)
         increment_total_stats(user_id, chat_id, coffee=1)
         n += 1
+
+        notice = cepen.attempt_primary(chat_id, user_id, "coffee")
+        if notice:
+            await callback.message.answer(notice, parse_mode="HTML")
 
         buy_text_template = item.get("buy_text")
         if isinstance(buy_text_template, dict):
@@ -2589,6 +2640,8 @@ async def main():
     asyncio.create_task(silence_checker_task())
     asyncio.create_task(mujlo.reset_mujlo_daily())  # сброс покупок мужла по утру
     asyncio.create_task(daily_reminder_loop(bot))
+    asyncio.create_task(cepen.daily_exposure_loop(bot))
+    asyncio.create_task(cepen.growth_loop(bot))
     # Ежедневная регенерация частей тела
     # Передаем объект бота в модуль
     daily_bot = bot  # bot — объект Bot из aiogram

@@ -155,6 +155,19 @@ def initialize_db():
             user_columns = {row["name"] for row in cursor.fetchall()}
             if "nick" not in user_columns:
                 cursor.execute("ALTER TABLE users ADD COLUMN nick TEXT")
+            if "cepen" not in user_columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN cepen REAL NOT NULL DEFAULT 0")
+            if "cepen_growth_date" not in user_columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN cepen_growth_date TEXT")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cepen_event_checks (
+                event_kind TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                chat_id INTEGER NOT NULL,
+                checked_at TEXT NOT NULL,
+                PRIMARY KEY (event_kind, event_id, chat_id)
+            )
+        """)
         # Таблица для отслеживания гейзеров (обновленная структура)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS geyser_events (
@@ -284,6 +297,21 @@ def get_all_chats(include_private: bool = False) -> list[int]:
         else:
             cur.execute("SELECT DISTINCT chat_id FROM users WHERE chat_id < 0")
         return [row[0] for row in cur.fetchall()]
+
+
+def cepen_enabled(chat_id: int, conn: sqlite3.Connection | None = None) -> bool:
+    """The tapeworm is enabled by default, including in existing chats."""
+    if conn is None:
+        with closing(get_connection()) as owned_conn:
+            return cepen_enabled(chat_id, owned_conn)
+    try:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE chat_id=? AND name='enable_cepen'",
+            (chat_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return True
+    return row is None or bool(int(float(row[0])))
 
 
 
@@ -620,14 +648,15 @@ def get_total_stats(user_id: int, chat_id: int) -> Optional[sqlite3.Row]:
         return cur.fetchone()
 
 
-def get_user_display_name(user_id: int, chat_id: int) -> str:
-    """Возвращает имя пользователя с префиксом 👑 при активной подписке."""
+def get_user_display_name(user_id: int, chat_id: int, name_override: str | None = None) -> str:
+    """Возвращает имя пользователя с игровыми префиксами."""
     with closing(get_connection()) as conn:
         cur = conn.cursor()
+        show_cepen = cepen_enabled(chat_id, conn)
         try:
             cur.execute(
                 """
-                SELECT name, subscription_till
+                SELECT name, subscription_till, cepen
                 FROM users
                 WHERE user_id = ? AND chat_id = ?
                 """,
@@ -637,7 +666,7 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
         except sqlite3.OperationalError:
             cur.execute(
                 """
-                SELECT name
+                SELECT name, cepen
                 FROM users
                 WHERE user_id = ? AND chat_id = ?
                 """,
@@ -645,13 +674,21 @@ def get_user_display_name(user_id: int, chat_id: int) -> str:
             )
             row = cur.fetchone()
             subscription_till = ""
+            cepen_length = row["cepen"] if row else 0
         else:
             subscription_till = row["subscription_till"] if row else ""
+            cepen_length = row["cepen"] if row else 0
 
-    base_name = (row["name"] if row and row["name"] else str(user_id))
+    base_name = name_override or (row["name"] if row and row["name"] else str(user_id))
+    prefixes = []
     if has_active_subscription_str(subscription_till):
-        return base_name if base_name.startswith("👑 ") else f"👑 {base_name}"
-    return base_name
+        prefixes.append("👑")
+    if show_cepen and float(cepen_length or 0) > 0:
+        prefixes.append("🪱")
+    for prefix in ("👑 ", "🪱 "):
+        if base_name.startswith(prefix):
+            base_name = base_name[len(prefix):]
+    return " ".join([*prefixes, base_name])
 
 
 def has_active_subscription_str(subscription_till: str | None) -> bool:

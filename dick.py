@@ -1,4 +1,5 @@
 import random
+import cepen
 import asyncio
 import math
 from datetime import date, datetime, timedelta
@@ -709,6 +710,9 @@ def register_dick_handlers(dp):
         )
 
         await query.message.edit_text(result_text, reply_markup=None)
+        notice = cepen.attempt_pair(chat_id, challenger_id, accepter_id, "duel")
+        if notice:
+            await query.message.answer(notice, parse_mode="HTML")
         await query.answer()
         CHALLENGES.pop((chat_id, message_id), None)
 

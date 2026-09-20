@@ -20,6 +20,7 @@ python scripts/check.py
 python scripts/check.py --syntax
 python scripts/check.py --tests
 python scripts/check.py --tests --pattern test_sit_ledger.py
+python scripts/check.py --tests --pattern test_cepen.py
 ```
 
 Раннер отключает инициализацию основной БД при импорте `db.py`; тесты создают временные SQLite-базы. Запускай их через `scripts/check.py`, чтобы не затронуть локальную `stats.db`. Прямая команда `python -m unittest` без `UDB_SKIP_DB_INIT=1` может вызвать инициализацию базы при импорте. Сценарии с Telegram, браузером, Ollama, Google Sheets и VPS требуют отдельной проверки, если изменение затронуло соответствующую интеграцию. Перед развёртыванием проверь также нужные конфигурационные файлы и способ запуска в `deploy/`.

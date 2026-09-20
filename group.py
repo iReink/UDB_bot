@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import random
+import cepen
 from contextlib import closing
 from datetime import date, datetime
 from typing import Any
@@ -536,6 +537,12 @@ async def _run_event_flow(bot: Bot, chat_id: int):
     participant_names = {int(row["user_id"]): str(row["display_name"]) for row in participant_rows}
     spectators = [int(row["user_id"]) for row in spectator_rows]
     spectator_names = {int(row["user_id"]): str(row["display_name"]) for row in spectator_rows}
+    infection_notices = cepen.attempt_event(chat_id, "group", event_token, participants, spectators)
+    for notice in infection_notices:
+        try:
+            await bot.send_message(chat_id, notice, parse_mode="HTML", **send_kwargs)
+        except Exception:
+            logger.exception("[group] failed to announce cepen infection")
     freebies = [int(row["user_id"]) for row in freebie_rows]
     freebie_names = {int(row["user_id"]): str(row["display_name"]) for row in freebie_rows}
     lucky_dick_user_id: int | None = None

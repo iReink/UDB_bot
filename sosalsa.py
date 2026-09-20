@@ -1,5 +1,6 @@
 # sosalsa.py
 import random
+import cepen
 from datetime import datetime, timedelta
 from contextlib import closing
 from aiogram import types
@@ -503,6 +504,9 @@ def register_sos_handlers(dp):
             )
 
             await query.message.answer(f"💋 {buyer_name} {verb_sos(buyer_sex)} с {target_name}")
+            notice = cepen.attempt_pair(chat_id, user_id, target_id, "sos")
+            if notice:
+                await query.message.answer(notice, parse_mode="HTML")
 
         # ----------------------
         # Рандомно пошпёхаться
@@ -553,6 +557,9 @@ def register_sos_handlers(dp):
                 f"🔥 {buyer_name} {verb_shpeh(buyer_sex)} с {target_name}\n"
                 f"💦 {target_name} {verb_received(target_sex)} {reward} сит(а)"
             )
+            notice = cepen.attempt_pair(chat_id, user_id, target_id, "shpeh")
+            if notice:
+                await query.message.answer(notice, parse_mode="HTML")
 
         # ----------------------
         # Рандомно покусать
@@ -699,6 +706,9 @@ def register_sos_handlers(dp):
                 text += f"\n{dick_bite_text}"
 
             await query.message.answer(text)
+            notice = cepen.attempt_pair(chat_id, user_id, victim_id, "bite")
+            if notice:
+                await query.message.answer(notice, parse_mode="HTML")
             await query.answer()
 
 

@@ -109,6 +109,21 @@
 | `nick` | TEXT | Telegram username, обычно с `@`; может быть пустым. |
 | `is_all` | INTEGER | Служебный флаг участия/особого статуса пользователя. |
 | `subscription_till` | TEXT | Дата окончания активной подписки `YYYY-MM-DD`; пустая строка, если подписки нет. |
+| `cepen` | REAL | Длина цепня в сантиметрах; `0` означает отсутствие заражения. |
+| `cepen_growth_date` | TEXT | Дата последней попытки роста или анабиоза `YYYY-MM-DD`. |
+
+### `cepen_event_checks`
+
+Обработанные групповые события и дейлики для однократной проверки передачи цепня.
+
+Ключ: `PRIMARY KEY (event_kind, event_id, chat_id)`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `event_kind` | TEXT | `group` или `daily`. |
+| `event_id` | TEXT | Идентификатор события. |
+| `chat_id` | INTEGER | Чат события. |
+| `checked_at` | TEXT | Время проверки заражения. |
 
 ### `daily_stats`
 
@@ -299,7 +314,7 @@ Key: `id`; unique message attachment slot: `(chat_id, message_id, attachment_ind
 | `name` | TEXT | Код настройки. |
 | `value` | INTEGER | Значение настройки: обычно флаг `0/1`, но для некоторых настроек может быть числом. |
 
-Известные `name`: `daily_reminders`, `enable_geyser`, `forbid_mujlo`, `group_masturbation`, `ai_response_chance_percent`.
+Известные `name`: `daily_reminders`, `enable_geyser`, `enable_cepen`, `forbid_mujlo`, `group_masturbation`, `ai_response_chance_percent`. Отсутствие `enable_cepen` означает, что механика включена.
 
 ### `daily_events`
 

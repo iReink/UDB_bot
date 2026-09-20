@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import random
+import cepen
 from datetime import datetime, time, timedelta, date
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
@@ -190,6 +191,10 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
     if not claim_geyser_event_with_reward(event_id, chat_id, message_id, user_id, sit_reward):
         await callback.answer("❌ Кто-то уже успел поймать сито!", show_alert=True)
         return
+
+    infection_notice = cepen.attempt_primary(chat_id, user_id, "geyser")
+    if infection_notice:
+        await callback.message.answer(infection_notice, parse_mode="HTML")
 
     geyser_data = active_geysers.get(message_id)
     if geyser_data:
