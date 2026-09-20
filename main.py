@@ -881,7 +881,7 @@ async def flood_stats(message: types.Message):
     )
     text += f"\n☕️ Всего кофе: {total_coffee}"
     text += f"\n🍆 Длина члена: {dick_length} см"
-    if db.cepen_enabled(chat_id):
+    if db.cepen_enabled(chat_id) and float(user.get('cepen') or 0) > 0:
         text += f"\n🪱 Длина цепня: {format_sits(user.get('cepen') or 0)} см. Подробнее в /cepen"
     if sits_balance > 0:
         text += f"\n💦 Баланс сита: {format_sits(sits_balance)}"
@@ -906,7 +906,7 @@ async def show_shop(message: types.Message):
         "🏪 Магазинчик Дяди Доктора\n"
         f"Твой баланс: {format_sits(balance)} сит\n\n"
         "Выбирай товар:",
-        reply_markup=build_shop_keyboard(message.chat.id)
+        reply_markup=build_shop_keyboard(message.chat.id, message.from_user.id)
     )
 
 
@@ -2160,10 +2160,10 @@ def spend_sits(
 from settings import ADMIN_IDS # Импортируем ADMIN_IDS из settings.py
 
 #клавиатура магазина сита
-def build_shop_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+def build_shop_keyboard(chat_id: int, user_id: int) -> InlineKeyboardMarkup:
     buttons = []
     for key, item in SHOP_ITEMS.items():
-        if key == "cepen_cure" and not db.cepen_enabled(chat_id):
+        if key == "cepen_cure" and (not db.cepen_enabled(chat_id) or cepen.length(chat_id, user_id) <= 0):
             continue
         buttons.append([InlineKeyboardButton(
             text=f"{item['name']} ({item['price']} сит)",
@@ -2179,7 +2179,7 @@ async def handle_shop_menu(callback: types.CallbackQuery):
         "🏪 Магазинчик Дяди Доктора\n"
         f"Твой баланс: {format_sits(balance)} сит\n\n"
         "Выбирай товар:",
-        reply_markup=build_shop_keyboard(callback.message.chat.id),
+        reply_markup=build_shop_keyboard(callback.message.chat.id, callback.from_user.id),
     )
     await callback.answer()
 
