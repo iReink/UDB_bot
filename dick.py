@@ -2,6 +2,7 @@ import random
 import cepen
 import asyncio
 import math
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Tuple, List
 
@@ -120,10 +121,9 @@ async def daily_top1_throne_task(bot) -> None:
                 continue
 
 
-def ensure_dicks_table() -> None:
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("""
+def _ensure_dicks_schema(conn) -> None:
+    cur = conn.cursor()
+    cur.execute("""
             CREATE TABLE IF NOT EXISTS dicks (
                 user_id INTEGER NOT NULL,
                 chat_id INTEGER NOT NULL,
@@ -135,10 +135,15 @@ def ensure_dicks_table() -> None:
                 PRIMARY KEY (user_id, chat_id)
             )
         """)
-        cur.execute("PRAGMA table_info(dicks)")
-        columns = {row["name"] for row in cur.fetchall()}
-        if "top1_entrance_date" not in columns:
-            cur.execute("ALTER TABLE dicks ADD COLUMN top1_entrance_date TEXT DEFAULT ''")
+    cur.execute("PRAGMA table_info(dicks)")
+    columns = {row["name"] for row in cur.fetchall()}
+    if "top1_entrance_date" not in columns:
+        cur.execute("ALTER TABLE dicks ADD COLUMN top1_entrance_date TEXT DEFAULT ''")
+
+
+def ensure_dicks_table() -> None:
+    with closing(get_connection()) as conn:
+        _ensure_dicks_schema(conn)
         conn.commit()
 
 
@@ -191,36 +196,53 @@ def get_top1_info(cur, chat_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def update_dick_length(user_id: int, chat_id: int, delta: int) -> int:
-    dick = get_or_create_dick(user_id, chat_id)
-    new_length = (dick["length"] or 0) + delta
-    with get_connection() as conn:
-        cur = conn.cursor()
-        previous_top1 = get_top1_info(cur, chat_id)
-        cur.execute(
-            "UPDATE dicks SET length=? WHERE user_id=? AND chat_id=?",
-            (new_length, user_id, chat_id),
-        )
-        new_top1 = get_top1_info(cur, chat_id)
-        if new_top1:
-            today = date.today().isoformat()
-            if not previous_top1 or previous_top1["user_id"] != new_top1["user_id"]:
-                if previous_top1:
-                    cur.execute(
-                        "UPDATE dicks SET top1_entrance_date='' WHERE user_id=? AND chat_id=?",
-                        (previous_top1["user_id"], chat_id),
-                    )
+def apply_dick_length_change(
+    conn, user_id: int, chat_id: int, delta: int, *, date_value: str | None = None
+) -> int:
+    """Change dick length inside the caller's transaction and maintain throne dates."""
+    _ensure_dicks_schema(conn)
+    cur = conn.cursor()
+    previous_top1 = get_top1_info(cur, chat_id)
+    cur.execute(
+        "INSERT OR IGNORE INTO dicks (user_id,chat_id,length,grow_date,buff,buff_exp,top1_entrance_date) "
+        "VALUES (?,?,0,'','','','')",
+        (user_id, chat_id),
+    )
+    row = cur.execute(
+        "SELECT length FROM dicks WHERE user_id=? AND chat_id=?", (user_id, chat_id)
+    ).fetchone()
+    new_length = int(row["length"] or 0) + int(delta)
+    cur.execute(
+        "UPDATE dicks SET length=? WHERE user_id=? AND chat_id=?",
+        (new_length, user_id, chat_id),
+    )
+    new_top1 = get_top1_info(cur, chat_id)
+    if new_top1:
+        today = date_value or date.today().isoformat()
+        if not previous_top1 or previous_top1["user_id"] != new_top1["user_id"]:
+            if previous_top1:
                 cur.execute(
-                    "UPDATE dicks SET top1_entrance_date=? WHERE user_id=? AND chat_id=?",
-                    (today, new_top1["user_id"], chat_id),
+                    "UPDATE dicks SET top1_entrance_date='' WHERE user_id=? AND chat_id=?",
+                    (previous_top1["user_id"], chat_id),
                 )
-            elif not new_top1.get("top1_entrance_date"):
-                cur.execute(
-                    "UPDATE dicks SET top1_entrance_date=? WHERE user_id=? AND chat_id=?",
-                    (today, new_top1["user_id"], chat_id),
-                )
-        conn.commit()
+            cur.execute(
+                "UPDATE dicks SET top1_entrance_date=? WHERE user_id=? AND chat_id=?",
+                (today, new_top1["user_id"], chat_id),
+            )
+        elif not new_top1.get("top1_entrance_date"):
+            cur.execute(
+                "UPDATE dicks SET top1_entrance_date=? WHERE user_id=? AND chat_id=?",
+                (today, new_top1["user_id"], chat_id),
+            )
     return new_length
+
+
+def update_dick_length(user_id: int, chat_id: int, delta: int) -> int:
+    with closing(get_connection()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        new_length = apply_dick_length_change(conn, user_id, chat_id, delta)
+        conn.commit()
+        return new_length
 
 
 def set_grow_date(user_id: int, chat_id: int, date_str: str) -> None:

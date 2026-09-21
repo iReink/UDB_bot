@@ -3,8 +3,11 @@
 import asyncio
 import html
 import logging
+import math
 import random
+import sqlite3
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -16,6 +19,8 @@ from sits import format_sits
 
 DOCTOR_ID = 1235654176
 CURE_PRICE = 50
+PARTIAL_CURE_PRICE = 10
+PARTIAL_CURE_FACTOR = Decimal("0.8")
 INITIAL_LENGTH = 5.0
 INSTRUCTION = (
     "Цепень будет есть твой сит и расти. Его может вылечить официальный дядя "
@@ -31,6 +36,20 @@ PAIR_CHANCES = {
 GROUP_CHANCES = {"group_participant": .15, "group_spectator": .05, "daily": .15}
 REPLY_CHANCE = .005
 _THOUSANDTH = Decimal("0.001")
+
+
+@dataclass(frozen=True)
+class GrowthPlan:
+    mode: str
+    old: float
+    new: float
+    gain: float
+    cost: float
+    full_new: float
+    full_gain: float
+    full_cost: float
+    minimum_cost: float
+    coefficient: float
 
 GROWTH_LINES = (
     "{name}: цепень сходил в /shop за питанием — {length} см (+{gain}), −{cost} сит.",
@@ -65,6 +84,32 @@ def growth_preview(length: float) -> tuple[float, float, float]:
     new = _round_length(old * Decimal("1.15"))
     cost = _round_length(old * Decimal("0.1"))
     return new, _round_length(Decimal(str(new)) - old), cost
+
+
+def growth_plan(length: float, balance: float) -> GrowthPlan:
+    old = Decimal(str(length))
+    available = max(Decimal("0"), Decimal(str(balance)))
+    full_new, full_gain, full_cost = growth_preview(length)
+    full_cost_decimal = Decimal(str(full_cost))
+    minimum_cost = _round_length(full_cost_decimal * Decimal("0.1"))
+    if available >= full_cost_decimal:
+        return GrowthPlan(
+            "full", length, full_new, full_gain, full_cost,
+            full_new, full_gain, full_cost, minimum_cost, 1.0,
+        )
+    if available >= Decimal(str(minimum_cost)) and full_cost_decimal > 0:
+        actual_cost = _round_length(available)
+        coefficient = Decimal(str(actual_cost)) / full_cost_decimal
+        gain = _round_length(old * Decimal("0.15") * coefficient)
+        new = _round_length(old + Decimal(str(gain)))
+        return GrowthPlan(
+            "partial", length, new, gain, actual_cost,
+            full_new, full_gain, full_cost, minimum_cost, float(coefficient),
+        )
+    return GrowthPlan(
+        "anabiosis", length, length, 0.0, 0.0,
+        full_new, full_gain, full_cost, minimum_cost, 0.0,
+    )
 
 
 def _mention(conn, chat_id: int, user_id: int) -> str:
@@ -250,22 +295,111 @@ def cure(chat_id: int, user_id: int, *, price: float = 0) -> str:
         return "cured"
 
 
+def partial_cure(chat_id: int, user_id: int) -> tuple[str, float | None, float | None]:
+    """Reduce a live tapeworm by 20%, never below its initial length."""
+    with closing(db.get_connection()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not db.cepen_enabled(chat_id, conn):
+            return "disabled", None, None
+        old = _status(conn, chat_id, user_id)
+        if old <= 0:
+            return "healthy", None, None
+        if old <= INITIAL_LENGTH:
+            return "minimum", old, old
+        new = max(INITIAL_LENGTH, _round_length(Decimal(str(old)) * PARTIAL_CURE_FACTOR))
+        try:
+            db.apply_sit_change(
+                conn, chat_id, user_id, -PARTIAL_CURE_PRICE,
+                action_code="cepen_partial_cure", action_ru="Уменьшение цепня на 20%",
+                metadata={"old_cm": old, "new_cm": new}, require_sufficient=True,
+            )
+        except db.InsufficientSitsError:
+            conn.rollback()
+            return "insufficient", old, old
+        conn.execute(
+            "UPDATE users SET cepen=? WHERE chat_id=? AND user_id=?", (new, chat_id, user_id)
+        )
+        conn.commit()
+        return "reduced", old, new
+
+
+def _dick_length(conn, chat_id: int, user_id: int) -> int:
+    try:
+        row = conn.execute(
+            "SELECT length FROM dicks WHERE chat_id=? AND user_id=?", (chat_id, user_id)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return 0
+    return int(row["length"] or 0) if row else 0
+
+
+def _manual_text() -> str:
+    return (
+        "\n\nПолный рост может увеличить член, если цепень станет длиннее него. "
+        "При неполной оплате цепень забирает доступный сит и растёт частично, но член не растёт. "
+        "В /shop цепня можно уменьшить на 20% или вылечить полностью."
+    )
+
+
 def status_text(chat_id: int, user_id: int) -> str:
     with closing(db.get_connection()) as conn:
         if not db.cepen_enabled(chat_id, conn):
             return "Цепень отключён в этом чате."
         row = conn.execute("SELECT cepen,sits FROM users WHERE chat_id=? AND user_id=?",
                            (chat_id, user_id)).fetchone()
-    if not row or float(row["cepen"] or 0) <= 0:
-        return "Цепня пока нет. Береги сит."
-    old = float(row["cepen"])
-    _, gain, cost = growth_preview(old)
-    return (f"🪱 Длина цепня: {format_sits(old)} см\n"
-            f"Сегодня вечером прирост: {format_sits(gain)} см\n"
-            f"Стоимость: {format_sits(cost)} сит (баланс: {format_sits(row['sits'] or 0)} сит)")
+        if not row or float(row["cepen"] or 0) <= 0:
+            return "Цепня пока нет. Береги сит." + _manual_text()
+        old = float(row["cepen"])
+        balance = float(row["sits"] or 0)
+        plan = growth_plan(old, balance)
+        dick_length = _dick_length(conn, chat_id, user_id)
+
+    lines = [
+        f"🪱 Длина цепня: {format_sits(old)} см",
+        f"💦 Баланс: {format_sits(balance)} сит",
+    ]
+    if plan.mode == "full":
+        lines.append(
+            f"Прогноз на вечер: полный рост до {format_sits(plan.new)} см "
+            f"(+{format_sits(plan.gain)}) за {format_sits(plan.cost)} сит."
+        )
+    elif plan.mode == "partial":
+        percent = _round_length(Decimal(str(plan.coefficient)) * Decimal("100"))
+        lines.append(
+            f"Прогноз на вечер: частичный рост до {format_sits(plan.new)} см "
+            f"(+{format_sits(plan.gain)}, {format_sits(percent)}% полного роста) "
+            f"за {format_sits(plan.cost)} сит."
+        )
+    else:
+        missing_minimum = _round_length(
+            Decimal(str(plan.minimum_cost)) - Decimal(str(max(0.0, balance)))
+        )
+        lines.append(
+            f"Прогноз на вечер: анабиоз. Для частичного роста нужно минимум "
+            f"{format_sits(plan.minimum_cost)} сит, не хватает {format_sits(missing_minimum)}."
+        )
+
+    possible_bonus = math.floor(plan.full_cost) if plan.full_new > dick_length else 0
+    if plan.mode == "full" and possible_bonus > 0:
+        lines.append(f"🍆 Член вырастет на {possible_bonus} см.")
+    elif plan.mode != "full" and possible_bonus > 0:
+        missing_full = _round_length(
+            Decimal(str(plan.full_cost)) - Decimal(str(max(0.0, balance)))
+        )
+        lines.append(
+            f"🍆 Цепень мог бы вызвать рост члена на {possible_bonus} см, если бы баланс "
+            f"сита был больше на {format_sits(missing_full)}."
+        )
+    elif plan.full_new <= dick_length:
+        lines.append(
+            f"🍆 Даже при полном росте цепень пока не обгонит член длиной {dick_length} см."
+        )
+    return "\n".join(lines) + _manual_text()
 
 
 def grow_all(date_key: str) -> dict[int, list[str]]:
+    import dick
+
     reports: dict[int, list[str]] = {}
     with closing(db.get_connection()) as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -278,17 +412,44 @@ def grow_all(date_key: str) -> dict[int, list[str]]:
             if not db.cepen_enabled(chat_id, conn):
                 continue
             old = float(row["cepen"])
-            new, gain, cost = growth_preview(old)
+            plan = growth_plan(old, float(row["sits"] or 0))
             name = _mention(conn, chat_id, user_id)
-            if float(row["sits"] or 0) + 1e-9 >= cost:
-                db.apply_sit_change(conn, chat_id, user_id, -cost,
+            if plan.mode in {"full", "partial"}:
+                db.apply_sit_change(conn, chat_id, user_id, -plan.cost,
                                     action_code="cepen_growth", action_ru="Рост цепня",
-                                    metadata={"growth_date": date_key, "old_cm": old, "new_cm": new},
+                                    metadata={
+                                        "growth_date": date_key,
+                                        "old_cm": old,
+                                        "new_cm": plan.new,
+                                        "mode": plan.mode,
+                                        "coefficient": plan.coefficient,
+                                    },
                                     require_sufficient=True)
                 conn.execute("UPDATE users SET cepen=?,cepen_growth_date=? WHERE chat_id=? AND user_id=?",
-                             (new, date_key, chat_id, user_id))
-                line = random.choice(GROWTH_LINES).format(
-                    name=name, length=format_sits(new), gain=format_sits(gain), cost=format_sits(cost))
+                             (plan.new, date_key, chat_id, user_id))
+                if plan.mode == "full":
+                    dick_length = _dick_length(conn, chat_id, user_id)
+                    dick_bonus = math.floor(plan.cost) if plan.new > dick_length else 0
+                    if dick_bonus > 0:
+                        dick.apply_dick_length_change(
+                            conn, user_id, chat_id, dick_bonus, date_value=date_key
+                        )
+                    line = random.choice(GROWTH_LINES).format(
+                        name=name,
+                        length=format_sits(plan.new),
+                        gain=format_sits(plan.gain),
+                        cost=format_sits(plan.cost),
+                    )
+                    if dick_bonus > 0:
+                        line += f" Член не выдержал конкуренции и вырос на {dick_bonus} см."
+                else:
+                    percent = _round_length(Decimal(str(plan.coefficient)) * Decimal("100"))
+                    line = (
+                        f"{name}: цепень выгреб весь доступный сит — {format_sits(plan.cost)} — "
+                        f"и вырос частично до {format_sits(plan.new)} см "
+                        f"(+{format_sits(plan.gain)}, {format_sits(percent)}% полного роста). "
+                        "На рост члена сил не осталось."
+                    )
             else:
                 daily = conn.execute("SELECT messages FROM daily_stats WHERE chat_id=? AND user_id=? AND date=?",
                                      (chat_id, user_id, date_key)).fetchone()

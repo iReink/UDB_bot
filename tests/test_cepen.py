@@ -43,6 +43,13 @@ class CepenTests(unittest.TestCase):
                     id INTEGER PRIMARY KEY, chat_id INTEGER, date TEXT, time TEXT
                 );
                 CREATE TABLE daily_participants (daily_id INTEGER, user_id INTEGER);
+                CREATE TABLE dicks (
+                    user_id INTEGER NOT NULL, chat_id INTEGER NOT NULL,
+                    length INTEGER DEFAULT 0, grow_date TEXT DEFAULT '',
+                    buff TEXT DEFAULT '', buff_exp TEXT DEFAULT '',
+                    top1_entrance_date TEXT DEFAULT '',
+                    PRIMARY KEY (user_id,chat_id)
+                );
                 CREATE TABLE settings (
                     chat_id INTEGER NOT NULL, name TEXT NOT NULL, value TEXT,
                     PRIMARY KEY (chat_id,name)
@@ -147,6 +154,95 @@ class CepenTests(unittest.TestCase):
         self.assertEqual([-.5], [row[0] for row in ledger])
         self.assertEqual((6.613, .863, .575), cepen.growth_preview(5.75))
         self.assertEqual(20, len(cepen.GROWTH_LINES))
+
+    def test_full_growth_can_increase_dick_by_integer_cost(self):
+        today = "2026-09-21"
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=100,sits=10 WHERE user_id=1")
+            conn.execute("INSERT INTO dicks(user_id,chat_id,length) VALUES (1,?,90)", (CHAT,))
+            conn.commit()
+
+        report = cepen.grow_all(today)[CHAT][0]
+        with closing(db.get_connection()) as conn:
+            user = conn.execute("SELECT cepen,sits FROM users WHERE user_id=1").fetchone()
+            dick_row = conn.execute(
+                "SELECT length,top1_entrance_date FROM dicks WHERE user_id=1"
+            ).fetchone()
+            ledger = conn.execute(
+                "SELECT amount,metadata_json FROM sit_ledger WHERE action_code='cepen_growth'"
+            ).fetchone()
+        self.assertEqual((115, 0), tuple(user))
+        self.assertEqual((100, today), tuple(dick_row))
+        self.assertIn("вырос на 10 см", report)
+        self.assertEqual(-10, ledger[0])
+        self.assertIn('"mode": "full"', ledger[1])
+
+    def test_partial_growth_spends_balance_without_dick_bonus(self):
+        today = "2026-09-21"
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=100,sits=5 WHERE user_id=2")
+            conn.execute("INSERT INTO dicks(user_id,chat_id,length) VALUES (2,?,90)", (CHAT,))
+            conn.commit()
+
+        preview = cepen.status_text(CHAT, 2)
+        self.assertIn("частичный рост до 107.5 см", preview)
+        self.assertIn("баланс сита был больше на 5", preview)
+        report = cepen.grow_all(today)[CHAT][0]
+        with closing(db.get_connection()) as conn:
+            user = conn.execute("SELECT cepen,sits FROM users WHERE user_id=2").fetchone()
+            dick_length = conn.execute("SELECT length FROM dicks WHERE user_id=2").fetchone()[0]
+        self.assertEqual((107.5, 0), tuple(user))
+        self.assertEqual(90, dick_length)
+        self.assertIn("50% полного роста", report)
+        self.assertIn("На рост члена сил не осталось", report)
+
+    def test_growth_preview_explains_anabiosis_and_full_dick_bonus(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=100,sits=.5 WHERE user_id=1")
+            conn.execute("INSERT INTO dicks(user_id,chat_id,length) VALUES (1,?,90)", (CHAT,))
+            conn.commit()
+        text = cepen.status_text(CHAT, 1)
+        self.assertIn("анабиоз", text)
+        self.assertIn("минимум 1 сит", text)
+        self.assertIn("баланс сита был больше на 9.5", text)
+
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET sits=10 WHERE user_id=1")
+            conn.commit()
+        text = cepen.status_text(CHAT, 1)
+        self.assertIn("полный рост до 115 см", text)
+        self.assertIn("Член вырастет на 10 см", text)
+
+    def test_partial_cure_is_atomic_repeatable_and_has_floor(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=100,sits=25 WHERE user_id=2")
+            conn.commit()
+        self.assertEqual(("reduced", 100, 80), cepen.partial_cure(CHAT, 2))
+        self.assertEqual(("reduced", 80, 64), cepen.partial_cure(CHAT, 2))
+        with closing(db.get_connection()) as conn:
+            row = conn.execute("SELECT cepen,sits FROM users WHERE user_id=2").fetchone()
+            ledger = conn.execute(
+                "SELECT amount,action_code FROM sit_ledger ORDER BY id"
+            ).fetchall()
+            conn.execute("UPDATE users SET cepen=5 WHERE user_id=2")
+            conn.commit()
+        self.assertEqual((64, 5), tuple(row))
+        self.assertEqual(
+            [(-10, "cepen_partial_cure"), (-10, "cepen_partial_cure")],
+            [tuple(item) for item in ledger],
+        )
+        self.assertEqual(("minimum", 5, 5), cepen.partial_cure(CHAT, 2))
+
+    def test_partial_cure_does_not_charge_when_insufficient(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=100,sits=9 WHERE user_id=1")
+            conn.commit()
+        self.assertEqual(("insufficient", 100, 100), cepen.partial_cure(CHAT, 1))
+        with closing(db.get_connection()) as conn:
+            row = conn.execute("SELECT cepen,sits FROM users WHERE user_id=1").fetchone()
+            ledger_count = conn.execute("SELECT COUNT(*) FROM sit_ledger").fetchone()[0]
+        self.assertEqual((100, 9), tuple(row))
+        self.assertEqual(0, ledger_count)
 
     def test_daily_exposure_at_meeting_once(self):
         with closing(db.get_connection()) as conn:

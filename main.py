@@ -294,6 +294,11 @@ SHOP_ITEMS = {
         "price": 50,
         "action": "cepen_cure",
     },
+    "cepen_partial_cure": {
+        "name": "✂️ Уменьшить цепня на 20%",
+        "price": 10,
+        "action": "cepen_partial_cure",
+    },
     "sticker1000": {
         "name": "📝 Купить стикер",
         "price": 1000,
@@ -2162,8 +2167,11 @@ from settings import ADMIN_IDS # Импортируем ADMIN_IDS из settings.
 #клавиатура магазина сита
 def build_shop_keyboard(chat_id: int, user_id: int) -> InlineKeyboardMarkup:
     buttons = []
+    cepen_length = cepen.length(chat_id, user_id) if db.cepen_enabled(chat_id) else 0
     for key, item in SHOP_ITEMS.items():
-        if key == "cepen_cure" and (not db.cepen_enabled(chat_id) or cepen.length(chat_id, user_id) <= 0):
+        if key == "cepen_cure" and cepen_length <= 0:
+            continue
+        if key == "cepen_partial_cure" and cepen_length <= cepen.INITIAL_LENGTH:
             continue
         buttons.append([InlineKeyboardButton(
             text=f"{item['name']} ({item['price']} сит)",
@@ -2328,6 +2336,24 @@ async def handle_shop_buy(callback: types.CallbackQuery):
                     "Цепень отключён в этом чате." if result == "disabled" else "У тебя нет цепня.",
                     show_alert=True,
                 )
+            return
+        if action == "cepen_partial_cure":
+            result, old, new = cepen.partial_cure(chat_id, user_id)
+            if result == "reduced":
+                await callback.message.answer(
+                    f"✂️ Цепень {cepen.mention(chat_id, user_id)} укорочен на 20%: "
+                    f"{format_sits(old)} → {format_sits(new)} см.",
+                    parse_mode="HTML",
+                )
+                await callback.answer()
+            elif result == "insufficient":
+                await callback.answer("Недостаточно сит. Нужно 10.", show_alert=True)
+            elif result == "disabled":
+                await callback.answer("Цепень отключён в этом чате.", show_alert=True)
+            elif result == "minimum":
+                await callback.answer("Цепень уже минимальной длины — 5 см.", show_alert=True)
+            else:
+                await callback.answer("У тебя нет цепня.", show_alert=True)
             return
         if action == "group":
             await callback.message.edit_text(
