@@ -2668,6 +2668,7 @@ async def main():
     asyncio.create_task(daily_reminder_loop(bot))
     asyncio.create_task(cepen.daily_exposure_loop(bot))
     asyncio.create_task(cepen.growth_loop(bot))
+    asyncio.create_task(cepen.host_message_loop(bot))
     # Ежедневная регенерация частей тела
     # Передаем объект бота в модуль
     daily_bot = bot  # bot — объект Bot из aiogram

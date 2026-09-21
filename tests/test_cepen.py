@@ -1,10 +1,11 @@
+import asyncio
 import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import cepen
 import db
@@ -72,11 +73,76 @@ class CepenTests(unittest.TestCase):
         db.initialize_db()
         with closing(db.get_connection()) as conn:
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+            daily_messages_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cepen_daily_messages'"
+            ).fetchone()
             conn.execute("UPDATE users SET cepen=5, subscription_till='2999-01-01' WHERE user_id=1")
             conn.commit()
         self.assertIn("cepen", columns)
         self.assertIn("cepen_growth_date", columns)
+        self.assertIsNotNone(daily_messages_table)
         self.assertEqual("👑 🪱 Первый", db.get_user_display_name(1, CHAT))
+
+    def test_host_phrases_render_with_mention_and_signature(self):
+        phrases = cepen.load_host_phrases()
+        self.assertGreater(len(phrases), 0)
+        self.assertTrue(all("{nickname}" in phrase for phrase in phrases))
+        text = cepen.render_host_message(
+            "{nickname}, внутри <уютнее>.", '<a href="tg://user?id=1">Первый</a>'
+        )
+        self.assertEqual(
+            '<a href="tg://user?id=1">Первый</a>, внутри &lt;уютнее&gt;.\n– твой цепень ❤️',
+            text,
+        )
+
+    def test_host_message_schedule_is_daily_durable_and_respects_state(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=5 WHERE user_id=1")
+            conn.commit()
+        morning = datetime(2026, 9, 22, 9, 0)
+        with patch("cepen.random.randint", return_value=0), patch(
+            "cepen.random.choice", return_value="{nickname}, проверка связи."
+        ):
+            self.assertEqual(1, cepen.schedule_host_messages(morning))
+            self.assertEqual(0, cepen.schedule_host_messages(morning))
+        with closing(db.get_connection()) as conn:
+            row = conn.execute(
+                "SELECT scheduled_at,phrase,sent_at FROM cepen_daily_messages"
+            ).fetchone()
+        self.assertEqual("2026-09-22 10:00:00", row["scheduled_at"])
+        self.assertEqual("{nickname}, проверка связи.", row["phrase"])
+        self.assertIsNone(row["sent_at"])
+        self.assertEqual([], cepen.due_host_messages(datetime(2026, 9, 22, 9, 59, 59)))
+        due = cepen.due_host_messages(datetime(2026, 9, 22, 10, 0))
+        self.assertEqual([(CHAT, 1)], [(item.chat_id, item.user_id) for item in due])
+
+        settings.set_setting(CHAT, "enable_cepen", 0)
+        self.assertEqual([], cepen.due_host_messages(datetime(2026, 9, 22, 10, 1)))
+        settings.set_setting(CHAT, "enable_cepen", 1)
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=0 WHERE user_id=1")
+            conn.commit()
+        self.assertEqual([], cepen.due_host_messages(datetime(2026, 9, 22, 10, 1)))
+        self.assertEqual(0, cepen.schedule_host_messages(datetime(2026, 9, 22, 23, 0)))
+
+    def test_host_message_dispatch_marks_success_and_does_not_repeat(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=5 WHERE user_id=1")
+            conn.commit()
+        now = datetime(2026, 9, 22, 12, 0)
+        with patch("cepen.random.randint", return_value=0), patch(
+            "cepen.random.choice", return_value="{nickname}, проверка связи."
+        ):
+            cepen.schedule_host_messages(now)
+        bot = AsyncMock()
+        self.assertEqual(1, asyncio.run(cepen.dispatch_host_messages(bot, now)))
+        bot.send_message.assert_awaited_once()
+        args, kwargs = bot.send_message.await_args
+        self.assertEqual(CHAT, args[0])
+        self.assertIn("@first, проверка связи.\n– твой цепень ❤️", args[1])
+        self.assertEqual("HTML", kwargs["parse_mode"])
+        self.assertEqual(0, asyncio.run(cepen.dispatch_host_messages(bot, now)))
+        bot.send_message.assert_awaited_once()
 
     def test_primary_probability_and_repeat(self):
         with patch("cepen.random.random", return_value=.004):

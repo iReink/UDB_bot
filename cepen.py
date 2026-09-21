@@ -5,11 +5,14 @@ import html
 import logging
 import math
 import random
+import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from functools import lru_cache
+from pathlib import Path
 
 from aiogram.filters import Command
 
@@ -36,6 +39,10 @@ PAIR_CHANCES = {
 GROUP_CHANCES = {"group_participant": .15, "group_spectator": .05, "daily": .15}
 REPLY_CHANCE = .005
 _THOUSANDTH = Decimal("0.001")
+HOST_PHRASES_PATH = Path(__file__).resolve().parent / "docs" / "cepen-host-phrases.md"
+HOST_MESSAGE_START_HOUR = 10
+HOST_MESSAGE_END_HOUR = 23
+HOST_MESSAGE_SIGNATURE = "– твой цепень ❤️"
 
 
 @dataclass(frozen=True)
@@ -50,6 +57,14 @@ class GrowthPlan:
     full_cost: float
     minimum_cost: float
     coefficient: float
+
+
+@dataclass(frozen=True)
+class HostMessage:
+    message_date: str
+    chat_id: int
+    user_id: int
+    phrase: str
 
 GROWTH_LINES = (
     "{name}: цепень сходил в /shop за питанием — {length} см (+{gain}), −{cost} сит.",
@@ -73,6 +88,134 @@ GROWTH_LINES = (
     "{name}: у цепня сегодня успешный дейлик роста: {length} см (+{gain}), −{cost} сит.",
     "{name}: цепень выиграл битву за место в животе — {length} см (+{gain}), −{cost} сит.",
 )
+
+
+@lru_cache(maxsize=1)
+def load_host_phrases(path: str | Path | None = None) -> tuple[str, ...]:
+    source = Path(path) if path is not None else HOST_PHRASES_PATH
+    phrases = []
+    for line in source.read_text(encoding="utf-8").splitlines():
+        match = re.match(r"^\s*\d+\.\s+(.+?)\s*$", line)
+        if match:
+            phrase = match.group(1)
+            if "{nickname}" not in phrase:
+                raise ValueError(f"Tapeworm host phrase has no {{nickname}} placeholder: {phrase}")
+            phrases.append(phrase)
+    if not phrases:
+        raise ValueError(f"No tapeworm host phrases found in {source}")
+    return tuple(phrases)
+
+
+def render_host_message(phrase: str, host_mention: str) -> str:
+    safe_phrase = html.escape(phrase).replace("{nickname}", host_mention)
+    return f"{safe_phrase}\n{HOST_MESSAGE_SIGNATURE}"
+
+
+def _host_message_window(now: datetime) -> tuple[datetime, datetime]:
+    start = now.replace(hour=HOST_MESSAGE_START_HOUR, minute=0, second=0, microsecond=0)
+    end = now.replace(hour=HOST_MESSAGE_END_HOUR, minute=0, second=0, microsecond=0)
+    return start, end
+
+
+def schedule_host_messages(now: datetime) -> int:
+    """Create today's durable random schedule for every currently eligible host."""
+    start, end = _host_message_window(now)
+    if now >= end:
+        return 0
+    earliest = max(now, start).replace(microsecond=0)
+    latest = end - timedelta(seconds=1)
+    available_seconds = max(0, int((latest - earliest).total_seconds()))
+    phrases = load_host_phrases()
+    created = 0
+    with closing(db.get_connection()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        hosts = conn.execute(
+            "SELECT chat_id,user_id FROM users WHERE chat_id<0 AND COALESCE(cepen,0)>0"
+        ).fetchall()
+        for host in hosts:
+            chat_id, user_id = int(host["chat_id"]), int(host["user_id"])
+            if not db.cepen_enabled(chat_id, conn):
+                continue
+            scheduled_at = earliest + timedelta(seconds=random.randint(0, available_seconds))
+            result = conn.execute(
+                "INSERT OR IGNORE INTO cepen_daily_messages("
+                "message_date,chat_id,user_id,scheduled_at,phrase) VALUES (?,?,?,?,?)",
+                (
+                    now.date().isoformat(), chat_id, user_id,
+                    scheduled_at.strftime("%Y-%m-%d %H:%M:%S"), random.choice(phrases),
+                ),
+            )
+            created += result.rowcount
+        conn.commit()
+    return created
+
+
+def due_host_messages(now: datetime) -> list[HostMessage]:
+    """Return eligible unsent messages due inside today's server-time window."""
+    start, end = _host_message_window(now)
+    if now < start or now >= end:
+        return []
+    date_key = now.date().isoformat()
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    with closing(db.get_connection()) as conn:
+        rows = conn.execute(
+            "SELECT m.message_date,m.chat_id,m.user_id,m.phrase "
+            "FROM cepen_daily_messages m "
+            "JOIN users u ON u.chat_id=m.chat_id AND u.user_id=m.user_id "
+            "WHERE m.message_date=? AND m.sent_at IS NULL AND m.scheduled_at<=? "
+            "AND m.chat_id<0 AND COALESCE(u.cepen,0)>0 "
+            "ORDER BY m.scheduled_at,m.chat_id,m.user_id",
+            (date_key, timestamp),
+        ).fetchall()
+        return [
+            HostMessage(
+                str(row["message_date"]), int(row["chat_id"]),
+                int(row["user_id"]), str(row["phrase"]),
+            )
+            for row in rows
+            if db.cepen_enabled(int(row["chat_id"]), conn)
+        ]
+
+
+def mark_host_message_sent(message: HostMessage, now: datetime) -> bool:
+    with closing(db.get_connection()) as conn:
+        result = conn.execute(
+            "UPDATE cepen_daily_messages SET sent_at=? "
+            "WHERE message_date=? AND chat_id=? AND user_id=? AND sent_at IS NULL",
+            (
+                now.strftime("%Y-%m-%d %H:%M:%S"), message.message_date,
+                message.chat_id, message.user_id,
+            ),
+        )
+        conn.commit()
+        return result.rowcount == 1
+
+
+async def dispatch_host_messages(bot, now: datetime) -> int:
+    schedule_host_messages(now)
+    sent = 0
+    for message in due_host_messages(now):
+        text = render_host_message(message.phrase, mention(message.chat_id, message.user_id))
+        try:
+            await bot.send_message(message.chat_id, text, parse_mode="HTML")
+        except Exception:
+            logging.exception(
+                "cepen host message failed for chat=%s user=%s",
+                message.chat_id, message.user_id,
+            )
+            continue
+        if mark_host_message_sent(message, now):
+            sent += 1
+    return sent
+
+
+async def host_message_loop(bot):
+    while True:
+        try:
+            await dispatch_host_messages(bot, datetime.now().astimezone())
+        except Exception:
+            logging.exception("cepen host message scheduler failed")
+        await asyncio.sleep(30)
 
 
 def _round_length(value: Decimal) -> float:

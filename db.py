@@ -168,6 +168,17 @@ def initialize_db():
                 PRIMARY KEY (event_kind, event_id, chat_id)
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cepen_daily_messages (
+                message_date TEXT NOT NULL,
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                scheduled_at TEXT NOT NULL,
+                phrase TEXT NOT NULL,
+                sent_at TEXT,
+                PRIMARY KEY (message_date, chat_id, user_id)
+            )
+        """)
         # Таблица для отслеживания гейзеров (обновленная структура)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS geyser_events (

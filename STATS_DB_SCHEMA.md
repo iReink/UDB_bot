@@ -125,6 +125,21 @@
 | `chat_id` | INTEGER | Чат события. |
 | `checked_at` | TEXT | Время проверки заражения. |
 
+### `cepen_daily_messages`
+
+Очередь ежедневных реплик цепня хосту. Время хранится в локальном времени сервера.
+
+Ключ: `PRIMARY KEY (message_date, chat_id, user_id)`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `message_date` | TEXT | Серверная дата задания `YYYY-MM-DD`. |
+| `chat_id` | INTEGER | Чат хоста. |
+| `user_id` | INTEGER | Пользователь с цепнем. |
+| `scheduled_at` | TEXT | Случайное время отправки `YYYY-MM-DD HH:MM:SS`. |
+| `phrase` | TEXT | Зафиксированный шаблон реплики с `{nickname}`. |
+| `sent_at` | TEXT | Время успешной отправки или `NULL`. |
+
 ### `daily_stats`
 
 Дневная статистика активности пользователя в чате.
