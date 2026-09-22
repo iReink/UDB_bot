@@ -15,6 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from aiogram.filters import Command
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import db
 from sits import format_sits
@@ -279,6 +280,55 @@ def _status(conn, chat_id: int, user_id: int) -> float:
 def length(chat_id: int, user_id: int) -> float:
     with closing(db.get_connection()) as conn:
         return _status(conn, chat_id, user_id)
+
+
+def ranking_rows(chat_id: int) -> list[tuple[int, float]]:
+    with closing(db.get_connection()) as conn:
+        rows = conn.execute(
+            "SELECT user_id,cepen FROM users "
+            "WHERE chat_id=? AND COALESCE(cepen,0)>0 "
+            "ORDER BY cepen DESC,user_id ASC",
+            (chat_id,),
+        ).fetchall()
+    return [(int(row["user_id"]), float(row["cepen"])) for row in rows]
+
+
+def ranking_text(chat_id: int, full: bool = False) -> tuple[str, int]:
+    rows = ranking_rows(chat_id)
+    if not rows:
+        return "🏆 В этом чате пока нет цепней.", 0
+    shown = rows if full else rows[:10]
+    lines = ["🏆 Рейтинг цепней:"]
+    for place, (user_id, cepen_length) in enumerate(shown, start=1):
+        name = db.get_user_display_name(user_id, chat_id)
+        lines.append(f"{place}. {name} — {format_sits(cepen_length)} см")
+    return "\n".join(lines), len(rows)
+
+
+def menu_keyboard(user_id: int, has_cepen: bool) -> InlineKeyboardMarkup:
+    buttons = []
+    if has_cepen:
+        buttons.append([
+            InlineKeyboardButton(
+                text="Почесать цепня", callback_data=f"cepen:scratch:{user_id}"
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(
+            text="Рейтинг цепней", callback_data=f"cepen:rating:{user_id}"
+        )
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def rating_keyboard(user_id: int, total: int, full: bool = False) -> InlineKeyboardMarkup | None:
+    if full or total <= 10:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="Полный рейтинг", callback_data=f"cepen:rating_full:{user_id}"
+        )
+    ]])
 
 
 def _infect(conn, chat_id: int, user_id: int) -> bool:
@@ -681,7 +731,45 @@ def _target_by_nick(chat_id: int, nickname: str) -> int | None:
 def register_handlers(dp):
     @dp.message(Command("cepen"))
     async def cepen_command(message):
-        await message.reply(status_text(message.chat.id, message.from_user.id))
+        chat_id, user_id = message.chat.id, message.from_user.id
+        enabled = db.cepen_enabled(chat_id)
+        keyboard = menu_keyboard(user_id, length(chat_id, user_id) > 0) if enabled else None
+        await message.reply(status_text(chat_id, user_id), reply_markup=keyboard)
+
+    @dp.callback_query(lambda query: query.data and query.data.startswith("cepen:"))
+    async def cepen_menu_callback(query):
+        parts = query.data.split(":")
+        if len(parts) != 3 or not parts[2].isdigit():
+            await query.answer()
+            return
+        action, owner_id = parts[1], int(parts[2])
+        if query.from_user.id != owner_id:
+            await query.answer(
+                "Это меню другого пользователя. Вызови своё с помощью /cepen",
+                show_alert=True,
+            )
+            return
+        chat_id = query.message.chat.id
+        if not db.cepen_enabled(chat_id):
+            await query.answer("Цепень отключён в этом чате.", show_alert=True)
+            return
+        if action == "scratch":
+            if length(chat_id, owner_id) <= 0:
+                await query.answer("У тебя больше нет цепня.", show_alert=True)
+                return
+            await query.message.answer("Спасибо, очень приятно!")
+            await query.answer()
+            return
+        if action in {"rating", "rating_full"}:
+            full = action == "rating_full"
+            text, total = ranking_text(chat_id, full=full)
+            await query.message.edit_text(
+                text,
+                reply_markup=rating_keyboard(owner_id, total, full=full),
+            )
+            await query.answer()
+            return
+        await query.answer()
 
     @dp.message(Command("cure"))
     async def cure_command(message):

@@ -159,6 +159,54 @@ class CepenTests(unittest.TestCase):
             self.assertIsNone(cepen.attempt_primary(CHAT, 1, "sticker"))
         self.assertEqual(5, cepen.length(CHAT, 1))
 
+    def test_cepen_menu_and_rankings(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=30 WHERE user_id=1")
+            conn.execute("UPDATE users SET cepen=20 WHERE user_id=2")
+            conn.execute("UPDATE users SET cepen=0 WHERE user_id=3")
+            conn.executemany(
+                "INSERT INTO users(user_id,chat_id,name,nick,cepen) VALUES (?,?,?,?,?)",
+                [
+                    (user_id, CHAT, f"Игрок {user_id}", f"user{user_id}", float(user_id))
+                    for user_id in range(4, 14)
+                ],
+            )
+            conn.commit()
+
+        infected_keyboard = cepen.menu_keyboard(1, has_cepen=True)
+        infected_buttons = [
+            button for row in infected_keyboard.inline_keyboard for button in row
+        ]
+        self.assertEqual(
+            ["Почесать цепня", "Рейтинг цепней"],
+            [button.text for button in infected_buttons],
+        )
+        self.assertEqual(
+            ["cepen:scratch:1", "cepen:rating:1"],
+            [button.callback_data for button in infected_buttons],
+        )
+        healthy_keyboard = cepen.menu_keyboard(3, has_cepen=False)
+        self.assertEqual(
+            ["Рейтинг цепней"],
+            [button.text for row in healthy_keyboard.inline_keyboard for button in row],
+        )
+
+        short_text, total = cepen.ranking_text(CHAT)
+        self.assertEqual(12, total)
+        self.assertEqual(10, len(short_text.splitlines()) - 1)
+        self.assertIn("1. 🪱 Первый — 30 см", short_text)
+        self.assertNotIn("@user4", short_text)
+        full_button = cepen.rating_keyboard(1, total)
+        self.assertEqual(
+            "cepen:rating_full:1", full_button.inline_keyboard[0][0].callback_data
+        )
+
+        full_text, full_total = cepen.ranking_text(CHAT, full=True)
+        self.assertEqual(12, full_total)
+        self.assertEqual(12, len(full_text.splitlines()) - 1)
+        self.assertIn("12. 🪱 Игрок 4 — 4 см", full_text)
+        self.assertIsNone(cepen.rating_keyboard(1, full_total, full=True))
+
     def test_directional_pair_probabilities(self):
         with patch("cepen.random.random", return_value=0):
             cepen.attempt_primary(CHAT, 2, "coffee")
