@@ -7,6 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from aiogram import Bot, Dispatcher
+from aiogram.types import Update
+
 import cepen
 import db
 import settings
@@ -80,6 +83,7 @@ class CepenTests(unittest.TestCase):
             conn.commit()
         self.assertIn("cepen", columns)
         self.assertIn("cepen_growth_date", columns)
+        self.assertIn("cepen_name", columns)
         self.assertIsNotNone(daily_messages_table)
         self.assertEqual("👑 🐛 Первый", db.get_user_display_name(1, CHAT))
 
@@ -94,6 +98,86 @@ class CepenTests(unittest.TestCase):
             '<a href="tg://user?id=1">Первый</a>, внутри &lt;уютнее&gt;.\n– твой цепень ❤️',
             text,
         )
+        named_text = cepen.render_host_message(
+            "{nickname}, проверка.", "@first", "<Виталик>"
+        )
+        self.assertEqual(
+            "@first, проверка.\n– твой цепень &lt;Виталик&gt; ❤️", named_text
+        )
+
+    def test_name_normalization_storage_and_full_cure_cleanup(self):
+        for mark in cepen.CEPEN_NAME_DELETE_MARKS:
+            self.assertEqual(("delete", None), cepen.normalize_name_input(f" {mark} "))
+        self.assertEqual(("empty", None), cepen.normalize_name_input(" \n "))
+        self.assertEqual(
+            ("too_long", None),
+            cepen.normalize_name_input("а" * (cepen.CEPEN_NAME_MAX_LENGTH + 1)),
+        )
+        self.assertEqual(("name", "Виталик Великий"), cepen.normalize_name_input(" Виталик   Великий "))
+
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=5 WHERE user_id=1")
+            conn.commit()
+        self.assertEqual("named", cepen.set_name(CHAT, 1, "Виталик"))
+        self.assertEqual("Виталик", cepen.name(CHAT, 1))
+        self.assertIn("🐛 Цепень Виталик: 5 см", cepen.status_text(CHAT, 1))
+        self.assertEqual("cured", cepen.cure(CHAT, 1))
+        self.assertIsNone(cepen.name(CHAT, 1))
+
+    def test_name_fsm_sets_and_deletes_name(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=5 WHERE user_id=1")
+            conn.commit()
+
+        async def scenario():
+            dp = Dispatcher()
+            cepen.register_handlers(dp)
+            bot = Bot("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk")
+            bot.session = AsyncMock(return_value=True)
+
+            async def click_name():
+                update = Update.model_validate({
+                    "update_id": 1,
+                    "callback_query": {
+                        "id": "callback",
+                        "chat_instance": "chat",
+                        "from": {"id": 1, "is_bot": False, "first_name": "Первый"},
+                        "data": "cepen:name:1",
+                        "message": {
+                            "message_id": 10,
+                            "date": 1700000000,
+                            "chat": {"id": CHAT, "type": "supergroup"},
+                        },
+                    },
+                })
+                await dp.feed_update(bot, update)
+
+            async def send_text(text):
+                update = Update.model_validate({
+                    "update_id": 2,
+                    "message": {
+                        "message_id": 11,
+                        "date": 1700000001,
+                        "chat": {"id": CHAT, "type": "supergroup"},
+                        "from": {"id": 1, "is_bot": False, "first_name": "Первый"},
+                        "text": text,
+                    },
+                })
+                await dp.feed_update(bot, update)
+
+            state = dp.fsm.get_context(bot=bot, chat_id=CHAT, user_id=1)
+            await click_name()
+            self.assertEqual(await state.get_state(), cepen.CepenNameStates.waiting_for_name.state)
+            await send_text("  Виталик   Великий  ")
+            self.assertIsNone(await state.get_state())
+            self.assertEqual("Виталик Великий", cepen.name(CHAT, 1))
+
+            await click_name()
+            await send_text(" — ")
+            self.assertIsNone(await state.get_state())
+            self.assertIsNone(cepen.name(CHAT, 1))
+
+        asyncio.run(scenario())
 
     def test_host_message_schedule_is_daily_durable_and_respects_state(self):
         with closing(db.get_connection()) as conn:
@@ -127,7 +211,7 @@ class CepenTests(unittest.TestCase):
 
     def test_host_message_dispatch_marks_success_and_does_not_repeat(self):
         with closing(db.get_connection()) as conn:
-            conn.execute("UPDATE users SET cepen=5 WHERE user_id=1")
+            conn.execute("UPDATE users SET cepen=5,cepen_name='Виталик' WHERE user_id=1")
             conn.commit()
         now = datetime(2026, 9, 22, 12, 0)
         with patch("cepen.random.randint", return_value=0), patch(
@@ -139,7 +223,7 @@ class CepenTests(unittest.TestCase):
         bot.send_message.assert_awaited_once()
         args, kwargs = bot.send_message.await_args
         self.assertEqual(CHAT, args[0])
-        self.assertIn("@first, проверка связи.\n– твой цепень ❤️", args[1])
+        self.assertIn("@first, проверка связи.\n– твой цепень Виталик ❤️", args[1])
         self.assertEqual("HTML", kwargs["parse_mode"])
         self.assertEqual(0, asyncio.run(cepen.dispatch_host_messages(bot, now)))
         bot.send_message.assert_awaited_once()
@@ -163,6 +247,7 @@ class CepenTests(unittest.TestCase):
         with closing(db.get_connection()) as conn:
             conn.execute("UPDATE users SET cepen=30 WHERE user_id=1")
             conn.execute("UPDATE users SET cepen=20 WHERE user_id=2")
+            conn.execute("UPDATE users SET cepen_name='Виталик' WHERE user_id=1")
             conn.execute("UPDATE users SET cepen=0 WHERE user_id=3")
             conn.executemany(
                 "INSERT INTO users(user_id,chat_id,name,nick,cepen) VALUES (?,?,?,?,?)",
@@ -173,16 +258,16 @@ class CepenTests(unittest.TestCase):
             )
             conn.commit()
 
-        infected_keyboard = cepen.menu_keyboard(1, has_cepen=True)
+        infected_keyboard = cepen.menu_keyboard(1, has_cepen=True, cepen_name="Виталик")
         infected_buttons = [
             button for row in infected_keyboard.inline_keyboard for button in row
         ]
         self.assertEqual(
-            ["Почесать цепня", "Рейтинг цепней"],
+            ["Почесать Виталик", "Изменить имя цепня", "Рейтинг цепней"],
             [button.text for button in infected_buttons],
         )
         self.assertEqual(
-            ["cepen:scratch:1", "cepen:rating:1"],
+            ["cepen:scratch:1", "cepen:name:1", "cepen:rating:1"],
             [button.callback_data for button in infected_buttons],
         )
         healthy_keyboard = cepen.menu_keyboard(3, has_cepen=False)
@@ -194,7 +279,7 @@ class CepenTests(unittest.TestCase):
         short_text, total = cepen.ranking_text(CHAT)
         self.assertEqual(12, total)
         self.assertEqual(10, len(short_text.splitlines()) - 1)
-        self.assertIn("1. 🐛 Первый — 30 см", short_text)
+        self.assertIn("1. 🐛 Первый — Виталик — 30 см", short_text)
         self.assertNotIn("@user4", short_text)
         full_button = cepen.rating_keyboard(1, total)
         self.assertEqual(
@@ -210,9 +295,11 @@ class CepenTests(unittest.TestCase):
     def test_directional_pair_probabilities(self):
         with patch("cepen.random.random", return_value=0):
             cepen.attempt_primary(CHAT, 2, "coffee")
+        self.assertEqual("named", cepen.set_name(CHAT, 2, "Виталик"))
         with patch("cepen.random.random", return_value=.5):
             text = cepen.attempt_pair(CHAT, 1, 2, "sos")
         self.assertIn("@first засосал @second", text)
+        self.assertIn("цепня по имени Виталик", text)
         with patch("cepen.random.random", return_value=.5):
             self.assertIsNone(cepen.attempt_pair(CHAT, 2, 3, "sos"))
         with patch("cepen.random.random", return_value=.05):
@@ -272,7 +359,7 @@ class CepenTests(unittest.TestCase):
     def test_full_growth_can_increase_dick_by_integer_cost(self):
         today = "2026-09-21"
         with closing(db.get_connection()) as conn:
-            conn.execute("UPDATE users SET cepen=100,sits=10 WHERE user_id=1")
+            conn.execute("UPDATE users SET cepen=100,sits=10,cepen_name='Виталик' WHERE user_id=1")
             conn.execute("INSERT INTO dicks(user_id,chat_id,length) VALUES (1,?,90)", (CHAT,))
             conn.commit()
 
@@ -287,6 +374,7 @@ class CepenTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual((115, 0), tuple(user))
         self.assertEqual((100, today), tuple(dick_row))
+        self.assertIn("цепень Виталик", report)
         self.assertIn("вырос на 10 см", report)
         self.assertEqual(-10, ledger[0])
         self.assertIn('"mode": "full"', ledger[1])
@@ -329,18 +417,18 @@ class CepenTests(unittest.TestCase):
 
     def test_partial_cure_is_atomic_repeatable_and_has_floor(self):
         with closing(db.get_connection()) as conn:
-            conn.execute("UPDATE users SET cepen=100,sits=25 WHERE user_id=2")
+            conn.execute("UPDATE users SET cepen=100,sits=25,cepen_name='Виталик' WHERE user_id=2")
             conn.commit()
         self.assertEqual(("reduced", 100, 80), cepen.partial_cure(CHAT, 2))
         self.assertEqual(("reduced", 80, 64), cepen.partial_cure(CHAT, 2))
         with closing(db.get_connection()) as conn:
-            row = conn.execute("SELECT cepen,sits FROM users WHERE user_id=2").fetchone()
+            row = conn.execute("SELECT cepen,sits,cepen_name FROM users WHERE user_id=2").fetchone()
             ledger = conn.execute(
                 "SELECT amount,action_code FROM sit_ledger ORDER BY id"
             ).fetchall()
             conn.execute("UPDATE users SET cepen=5 WHERE user_id=2")
             conn.commit()
-        self.assertEqual((64, 5), tuple(row))
+        self.assertEqual((64, 5, "Виталик"), tuple(row))
         self.assertEqual(
             [(-10, "cepen_partial_cure"), (-10, "cepen_partial_cure")],
             [tuple(item) for item in ledger],

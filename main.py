@@ -887,7 +887,12 @@ async def flood_stats(message: types.Message):
     text += f"\n☕️ Всего кофе: {total_coffee}"
     text += f"\n🍆 Длина члена: {dick_length} см"
     if db.cepen_enabled(chat_id) and float(user.get('cepen') or 0) > 0:
-        text += f"\n🐛 Длина цепня: {format_sits(user.get('cepen') or 0)} см. Подробнее в /cepen"
+        cepen_name = cepen.name(chat_id, user_id)
+        cepen_title = f"Цепень {cepen_name}" if cepen_name else "Длина цепня"
+        text += (
+            f"\n🐛 {cepen_title}: {format_sits(user.get('cepen') or 0)} см. "
+            "Подробнее в /cepen"
+        )
     if sits_balance > 0:
         text += f"\n💦 Баланс сита: {format_sits(sits_balance)}"
 
@@ -2168,13 +2173,19 @@ from settings import ADMIN_IDS # Импортируем ADMIN_IDS из settings.
 def build_shop_keyboard(chat_id: int, user_id: int) -> InlineKeyboardMarkup:
     buttons = []
     cepen_length = cepen.length(chat_id, user_id) if db.cepen_enabled(chat_id) else 0
+    cepen_name = cepen.name(chat_id, user_id) if cepen_length > 0 else None
     for key, item in SHOP_ITEMS.items():
         if key == "cepen_cure" and cepen_length <= 0:
             continue
         if key == "cepen_partial_cure" and cepen_length <= cepen.INITIAL_LENGTH:
             continue
+        item_name = item["name"]
+        if cepen_name and key == "cepen_cure":
+            item_name = f"🩺 Вылечить {cepen_name}"
+        elif cepen_name and key == "cepen_partial_cure":
+            item_name = f"✂️ Уменьшить {cepen_name} на 20%"
         buttons.append([InlineKeyboardButton(
-            text=f"{item['name']} ({item['price']} сит)",
+            text=f"{item_name} ({item['price']} сит)",
             callback_data=f"shop:buy:{key}"
         )])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -2323,10 +2334,15 @@ async def handle_shop_buy(callback: types.CallbackQuery):
             await action_drink_coffee(callback, item)
             return
         if action == "cepen_cure":
+            cepen_name = cepen.name(chat_id, user_id)
             result = cepen.cure(chat_id, user_id, price=50)
             if result == "cured":
+                worm = cepen.subject_from_name(
+                    cepen_name, capital=True, html_mode=True
+                )
                 await callback.message.answer(
-                    f"Цепень {cepen.mention(chat_id, user_id)} исцелён!", parse_mode="HTML"
+                    f"{worm} у {cepen.mention(chat_id, user_id)} исцелён!",
+                    parse_mode="HTML",
                 )
                 await callback.answer()
             elif result == "insufficient":
@@ -2338,10 +2354,14 @@ async def handle_shop_buy(callback: types.CallbackQuery):
                 )
             return
         if action == "cepen_partial_cure":
+            cepen_name = cepen.name(chat_id, user_id)
             result, old, new = cepen.partial_cure(chat_id, user_id)
             if result == "reduced":
+                worm = cepen.subject_from_name(
+                    cepen_name, capital=True, html_mode=True
+                )
                 await callback.message.answer(
-                    f"✂️ Цепень {cepen.mention(chat_id, user_id)} укорочен на 20%: "
+                    f"✂️ {worm} у {cepen.mention(chat_id, user_id)} укорочен на 20%: "
                     f"{format_sits(old)} → {format_sits(new)} см.",
                     parse_mode="HTML",
                 )
@@ -2351,7 +2371,8 @@ async def handle_shop_buy(callback: types.CallbackQuery):
             elif result == "disabled":
                 await callback.answer("Цепень отключён в этом чате.", show_alert=True)
             elif result == "minimum":
-                await callback.answer("Цепень уже минимальной длины — 5 см.", show_alert=True)
+                worm = cepen.subject_from_name(cepen_name, capital=True)
+                await callback.answer(f"{worm} уже минимальной длины — 5 см.", show_alert=True)
             else:
                 await callback.answer("У тебя нет цепня.", show_alert=True)
             return

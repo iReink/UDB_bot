@@ -159,6 +159,8 @@ def initialize_db():
                 cursor.execute("ALTER TABLE users ADD COLUMN cepen REAL NOT NULL DEFAULT 0")
             if "cepen_growth_date" not in user_columns:
                 cursor.execute("ALTER TABLE users ADD COLUMN cepen_growth_date TEXT")
+            if "cepen_name" not in user_columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN cepen_name TEXT")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS cepen_event_checks (
                 event_kind TEXT NOT NULL,

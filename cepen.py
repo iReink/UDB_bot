@@ -14,6 +14,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from functools import lru_cache
 from pathlib import Path
 
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -44,6 +46,12 @@ HOST_PHRASES_PATH = Path(__file__).resolve().parent / "docs" / "cepen-host-phras
 HOST_MESSAGE_START_HOUR = 10
 HOST_MESSAGE_END_HOUR = 23
 HOST_MESSAGE_SIGNATURE = "– твой цепень ❤️"
+CEPEN_NAME_MAX_LENGTH = 32
+CEPEN_NAME_DELETE_MARKS = frozenset("-‐‑‒–—―−﹣－")
+
+
+class CepenNameStates(StatesGroup):
+    waiting_for_name = State()
 
 
 @dataclass(frozen=True)
@@ -68,26 +76,26 @@ class HostMessage:
     phrase: str
 
 GROWTH_LINES = (
-    "{name}: цепень сходил в /shop за питанием — {length} см (+{gain}), −{cost} сит.",
-    "{name}: цепень провёл дейлик внутри хозяина — {length} см (+{gain}), −{cost} сит.",
-    "{name}: маленький гейзер в животе дал +{gain} см. Теперь {length} см, −{cost} сит.",
-    "{name}: цепень поймал внутренний сит и вытянулся до {length} см (+{gain}), −{cost} сит.",
-    "{name}: вместо кофе цепень выпил сит — {length} см (+{gain}), −{cost} сит.",
-    "{name}: за ночь цепень нафармил +{gain} см. Длина {length} см, цена {cost} сит.",
-    "{name}: цепень победил в споре с желудком — {length} см (+{gain}), −{cost} сит.",
-    "{name}: цепень посмотрел кружочек и стал длиннее: {length} см (+{gain}), −{cost} сит.",
-    "{name}: под внутренним стикером нашлось +{gain} см. Теперь {length} см, −{cost} сит.",
-    "{name}: цепень оформил подписку на рост — {length} см (+{gain}), −{cost} сит.",
-    "{name}: чат флудил, цепень не отставал — {length} см (+{gain}), −{cost} сит.",
-    "{name}: цепень занял первое место в рейтинге самого себя: {length} см (+{gain}), −{cost} сит.",
-    "{name}: пока все считали сообщения, цепень насчитал {length} см (+{gain}), −{cost} сит.",
-    "{name}: цепень заглянул к дяде доктору, но выбрал буфет — {length} см (+{gain}), −{cost} сит.",
-    "{name}: цепень сделал зарядку в форме буквы С — {length} см (+{gain}), −{cost} сит.",
-    "{name}: цепень проснулся раньше гейзера — {length} см (+{gain}), −{cost} сит.",
-    "{name}: цепень обновил личный рекорд: {length} см (+{gain}), −{cost} сит.",
-    "{name}: цепень получил сит за вредное дело — {length} см (+{gain}), −{cost} сит.",
-    "{name}: у цепня сегодня успешный дейлик роста: {length} см (+{gain}), −{cost} сит.",
-    "{name}: цепень выиграл битву за место в животе — {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} сходил в /shop за питанием — {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} провёл дейлик внутри хозяина — {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} получил +{gain} см от маленького гейзера в животе. Теперь {length} см, −{cost} сит.",
+    "{name}: {worm} поймал внутренний сит и вытянулся до {length} см (+{gain}), −{cost} сит.",
+    "{name}: вместо кофе {worm} выпил сит — {length} см (+{gain}), −{cost} сит.",
+    "{name}: за ночь {worm} нафармил +{gain} см. Длина {length} см, цена {cost} сит.",
+    "{name}: {worm} победил в споре с желудком — {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} посмотрел кружочек и стал длиннее: {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} нашёл под внутренним стикером +{gain} см. Теперь {length} см, −{cost} сит.",
+    "{name}: {worm} оформил подписку на рост — {length} см (+{gain}), −{cost} сит.",
+    "{name}: чат флудил, {worm} не отставал — {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} занял первое место в рейтинге самого себя: {length} см (+{gain}), −{cost} сит.",
+    "{name}: пока все считали сообщения, {worm} насчитал {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} заглянул к дяде доктору, но выбрал буфет — {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} сделал зарядку в форме буквы С — {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} проснулся раньше гейзера — {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} обновил личный рекорд: {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} получил сит за вредное дело — {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} успешно закрыл дейлик роста: {length} см (+{gain}), −{cost} сит.",
+    "{name}: {worm} выиграл битву за место в животе — {length} см (+{gain}), −{cost} сит.",
 )
 
 
@@ -107,9 +115,87 @@ def load_host_phrases(path: str | Path | None = None) -> tuple[str, ...]:
     return tuple(phrases)
 
 
-def render_host_message(phrase: str, host_mention: str) -> str:
+def normalize_name_input(value: str | None) -> tuple[str, str | None]:
+    normalized = " ".join((value or "").split())
+    if len(normalized) == 1 and normalized in CEPEN_NAME_DELETE_MARKS:
+        return "delete", None
+    if not normalized:
+        return "empty", None
+    if len(normalized) > CEPEN_NAME_MAX_LENGTH:
+        return "too_long", None
+    return "name", normalized
+
+
+def _stored_name(conn, chat_id: int, user_id: int) -> str | None:
+    try:
+        row = conn.execute(
+            "SELECT cepen_name FROM users WHERE chat_id=? AND user_id=?",
+            (chat_id, user_id),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    value = str(row["cepen_name"] or "").strip() if row else ""
+    return value or None
+
+
+def name(chat_id: int, user_id: int) -> str | None:
+    with closing(db.get_connection()) as conn:
+        return _stored_name(conn, chat_id, user_id)
+
+
+def subject_from_name(value: str | None, *, capital: bool = False, html_mode: bool = False) -> str:
+    word = "Цепень" if capital else "цепень"
+    if not value:
+        return word
+    safe_name = html.escape(value) if html_mode else value
+    return f"{word} {safe_name}"
+
+
+def _genitive_from_name(value: str | None, *, capital: bool = False, html_mode: bool = False) -> str:
+    word = "Цепня" if capital else "цепня"
+    if not value:
+        return word
+    safe_name = html.escape(value) if html_mode else value
+    return f"{word} по имени {safe_name}"
+
+
+def label(
+    chat_id: int,
+    user_id: int,
+    *,
+    capital: bool = False,
+    html_mode: bool = False,
+) -> str:
+    return subject_from_name(name(chat_id, user_id), capital=capital, html_mode=html_mode)
+
+
+def set_name(chat_id: int, user_id: int, value: str | None) -> str:
+    """Set or delete a live tapeworm name; return named, deleted, healthy, or disabled."""
+    with closing(db.get_connection()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not db.cepen_enabled(chat_id, conn):
+            return "disabled"
+        if _status(conn, chat_id, user_id) <= 0:
+            return "healthy"
+        conn.execute(
+            "UPDATE users SET cepen_name=? WHERE chat_id=? AND user_id=?",
+            (value or None, chat_id, user_id),
+        )
+        conn.commit()
+    return "deleted" if not value else "named"
+
+
+def render_host_message(
+    phrase: str,
+    host_mention: str,
+    cepen_name: str | None = None,
+) -> str:
     safe_phrase = html.escape(phrase).replace("{nickname}", host_mention)
-    return f"{safe_phrase}\n{HOST_MESSAGE_SIGNATURE}"
+    if cepen_name:
+        signature = f"– твой цепень {html.escape(cepen_name)} ❤️"
+    else:
+        signature = HOST_MESSAGE_SIGNATURE
+    return f"{safe_phrase}\n{signature}"
 
 
 def _host_message_window(now: datetime) -> tuple[datetime, datetime]:
@@ -196,7 +282,11 @@ async def dispatch_host_messages(bot, now: datetime) -> int:
     schedule_host_messages(now)
     sent = 0
     for message in due_host_messages(now):
-        text = render_host_message(message.phrase, mention(message.chat_id, message.user_id))
+        text = render_host_message(
+            message.phrase,
+            mention(message.chat_id, message.user_id),
+            name(message.chat_id, message.user_id),
+        )
         try:
             await bot.send_message(message.chat_id, text, parse_mode="HTML")
         except Exception:
@@ -282,15 +372,22 @@ def length(chat_id: int, user_id: int) -> float:
         return _status(conn, chat_id, user_id)
 
 
-def ranking_rows(chat_id: int) -> list[tuple[int, float]]:
+def ranking_rows(chat_id: int) -> list[tuple[int, float, str | None]]:
     with closing(db.get_connection()) as conn:
         rows = conn.execute(
-            "SELECT user_id,cepen FROM users "
+            "SELECT user_id,cepen,cepen_name FROM users "
             "WHERE chat_id=? AND COALESCE(cepen,0)>0 "
             "ORDER BY cepen DESC,user_id ASC",
             (chat_id,),
         ).fetchall()
-    return [(int(row["user_id"]), float(row["cepen"])) for row in rows]
+    return [
+        (
+            int(row["user_id"]),
+            float(row["cepen"]),
+            str(row["cepen_name"] or "").strip() or None,
+        )
+        for row in rows
+    ]
 
 
 def ranking_text(chat_id: int, full: bool = False) -> tuple[str, int]:
@@ -299,18 +396,32 @@ def ranking_text(chat_id: int, full: bool = False) -> tuple[str, int]:
         return "🏆 В этом чате пока нет цепней.", 0
     shown = rows if full else rows[:10]
     lines = ["🏆 Рейтинг цепней:"]
-    for place, (user_id, cepen_length) in enumerate(shown, start=1):
-        name = db.get_user_display_name(user_id, chat_id)
-        lines.append(f"{place}. {name} — {format_sits(cepen_length)} см")
+    for place, (user_id, cepen_length, cepen_name) in enumerate(shown, start=1):
+        owner_name = db.get_user_display_name(user_id, chat_id)
+        named_part = f" — {cepen_name}" if cepen_name else ""
+        lines.append(
+            f"{place}. {owner_name}{named_part} — {format_sits(cepen_length)} см"
+        )
     return "\n".join(lines), len(rows)
 
 
-def menu_keyboard(user_id: int, has_cepen: bool) -> InlineKeyboardMarkup:
+def menu_keyboard(
+    user_id: int,
+    has_cepen: bool,
+    cepen_name: str | None = None,
+) -> InlineKeyboardMarkup:
     buttons = []
     if has_cepen:
         buttons.append([
             InlineKeyboardButton(
-                text="Почесать цепня", callback_data=f"cepen:scratch:{user_id}"
+                text=f"Почесать {cepen_name}" if cepen_name else "Почесать цепня",
+                callback_data=f"cepen:scratch:{user_id}",
+            )
+        ])
+        buttons.append([
+            InlineKeyboardButton(
+                text="Изменить имя цепня" if cepen_name else "Дать имя цепню",
+                callback_data=f"cepen:name:{user_id}",
             )
         ])
     buttons.append([
@@ -339,7 +450,8 @@ def _infect(conn, chat_id: int, user_id: int) -> bool:
     if created.rowcount == 1:
         return True
     cur = conn.execute(
-        "UPDATE users SET cepen=? WHERE chat_id=? AND user_id=? AND COALESCE(cepen,0)=0",
+        "UPDATE users SET cepen=?,cepen_name=NULL "
+        "WHERE chat_id=? AND user_id=? AND COALESCE(cepen,0)=0",
         (INITIAL_LENGTH, chat_id, user_id),
     )
     return cur.rowcount == 1
@@ -378,22 +490,37 @@ def attempt_primary(chat_id: int, user_id: int, kind: str) -> str | None:
 def _secondary_text(conn, chat_id: int, target: int, source: int, kind: str, source_initiated=False) -> str:
     ill = _mention(conn, chat_id, target)
     carrier = _mention(conn, chat_id, source)
+    source_name = _stored_name(conn, chat_id, source)
+    source_subject = subject_from_name(source_name, html_mode=True)
+    source_genitive = _genitive_from_name(source_name, html_mode=True)
     phrases = {
-        "group_participant": f"{ill} подрочил вместе с заражённым {carrier} и подхватил цепня",
-        "group_spectator": f"{ill} подглядывал за заражённым {carrier} и подхватил цепня",
-        "duel": f"{ill} так сильно скрестил шпагу, что цепень {carrier} переполз по мостику",
-        "daily": f"{ill} присел на дейлике рядом с {carrier} и получил цепня",
-        "reply": f"Ответив на сообщение, {ill} коснулся цепня {carrier} и теперь цепня два.",
+        "group_participant": (
+            f"{ill} подрочил вместе с заражённым {carrier} и подхватил {source_genitive}"
+        ),
+        "group_spectator": (
+            f"{ill} подглядывал за заражённым {carrier} и подхватил {source_genitive}"
+        ),
+        "duel": (
+            f"{ill} так сильно скрестил шпагу, что {source_subject} владельца "
+            f"{carrier} переполз по мостику"
+        ),
+        "daily": (
+            f"{ill} присел на дейлике рядом с {carrier} и заразился от {source_genitive}"
+        ),
+        "reply": (
+            f"Ответив на сообщение, {ill} коснулся {source_genitive} владельца "
+            f"{carrier}, и теперь цепня два."
+        ),
     }
     if kind == "sos":
-        phrase = (f"{carrier} всосал в {ill} цепня" if source_initiated
-                  else f"{ill} засосал {carrier} и высосал себе цепня")
+        phrase = (f"{carrier} всосал в {ill} {source_genitive}" if source_initiated
+                  else f"{ill} засосал {carrier} и высосал себе {source_genitive}")
     elif kind == "shpeh":
-        phrase = (f"{carrier} пошпёхал {ill} и подарил цепня" if source_initiated
-                  else f"{ill} пошпёхался с {carrier} и получил хеппиэндинг-цепня")
+        phrase = (f"{carrier} пошпёхал {ill} и подарил {source_genitive}" if source_initiated
+                  else f"{ill} пошпёхался с {carrier} и получил {source_genitive} в качестве хеппиэндинга")
     elif kind == "bite":
-        phrase = (f"{carrier} передал цепня {ill} через укус. Вампир хренов."
-                  if source_initiated else f"{ill} откусил у {carrier} кусочек цепня")
+        phrase = (f"{carrier} передал {source_genitive} пользователю {ill} через укус. Вампир хренов."
+                  if source_initiated else f"{ill} откусил у {carrier} кусочек {source_genitive}")
     else:
         phrase = phrases[kind]
     return phrase + "\n\n" + INSTRUCTION
@@ -482,7 +609,8 @@ def cure(chat_id: int, user_id: int, *, price: float = 0) -> str:
             except db.InsufficientSitsError:
                 conn.rollback()
                 return "insufficient"
-        conn.execute("UPDATE users SET cepen=0,cepen_growth_date=NULL WHERE chat_id=? AND user_id=?",
+        conn.execute("UPDATE users SET cepen=0,cepen_name=NULL,cepen_growth_date=NULL "
+                     "WHERE chat_id=? AND user_id=?",
                      (chat_id, user_id))
         conn.commit()
         return "cured"
@@ -526,7 +654,14 @@ def _dick_length(conn, chat_id: int, user_id: int) -> int:
     return int(row["length"] or 0) if row else 0
 
 
-def _manual_text() -> str:
+def _manual_text(cepen_name: str | None = None) -> str:
+    if cepen_name:
+        return (
+            f"\n\nЕсли {cepen_name} станет длиннее члена, полный рост может увеличить член. "
+            f"При неполной оплате рост персонажа по имени {cepen_name} будет частичным, "
+            "но член не вырастет. "
+            f"В /shop можно уменьшить или полностью вылечить персонажа по имени {cepen_name}."
+        )
     return (
         "\n\nПолный рост может увеличить член, если цепень станет длиннее него. "
         "При неполной оплате цепень забирает доступный сит и растёт частично, но член не растёт. "
@@ -538,17 +673,21 @@ def status_text(chat_id: int, user_id: int) -> str:
     with closing(db.get_connection()) as conn:
         if not db.cepen_enabled(chat_id, conn):
             return "Цепень отключён в этом чате."
-        row = conn.execute("SELECT cepen,sits FROM users WHERE chat_id=? AND user_id=?",
+        row = conn.execute("SELECT cepen,sits,cepen_name FROM users WHERE chat_id=? AND user_id=?",
                            (chat_id, user_id)).fetchone()
         if not row or float(row["cepen"] or 0) <= 0:
             return "Цепня пока нет. Береги сит." + _manual_text()
         old = float(row["cepen"])
         balance = float(row["sits"] or 0)
+        cepen_name = str(row["cepen_name"] or "").strip() or None
         plan = growth_plan(old, balance)
         dick_length = _dick_length(conn, chat_id, user_id)
 
     lines = [
-        f"🐛 Длина цепня: {format_sits(old)} см",
+        (
+            f"🐛 Цепень {cepen_name}: {format_sits(old)} см"
+            if cepen_name else f"🐛 Длина цепня: {format_sits(old)} см"
+        ),
         f"💦 Баланс: {format_sits(balance)} сит",
     ]
     if plan.mode == "full":
@@ -574,20 +713,28 @@ def status_text(chat_id: int, user_id: int) -> str:
 
     possible_bonus = math.floor(plan.full_cost) if plan.full_new > dick_length else 0
     if plan.mode == "full" and possible_bonus > 0:
-        lines.append(f"🍆 Член вырастет на {possible_bonus} см.")
+        if cepen_name:
+            lines.append(
+                f"🍆 Благодаря персонажу по имени {cepen_name} член вырастет на "
+                f"{possible_bonus} см."
+            )
+        else:
+            lines.append(f"🍆 Член вырастет на {possible_bonus} см.")
     elif plan.mode != "full" and possible_bonus > 0:
         missing_full = _round_length(
             Decimal(str(plan.full_cost)) - Decimal(str(max(0.0, balance)))
         )
+        worm = subject_from_name(cepen_name, capital=True)
         lines.append(
-            f"🍆 Цепень мог бы вызвать рост члена на {possible_bonus} см, если бы баланс "
+            f"🍆 {worm} мог бы вызвать рост члена на {possible_bonus} см, если бы баланс "
             f"сита был больше на {format_sits(missing_full)}."
         )
     elif plan.full_new <= dick_length:
+        worm = subject_from_name(cepen_name)
         lines.append(
-            f"🍆 Даже при полном росте цепень пока не обгонит член длиной {dick_length} см."
+            f"🍆 Даже при полном росте {worm} пока не обгонит член длиной {dick_length} см."
         )
-    return "\n".join(lines) + _manual_text()
+    return "\n".join(lines) + _manual_text(cepen_name)
 
 
 def grow_all(date_key: str) -> dict[int, list[str]]:
@@ -597,7 +744,7 @@ def grow_all(date_key: str) -> dict[int, list[str]]:
     with closing(db.get_connection()) as conn:
         conn.execute("BEGIN IMMEDIATE")
         rows = conn.execute(
-            "SELECT user_id,chat_id,cepen,sits FROM users WHERE cepen>0 AND chat_id<0 "
+            "SELECT user_id,chat_id,cepen,sits,cepen_name FROM users WHERE cepen>0 AND chat_id<0 "
             "AND COALESCE(cepen_growth_date,'')<>? ORDER BY chat_id,user_id", (date_key,)
         ).fetchall()
         for row in rows:
@@ -605,6 +752,9 @@ def grow_all(date_key: str) -> dict[int, list[str]]:
             if not db.cepen_enabled(chat_id, conn):
                 continue
             old = float(row["cepen"])
+            cepen_name = str(row["cepen_name"] or "").strip() or None
+            worm = subject_from_name(cepen_name, html_mode=True)
+            worm_capital = subject_from_name(cepen_name, capital=True, html_mode=True)
             plan = growth_plan(old, float(row["sits"] or 0))
             name = _mention(conn, chat_id, user_id)
             if plan.mode in {"full", "partial"}:
@@ -629,6 +779,7 @@ def grow_all(date_key: str) -> dict[int, list[str]]:
                         )
                     line = random.choice(GROWTH_LINES).format(
                         name=name,
+                        worm=worm,
                         length=format_sits(plan.new),
                         gain=format_sits(plan.gain),
                         cost=format_sits(plan.cost),
@@ -638,7 +789,7 @@ def grow_all(date_key: str) -> dict[int, list[str]]:
                 else:
                     percent = _round_length(Decimal(str(plan.coefficient)) * Decimal("100"))
                     line = (
-                        f"{name}: цепень выгреб весь доступный сит — {format_sits(plan.cost)} — "
+                        f"{name}: {worm} выгреб весь доступный сит — {format_sits(plan.cost)} — "
                         f"и вырос частично до {format_sits(plan.new)} см "
                         f"(+{format_sits(plan.gain)}, {format_sits(percent)}% полного роста). "
                         "На рост члена сил не осталось."
@@ -655,9 +806,11 @@ def grow_all(date_key: str) -> dict[int, list[str]]:
                                  (loss, chat_id, user_id))
                 conn.execute("UPDATE users SET cepen_growth_date=? WHERE chat_id=? AND user_id=?",
                              (date_key, chat_id, user_id))
-                line = f"У {name} недостаточно сит для роста, поэтому цепень в анабиозе."
+                line = f"У {name} недостаточно сит для роста, поэтому {worm} в анабиозе."
                 if count:
-                    line += " Для поддержания жизнедеятельности цепень съел половину сообщений."
+                    line += (
+                        f" Для поддержания жизнедеятельности {worm_capital} съел половину сообщений."
+                    )
             reports.setdefault(chat_id, []).append(line)
         conn.commit()
     return reports
@@ -733,11 +886,15 @@ def register_handlers(dp):
     async def cepen_command(message):
         chat_id, user_id = message.chat.id, message.from_user.id
         enabled = db.cepen_enabled(chat_id)
-        keyboard = menu_keyboard(user_id, length(chat_id, user_id) > 0) if enabled else None
+        cepen_name = name(chat_id, user_id) if enabled else None
+        keyboard = (
+            menu_keyboard(user_id, length(chat_id, user_id) > 0, cepen_name)
+            if enabled else None
+        )
         await message.reply(status_text(chat_id, user_id), reply_markup=keyboard)
 
     @dp.callback_query(lambda query: query.data and query.data.startswith("cepen:"))
-    async def cepen_menu_callback(query):
+    async def cepen_menu_callback(query, state: FSMContext):
         parts = query.data.split(":")
         if len(parts) != 3 or not parts[2].isdigit():
             await query.answer()
@@ -757,7 +914,28 @@ def register_handlers(dp):
             if length(chat_id, owner_id) <= 0:
                 await query.answer("У тебя больше нет цепня.", show_alert=True)
                 return
-            await query.message.answer("Спасибо, очень приятно!")
+            cepen_name = name(chat_id, owner_id)
+            response = (
+                f"{cepen_name}: «Спасибо, очень приятно!»"
+                if cepen_name else "Спасибо, очень приятно!"
+            )
+            await query.message.answer(response)
+            await query.answer()
+            return
+        if action == "name":
+            if length(chat_id, owner_id) <= 0:
+                await query.answer("У тебя больше нет цепня.", show_alert=True)
+                return
+            current_name = name(chat_id, owner_id)
+            await state.set_state(CepenNameStates.waiting_for_name)
+            await state.update_data(cepen_name_chat_id=chat_id, cepen_name_owner_id=owner_id)
+            prompt = "Как назвать цепня?"
+            if current_name:
+                prompt = (
+                    f"Сейчас цепня зовут {current_name}. Как назвать его теперь?\n"
+                    "Введите - чтобы удалить имя"
+                )
+            await query.message.answer(prompt)
             await query.answer()
             return
         if action in {"rating", "rating_full"}:
@@ -771,6 +949,37 @@ def register_handlers(dp):
             return
         await query.answer()
 
+    @dp.message(CepenNameStates.waiting_for_name)
+    async def cepen_name_input(message, state: FSMContext):
+        data = await state.get_data()
+        chat_id = data.get("cepen_name_chat_id")
+        owner_id = data.get("cepen_name_owner_id")
+        if chat_id != message.chat.id or owner_id != message.from_user.id:
+            return
+        action, normalized = normalize_name_input(message.text)
+        if action == "empty":
+            await message.reply("Имя не может быть пустым. Попробуй ещё раз.")
+            return
+        if action == "too_long":
+            await message.reply(
+                f"Слишком длинное имя. Нужно не больше {CEPEN_NAME_MAX_LENGTH} символов."
+            )
+            return
+        result = set_name(chat_id, owner_id, normalized)
+        if result == "disabled":
+            await state.clear()
+            await message.reply("Цепень отключён в этом чате.")
+            return
+        if result == "healthy":
+            await state.clear()
+            await message.reply("У тебя больше нет цепня.")
+            return
+        await state.clear()
+        if result == "deleted":
+            await message.reply("Имя цепня удалено.")
+        else:
+            await message.reply(f"Теперь твоего цепня зовут {normalized}!")
+
     @dp.message(Command("cure"))
     async def cure_command(message):
         if message.from_user.id != DOCTOR_ID:
@@ -781,9 +990,14 @@ def register_handlers(dp):
         if target is None:
             await message.reply("Укажи известного участника: /cure @nickname")
             return
+        cepen_name = name(message.chat.id, target)
         result = cure(message.chat.id, target)
         if result == "cured":
-            await message.reply(f"Цепень {mention(message.chat.id, target)} исцелён!", parse_mode="HTML")
+            worm = subject_from_name(cepen_name, capital=True, html_mode=True)
+            await message.reply(
+                f"{worm} у {mention(message.chat.id, target)} исцелён!",
+                parse_mode="HTML",
+            )
         elif result == "disabled":
             await message.reply("Цепень отключён в этом чате.")
         else:
