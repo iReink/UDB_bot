@@ -81,7 +81,7 @@ class CepenTests(unittest.TestCase):
         self.assertIn("cepen", columns)
         self.assertIn("cepen_growth_date", columns)
         self.assertIsNotNone(daily_messages_table)
-        self.assertEqual("👑 🪱 Первый", db.get_user_display_name(1, CHAT))
+        self.assertEqual("👑 🐛 Первый", db.get_user_display_name(1, CHAT))
 
     def test_host_phrases_render_with_mention_and_signature(self):
         phrases = cepen.load_host_phrases()
@@ -194,7 +194,7 @@ class CepenTests(unittest.TestCase):
         short_text, total = cepen.ranking_text(CHAT)
         self.assertEqual(12, total)
         self.assertEqual(10, len(short_text.splitlines()) - 1)
-        self.assertIn("1. 🪱 Первый — 30 см", short_text)
+        self.assertIn("1. 🐛 Первый — 30 см", short_text)
         self.assertNotIn("@user4", short_text)
         full_button = cepen.rating_keyboard(1, total)
         self.assertEqual(
@@ -204,7 +204,7 @@ class CepenTests(unittest.TestCase):
         full_text, full_total = cepen.ranking_text(CHAT, full=True)
         self.assertEqual(12, full_total)
         self.assertEqual(12, len(full_text.splitlines()) - 1)
-        self.assertIn("12. 🪱 Игрок 4 — 4 см", full_text)
+        self.assertIn("12. 🐛 Игрок 4 — 4 см", full_text)
         self.assertIsNone(cepen.rating_keyboard(1, full_total, full=True))
 
     def test_directional_pair_probabilities(self):
@@ -389,7 +389,7 @@ class CepenTests(unittest.TestCase):
         labels = [button.text for row in settings.get_settings_keyboard(CHAT).inline_keyboard for button in row]
         self.assertIn("Включить цепня", labels)
         settings.set_setting(CHAT, "enable_cepen", 1)
-        self.assertEqual("🪱 Первый", db.get_user_display_name(1, CHAT))
+        self.assertEqual("🐛 Первый", db.get_user_display_name(1, CHAT))
         with patch("cepen.random.random", return_value=0):
             self.assertIsNotNone(cepen.attempt_primary(CHAT, 2, "coffee"))
         self.assertIn(CHAT, cepen.grow_all("2026-09-21"))

@@ -548,7 +548,7 @@ def status_text(chat_id: int, user_id: int) -> str:
         dick_length = _dick_length(conn, chat_id, user_id)
 
     lines = [
-        f"🪱 Длина цепня: {format_sits(old)} см",
+        f"🐛 Длина цепня: {format_sits(old)} см",
         f"💦 Баланс: {format_sits(balance)} сит",
     ]
     if plan.mode == "full":
@@ -673,7 +673,7 @@ async def growth_loop(bot):
         try:
             reports = grow_all(run_at.date().isoformat())
             for chat_id, lines in reports.items():
-                await bot.send_message(chat_id, "🪱 Цепни подвели итоги дня:\n" + "\n".join(lines),
+                await bot.send_message(chat_id, "🐛 Цепни подвели итоги дня:\n" + "\n".join(lines),
                                        parse_mode="HTML")
         except Exception:
             logging.exception("cepen growth failed")

@@ -887,7 +887,7 @@ async def flood_stats(message: types.Message):
     text += f"\n☕️ Всего кофе: {total_coffee}"
     text += f"\n🍆 Длина члена: {dick_length} см"
     if db.cepen_enabled(chat_id) and float(user.get('cepen') or 0) > 0:
-        text += f"\n🪱 Длина цепня: {format_sits(user.get('cepen') or 0)} см. Подробнее в /cepen"
+        text += f"\n🐛 Длина цепня: {format_sits(user.get('cepen') or 0)} см. Подробнее в /cepen"
     if sits_balance > 0:
         text += f"\n💦 Баланс сита: {format_sits(sits_balance)}"
 

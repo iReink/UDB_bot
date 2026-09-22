@@ -695,8 +695,8 @@ def get_user_display_name(user_id: int, chat_id: int, name_override: str | None 
     if has_active_subscription_str(subscription_till):
         prefixes.append("👑")
     if show_cepen and float(cepen_length or 0) > 0:
-        prefixes.append("🪱")
-    for prefix in ("👑 ", "🪱 "):
+        prefixes.append("🐛")
+    for prefix in ("👑 ", "🪱 ", "🐛 "):
         if base_name.startswith(prefix):
             base_name = base_name[len(prefix):]
     return " ".join([*prefixes, base_name])
