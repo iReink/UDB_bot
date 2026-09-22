@@ -5,6 +5,7 @@ import unittest
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from aiogram import Bot, Dispatcher
@@ -242,6 +243,46 @@ class CepenTests(unittest.TestCase):
         with patch("cepen.random.random", return_value=0):
             self.assertIsNone(cepen.attempt_primary(CHAT, 1, "sticker"))
         self.assertEqual(5, cepen.length(CHAT, 1))
+
+    def test_reply_exposure_ignores_commands_bots_and_self_replies(self):
+        user = SimpleNamespace(id=2, is_bot=False)
+        source = SimpleNamespace(id=1, is_bot=False)
+        bot_source = SimpleNamespace(id=99, is_bot=True)
+        command_entity = SimpleNamespace(type="bot_command", offset=0)
+
+        plain_reply = SimpleNamespace(
+            from_user=user,
+            reply_to_message=SimpleNamespace(from_user=source),
+            text="обычный ответ",
+            caption=None,
+            entities=[],
+            caption_entities=[],
+        )
+        self.assertEqual(1, cepen.reply_exposure_source_id(plain_reply))
+
+        command_reply = SimpleNamespace(
+            **{**plain_reply.__dict__, "text": "/shop@udb_flood_bot", "entities": [command_entity]}
+        )
+        self.assertIsNone(cepen.reply_exposure_source_id(command_reply))
+
+        command_without_entities = SimpleNamespace(
+            **{**plain_reply.__dict__, "text": "/shop"}
+        )
+        self.assertIsNone(cepen.reply_exposure_source_id(command_without_entities))
+
+        self_reply = SimpleNamespace(
+            **{**plain_reply.__dict__, "reply_to_message": SimpleNamespace(from_user=user)}
+        )
+        self.assertIsNone(cepen.reply_exposure_source_id(self_reply))
+
+        bot_reply = SimpleNamespace(
+            **{**plain_reply.__dict__, "reply_to_message": SimpleNamespace(from_user=bot_source)}
+        )
+        self.assertIsNone(cepen.reply_exposure_source_id(bot_reply))
+
+    def test_infection_instruction_does_not_tag_doctor(self):
+        self.assertNotIn("@jprgprh", cepen.INSTRUCTION)
+        self.assertIn("официальный дядя доктор", cepen.INSTRUCTION)
 
     def test_cepen_menu_and_rankings(self):
         with closing(db.get_connection()) as conn:

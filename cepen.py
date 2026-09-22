@@ -30,7 +30,7 @@ PARTIAL_CURE_FACTOR = Decimal("0.8")
 INITIAL_LENGTH = 5.0
 INSTRUCTION = (
     "Цепень будет есть твой сит и расти. Его может вылечить официальный дядя "
-    "доктор @jprgprh или коммерческий доктор в магазине /shop"
+    "доктор или коммерческий доктор в магазине /shop"
 )
 PRIMARY_CHANCES = {"geyser": .025, "coffee": .004, "round": .003, "sticker": .0006}
 PAIR_CHANCES = {
@@ -124,6 +124,33 @@ def normalize_name_input(value: str | None) -> tuple[str, str | None]:
     if len(normalized) > CEPEN_NAME_MAX_LENGTH:
         return "too_long", None
     return "name", normalized
+
+
+def reply_exposure_source_id(message) -> int | None:
+    """Return the replied user's id only for an ordinary user reply.
+
+    Bot commands can retain a Telegram reply context (for example when opened
+    while the composer is replying to a message), but invoking bot UI is not a
+    reply exposure in the game mechanic.
+    """
+    sender = getattr(message, "from_user", None)
+    replied = getattr(message, "reply_to_message", None)
+    source = getattr(replied, "from_user", None)
+    if not sender or getattr(sender, "is_bot", False):
+        return None
+    if not source or getattr(source, "is_bot", False) or source.id == sender.id:
+        return None
+
+    text = getattr(message, "text", None) or getattr(message, "caption", None) or ""
+    entities = getattr(message, "entities", None) or getattr(message, "caption_entities", None) or []
+    for entity in entities:
+        entity_type = getattr(entity, "type", None)
+        entity_type = getattr(entity_type, "value", entity_type)
+        if getattr(entity, "offset", None) == 0 and entity_type == "bot_command":
+            return None
+    if re.match(r"^/[A-Za-z0-9_]+(?:@[A-Za-z0-9_]+)?(?:\s|$)", text):
+        return None
+    return int(source.id)
 
 
 def _stored_name(conn, chat_id: int, user_id: int) -> str | None:

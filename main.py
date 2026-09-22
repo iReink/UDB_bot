@@ -85,6 +85,11 @@ class SlowUpdateLoggingMiddleware(BaseMiddleware):
 
 class CepenMessageMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
+        reply_source_id = (
+            cepen.reply_exposure_source_id(event)
+            if isinstance(event, types.Message)
+            else None
+        )
         result = await handler(event, data)
         if not isinstance(event, types.Message) or not event.from_user or event.from_user.is_bot:
             return result
@@ -93,10 +98,9 @@ class CepenMessageMiddleware(BaseMiddleware):
             notice = cepen.attempt_primary(event.chat.id, event.from_user.id, kind)
             if notice:
                 await event.reply(notice, parse_mode="HTML")
-        source = getattr(getattr(event, "reply_to_message", None), "from_user", None)
-        if source and not source.is_bot and source.id != event.from_user.id:
+        if reply_source_id is not None:
             notice = cepen.attempt_secondary(
-                event.chat.id, event.from_user.id, source.id, "reply", cepen.REPLY_CHANCE
+                event.chat.id, event.from_user.id, reply_source_id, "reply", cepen.REPLY_CHANCE
             )
             if notice:
                 await event.reply(notice, parse_mode="HTML")
