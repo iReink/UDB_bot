@@ -2,6 +2,7 @@ import asyncio
 import sqlite3
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -80,12 +81,16 @@ class CepenTests(unittest.TestCase):
             daily_messages_table = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cepen_daily_messages'"
             ).fetchone()
+            scratches_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cepen_scratches'"
+            ).fetchone()
             conn.execute("UPDATE users SET cepen=5, subscription_till='2999-01-01' WHERE user_id=1")
             conn.commit()
         self.assertIn("cepen", columns)
         self.assertIn("cepen_growth_date", columns)
         self.assertIn("cepen_name", columns)
         self.assertIsNotNone(daily_messages_table)
+        self.assertIsNotNone(scratches_table)
         self.assertEqual("👑 🐛 Первый", db.get_user_display_name(1, CHAT))
 
     def test_host_phrases_render_with_mention_and_signature(self):
@@ -299,12 +304,14 @@ class CepenTests(unittest.TestCase):
             )
             conn.commit()
 
-        infected_keyboard = cepen.menu_keyboard(1, has_cepen=True, cepen_name="Виталик")
+        infected_keyboard = cepen.menu_keyboard(
+            1, has_cepen=True, cepen_name="Виталик", scratch_count=15
+        )
         infected_buttons = [
             button for row in infected_keyboard.inline_keyboard for button in row
         ]
         self.assertEqual(
-            ["Почесать Виталик", "Изменить имя цепня", "Рейтинг цепней"],
+            ["Почесать Виталик [15/50]", "Изменить имя цепня", "Рейтинг цепней"],
             [button.text for button in infected_buttons],
         )
         self.assertEqual(
@@ -332,6 +339,99 @@ class CepenTests(unittest.TestCase):
         self.assertEqual(12, len(full_text.splitlines()) - 1)
         self.assertIn("12. 🐛 Игрок 4 — 4 см", full_text)
         self.assertIsNone(cepen.rating_keyboard(1, full_total, full=True))
+
+    def test_scratching_rewards_owner_and_enforces_daily_limits(self):
+        today = datetime.now().date().isoformat()
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=25,cepen_name='Виталик' WHERE user_id=1")
+            conn.executemany(
+                "INSERT INTO users(user_id,chat_id,name,nick,sits) VALUES (?,?,?,?,0)",
+                [
+                    (user_id, CHAT, f"Игрок {user_id}", f"user{user_id}")
+                    for user_id in range(4, 13)
+                ],
+            )
+            conn.commit()
+
+        self.assertEqual(
+            "self",
+            cepen.scratch(CHAT, 1, 1, "self", date_key=today).status,
+        )
+        first = cepen.scratch(CHAT, 1, 2, "click-1", date_key=today)
+        self.assertEqual(("scratched", 1, 1), tuple(first.__dict__.values()))
+        duplicate = cepen.scratch(CHAT, 1, 2, "click-1", date_key=today)
+        self.assertEqual(("duplicate", 1, 1), tuple(duplicate.__dict__.values()))
+        for number in range(2, 6):
+            self.assertEqual(
+                "scratched",
+                cepen.scratch(
+                    CHAT, 1, 2, f"click-{number}", date_key=today
+                ).status,
+            )
+        self.assertEqual(
+            "user_limit",
+            cepen.scratch(CHAT, 1, 2, "click-6", date_key=today).status,
+        )
+
+        callback_number = 10
+        for scratcher_id in range(3, 12):
+            for _ in range(5):
+                callback_number += 1
+                self.assertEqual(
+                    "scratched",
+                    cepen.scratch(
+                        CHAT,
+                        1,
+                        scratcher_id,
+                        f"click-{callback_number}",
+                        date_key=today,
+                    ).status,
+                )
+        self.assertEqual(
+            "worm_limit",
+            cepen.scratch(CHAT, 1, 12, "over-total", date_key=today).status,
+        )
+
+        rows, total = cepen.scratch_summary(CHAT, 1, date_key=today)
+        self.assertEqual(50, total)
+        self.assertEqual(("Второй", 5), rows[0])
+        text = cepen.status_text(CHAT, 1)
+        self.assertIn("Сегодня чесали: Второй (5)", text)
+        self.assertIn("Получено 5 сит.", text)
+        self.assertIn("Друзья могут чесать цепня по имени Виталик", text)
+        with closing(db.get_connection()) as conn:
+            balance = conn.execute(
+                "SELECT sits FROM users WHERE chat_id=? AND user_id=1", (CHAT,)
+            ).fetchone()[0]
+            ledger = conn.execute(
+                "SELECT COUNT(*),SUM(amount) FROM sit_ledger "
+                "WHERE action_code='cepen_scratch_reward'"
+            ).fetchone()
+        self.assertEqual(15, balance)
+        self.assertEqual((50, 5), tuple(ledger))
+
+    def test_concurrent_scratches_do_not_exceed_personal_limit(self):
+        today = datetime.now().date().isoformat()
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=5 WHERE user_id=1")
+            conn.commit()
+
+        def click(number):
+            return cepen.scratch(
+                CHAT, 1, 2, f"parallel-{number}", date_key=today
+            ).status
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            statuses = list(pool.map(click, range(20)))
+        self.assertEqual(5, statuses.count("scratched"))
+        self.assertEqual(15, statuses.count("user_limit"))
+        with closing(db.get_connection()) as conn:
+            balance = conn.execute(
+                "SELECT sits FROM users WHERE chat_id=? AND user_id=1", (CHAT,)
+            ).fetchone()[0]
+            events = conn.execute("SELECT COUNT(*) FROM cepen_scratches").fetchone()[0]
+        self.assertEqual(10.5, balance)
+        self.assertEqual(5, events)
 
     def test_directional_pair_probabilities(self):
         self.assertEqual(
@@ -447,7 +547,8 @@ class CepenTests(unittest.TestCase):
 
         preview = cepen.status_text(CHAT, 2)
         self.assertIn("частичный рост до 107.5 см", preview)
-        self.assertIn("баланс сита был больше на 5", preview)
+        self.assertNotIn("🍆", preview)
+        self.assertNotIn("Баланс:", preview)
         report = cepen.grow_all(today)[CHAT][0]
         with closing(db.get_connection()) as conn:
             user = conn.execute("SELECT cepen,sits FROM users WHERE user_id=2").fetchone()
@@ -465,7 +566,7 @@ class CepenTests(unittest.TestCase):
         text = cepen.status_text(CHAT, 1)
         self.assertIn("анабиоз", text)
         self.assertIn("минимум 1 сит", text)
-        self.assertIn("баланс сита был больше на 9.5", text)
+        self.assertNotIn("🍆", text)
 
         with closing(db.get_connection()) as conn:
             conn.execute("UPDATE users SET sits=10 WHERE user_id=1")

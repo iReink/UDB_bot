@@ -17,6 +17,7 @@ from pathlib import Path
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 import db
@@ -48,6 +49,10 @@ HOST_MESSAGE_END_HOUR = 23
 HOST_MESSAGE_SIGNATURE = "– твой цепень ❤️"
 CEPEN_NAME_MAX_LENGTH = 32
 CEPEN_NAME_DELETE_MARKS = frozenset("-‐‑‒–—―−﹣－")
+SCRATCH_REWARD = 0.1
+SCRATCH_DAILY_LIMIT = 50
+SCRATCH_USER_DAILY_LIMIT = 5
+_SCRATCH_MENU_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
 
 
 class CepenNameStates(StatesGroup):
@@ -74,6 +79,13 @@ class HostMessage:
     chat_id: int
     user_id: int
     phrase: str
+
+
+@dataclass(frozen=True)
+class ScratchResult:
+    status: str
+    total_count: int
+    scratcher_count: int
 
 GROWTH_LINES = (
     "{name}: {worm} сходил в /shop за питанием — {length} см (+{gain}), −{cost} сит.",
@@ -432,16 +444,138 @@ def ranking_text(chat_id: int, full: bool = False) -> tuple[str, int]:
     return "\n".join(lines), len(rows)
 
 
+def _scratch_counts(
+    conn,
+    chat_id: int,
+    owner_id: int,
+    scratcher_id: int,
+    date_key: str,
+) -> tuple[int, int]:
+    row = conn.execute(
+        "SELECT COUNT(*) AS total, "
+        "SUM(CASE WHEN scratcher_id=? THEN 1 ELSE 0 END) AS personal "
+        "FROM cepen_scratches WHERE chat_id=? AND owner_id=? AND scratch_date=?",
+        (scratcher_id, chat_id, owner_id, date_key),
+    ).fetchone()
+    return int(row["total"] or 0), int(row["personal"] or 0)
+
+
+def scratch(
+    chat_id: int,
+    owner_id: int,
+    scratcher_id: int,
+    callback_query_id: str,
+    *,
+    date_key: str | None = None,
+) -> ScratchResult:
+    """Atomically record one rewarded scratch and enforce both daily limits."""
+    day = date_key or datetime.now().date().isoformat()
+    with closing(db.get_connection()) as conn:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if not db.cepen_enabled(chat_id, conn):
+                conn.rollback()
+                return ScratchResult("disabled", 0, 0)
+            if _status(conn, chat_id, owner_id) <= 0:
+                conn.rollback()
+                return ScratchResult("healthy", 0, 0)
+            if scratcher_id == owner_id:
+                total, personal = _scratch_counts(conn, chat_id, owner_id, scratcher_id, day)
+                conn.rollback()
+                return ScratchResult("self", total, personal)
+
+            duplicate = conn.execute(
+                "SELECT 1 FROM cepen_scratches WHERE callback_query_id=?",
+                (str(callback_query_id),),
+            ).fetchone()
+            total, personal = _scratch_counts(conn, chat_id, owner_id, scratcher_id, day)
+            if duplicate:
+                conn.rollback()
+                return ScratchResult("duplicate", total, personal)
+            if total >= SCRATCH_DAILY_LIMIT:
+                conn.rollback()
+                return ScratchResult("worm_limit", total, personal)
+            if personal >= SCRATCH_USER_DAILY_LIMIT:
+                conn.rollback()
+                return ScratchResult("user_limit", total, personal)
+
+            now = datetime.now().isoformat(timespec="seconds")
+            conn.execute(
+                "INSERT INTO cepen_scratches("
+                "callback_query_id,scratch_date,chat_id,owner_id,scratcher_id,reward,created_at"
+                ") VALUES (?,?,?,?,?,?,?)",
+                (
+                    str(callback_query_id), day, chat_id, owner_id, scratcher_id,
+                    SCRATCH_REWARD, now,
+                ),
+            )
+            db.apply_sit_change(
+                conn,
+                chat_id,
+                owner_id,
+                SCRATCH_REWARD,
+                action_code="cepen_scratch_reward",
+                action_ru="Награда за чесание цепня",
+                metadata={
+                    "scratcher_id": scratcher_id,
+                    "scratch_date": day,
+                    "callback_query_id": str(callback_query_id),
+                },
+            )
+            conn.commit()
+            return ScratchResult("scratched", total + 1, personal + 1)
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def scratch_summary(
+    chat_id: int,
+    owner_id: int,
+    *,
+    date_key: str | None = None,
+) -> tuple[list[tuple[str, int]], int]:
+    day = date_key or datetime.now().date().isoformat()
+    with closing(db.get_connection()) as conn:
+        rows = conn.execute(
+            "SELECT s.scratcher_id,COUNT(*) AS count,MIN(s.created_at) AS first_scratch,"
+            "COALESCE(NULLIF(u.name,''),NULLIF(u.nick,''),CAST(s.scratcher_id AS TEXT)) AS name "
+            "FROM cepen_scratches s LEFT JOIN users u "
+            "ON u.chat_id=s.chat_id AND u.user_id=s.scratcher_id "
+            "WHERE s.chat_id=? AND s.owner_id=? AND s.scratch_date=? "
+            "GROUP BY s.scratcher_id,name ORDER BY first_scratch,s.scratcher_id",
+            (chat_id, owner_id, day),
+        ).fetchall()
+    result = [(str(row["name"]), int(row["count"])) for row in rows]
+    return result, sum(count for _, count in result)
+
+
+def _scratch_summary_text(chat_id: int, owner_id: int) -> str:
+    rows, total = scratch_summary(chat_id, owner_id)
+    if not rows:
+        return ""
+    people = ", ".join(f"{person} ({count})" for person, count in rows)
+    return (
+        f"\n\nСегодня чесали: {people}\n"
+        f"Получено {format_sits(total * SCRATCH_REWARD)} сит."
+    )
+
+
 def menu_keyboard(
     user_id: int,
     has_cepen: bool,
     cepen_name: str | None = None,
+    scratch_count: int = 0,
 ) -> InlineKeyboardMarkup:
     buttons = []
     if has_cepen:
         buttons.append([
             InlineKeyboardButton(
-                text=f"Почесать {cepen_name}" if cepen_name else "Почесать цепня",
+                text=(
+                    f"Почесать {cepen_name} [{scratch_count}/{SCRATCH_DAILY_LIMIT}]"
+                    if cepen_name
+                    else f"Почесать цепня [{scratch_count}/{SCRATCH_DAILY_LIMIT}]"
+                ),
                 callback_data=f"cepen:scratch:{user_id}",
             )
         ])
@@ -684,15 +818,14 @@ def _dick_length(conn, chat_id: int, user_id: int) -> int:
 def _manual_text(cepen_name: str | None = None) -> str:
     if cepen_name:
         return (
-            f"\n\nЕсли {cepen_name} станет длиннее члена, полный рост может увеличить член. "
-            f"При неполной оплате рост персонажа по имени {cepen_name} будет частичным, "
-            "но член не вырастет. "
-            f"В /shop можно уменьшить или полностью вылечить персонажа по имени {cepen_name}."
+            f"\n\nЦепень {cepen_name} поможет подрасти короткому члену, если сможет съесть сит, "
+            f"равный 1/10 от своей текущей длины. В /shop можно вылечить цепня по имени "
+            f"{cepen_name}. Друзья могут чесать цепня по имени {cepen_name} и ты получишь сит."
         )
     return (
-        "\n\nПолный рост может увеличить член, если цепень станет длиннее него. "
-        "При неполной оплате цепень забирает доступный сит и растёт частично, но член не растёт. "
-        "В /shop цепня можно уменьшить на 20% или вылечить полностью."
+        "\n\nЦепень поможет подрасти короткому члену, если сможет съесть сит, равный "
+        "1/10 от своей текущей длины. В /shop можно вылечить себя от цепня. "
+        "Друзья могут чесать твоего цепня и ты получишь сит."
     )
 
 
@@ -710,13 +843,10 @@ def status_text(chat_id: int, user_id: int) -> str:
         plan = growth_plan(old, balance)
         dick_length = _dick_length(conn, chat_id, user_id)
 
-    lines = [
-        (
-            f"🐛 Цепень {cepen_name}: {format_sits(old)} см"
-            if cepen_name else f"🐛 Длина цепня: {format_sits(old)} см"
-        ),
-        f"💦 Баланс: {format_sits(balance)} сит",
-    ]
+    lines = [(
+        f"🐛 Цепень {cepen_name}: {format_sits(old)} см"
+        if cepen_name else f"🐛 Длина цепня: {format_sits(old)} см"
+    )]
     if plan.mode == "full":
         lines.append(
             f"Прогноз на вечер: полный рост до {format_sits(plan.new)} см "
@@ -747,21 +877,11 @@ def status_text(chat_id: int, user_id: int) -> str:
             )
         else:
             lines.append(f"🍆 Член вырастет на {possible_bonus} см.")
-    elif plan.mode != "full" and possible_bonus > 0:
-        missing_full = _round_length(
-            Decimal(str(plan.full_cost)) - Decimal(str(max(0.0, balance)))
-        )
-        worm = subject_from_name(cepen_name, capital=True)
-        lines.append(
-            f"🍆 {worm} мог бы вызвать рост члена на {possible_bonus} см, если бы баланс "
-            f"сита был больше на {format_sits(missing_full)}."
-        )
-    elif plan.full_new <= dick_length:
-        worm = subject_from_name(cepen_name)
-        lines.append(
-            f"🍆 Даже при полном росте {worm} пока не обгонит член длиной {dick_length} см."
-        )
-    return "\n".join(lines) + _manual_text(cepen_name)
+    return (
+        "\n".join(lines)
+        + _manual_text(cepen_name)
+        + _scratch_summary_text(chat_id, user_id)
+    )
 
 
 def grow_all(date_key: str) -> dict[int, list[str]]:
@@ -914,8 +1034,14 @@ def register_handlers(dp):
         chat_id, user_id = message.chat.id, message.from_user.id
         enabled = db.cepen_enabled(chat_id)
         cepen_name = name(chat_id, user_id) if enabled else None
+        _, scratch_count = scratch_summary(chat_id, user_id) if enabled else ([], 0)
         keyboard = (
-            menu_keyboard(user_id, length(chat_id, user_id) > 0, cepen_name)
+            menu_keyboard(
+                user_id,
+                length(chat_id, user_id) > 0,
+                cepen_name,
+                scratch_count,
+            )
             if enabled else None
         )
         await message.reply(status_text(chat_id, user_id), reply_markup=keyboard)
@@ -927,27 +1053,78 @@ def register_handlers(dp):
             await query.answer()
             return
         action, owner_id = parts[1], int(parts[2])
-        if query.from_user.id != owner_id:
-            await query.answer(
-                "Это меню другого пользователя. Вызови своё с помощью /cepen",
-                show_alert=True,
-            )
-            return
         chat_id = query.message.chat.id
         if not db.cepen_enabled(chat_id):
             await query.answer("Цепень отключён в этом чате.", show_alert=True)
             return
         if action == "scratch":
-            if length(chat_id, owner_id) <= 0:
-                await query.answer("У тебя больше нет цепня.", show_alert=True)
-                return
-            cepen_name = name(chat_id, owner_id)
-            response = (
-                f"{cepen_name}: «Спасибо, очень приятно!»"
-                if cepen_name else "Спасибо, очень приятно!"
+            lock = _SCRATCH_MENU_LOCKS.setdefault(
+                (chat_id, owner_id), asyncio.Lock()
             )
-            await query.message.answer(response)
-            await query.answer()
+            async with lock:
+                result = scratch(
+                    chat_id,
+                    owner_id,
+                    query.from_user.id,
+                    query.id,
+                )
+                if result.status == "disabled":
+                    await query.answer("Цепень отключён в этом чате.", show_alert=True)
+                    return
+                if result.status == "healthy":
+                    await query.answer("У владельца больше нет цепня.", show_alert=True)
+                    return
+                if result.status == "self":
+                    cepen_name = name(chat_id, owner_id)
+                    response = (
+                        f"{cepen_name}: «Спасибо, очень приятно!»"
+                        if cepen_name else "Спасибо, очень приятно!"
+                    )
+                    await query.answer(response)
+                    return
+
+                cepen_name = name(chat_id, owner_id)
+                if result.status == "scratched":
+                    response = (
+                        f"{cepen_name} почёсан! Владелец получил 0,1 сита."
+                        if cepen_name else "Почёсано! Владелец получил 0,1 сита."
+                    )
+                    await query.answer(response)
+                elif result.status == "user_limit":
+                    worm = _genitive_from_name(cepen_name)
+                    await query.answer(
+                        f"Ты уже почесал {worm} 5 раз сегодня.",
+                        show_alert=True,
+                    )
+                elif result.status == "worm_limit":
+                    worm = subject_from_name(cepen_name, capital=True)
+                    await query.answer(
+                        f"{worm} сегодня уже почесан 50 раз.",
+                        show_alert=True,
+                    )
+                else:
+                    await query.answer("Это нажатие уже учтено.")
+
+                _, scratch_count = scratch_summary(chat_id, owner_id)
+                try:
+                    await query.message.edit_text(
+                        status_text(chat_id, owner_id),
+                        reply_markup=menu_keyboard(
+                            owner_id,
+                            length(chat_id, owner_id) > 0,
+                            cepen_name,
+                            scratch_count,
+                        ),
+                    )
+                except TelegramBadRequest as exc:
+                    if "message is not modified" not in str(exc).lower():
+                        raise
+            return
+        if query.from_user.id != owner_id:
+            await query.answer(
+                "Это меню другого пользователя. Вызови своё с помощью /cepen",
+                show_alert=True,
+            )
             return
         if action == "name":
             if length(chat_id, owner_id) <= 0:

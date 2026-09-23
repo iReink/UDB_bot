@@ -181,6 +181,25 @@ def initialize_db():
                 PRIMARY KEY (message_date, chat_id, user_id)
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cepen_scratches (
+                callback_query_id TEXT PRIMARY KEY,
+                scratch_date TEXT NOT NULL,
+                chat_id INTEGER NOT NULL,
+                owner_id INTEGER NOT NULL,
+                scratcher_id INTEGER NOT NULL,
+                reward REAL NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cepen_scratches_owner_date
+            ON cepen_scratches(chat_id, owner_id, scratch_date)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cepen_scratches_scratcher_date
+            ON cepen_scratches(chat_id, owner_id, scratcher_id, scratch_date)
+        """)
         # Таблица для отслеживания гейзеров (обновленная структура)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS geyser_events (
