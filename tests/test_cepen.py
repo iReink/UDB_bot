@@ -398,7 +398,8 @@ class CepenTests(unittest.TestCase):
         text = cepen.status_text(CHAT, 1)
         self.assertIn("Сегодня чесали: Второй (5)", text)
         self.assertIn("Получено 5 сит.", text)
-        self.assertIn("Друзья могут чесать цепня по имени Виталик", text)
+        self.assertIn("Друзья могут чесать твоего цепня и ты получишь сит.", text)
+        self.assertNotIn("Виталик", cepen._manual_text("Виталик"))
         with closing(db.get_connection()) as conn:
             balance = conn.execute(
                 "SELECT sits FROM users WHERE chat_id=? AND user_id=1", (CHAT,)

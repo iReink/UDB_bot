@@ -815,13 +815,7 @@ def _dick_length(conn, chat_id: int, user_id: int) -> int:
     return int(row["length"] or 0) if row else 0
 
 
-def _manual_text(cepen_name: str | None = None) -> str:
-    if cepen_name:
-        return (
-            f"\n\nЦепень {cepen_name} поможет подрасти короткому члену, если сможет съесть сит, "
-            f"равный 1/10 от своей текущей длины. В /shop можно вылечить цепня по имени "
-            f"{cepen_name}. Друзья могут чесать цепня по имени {cepen_name} и ты получишь сит."
-        )
+def _manual_text(_cepen_name: str | None = None) -> str:
     return (
         "\n\nЦепень поможет подрасти короткому члену, если сможет съесть сит, равный "
         "1/10 от своей текущей длины. В /shop можно вылечить себя от цепня. "
