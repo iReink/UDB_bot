@@ -245,6 +245,23 @@ def update_dick_length(user_id: int, chat_id: int, delta: int) -> int:
         return new_length
 
 
+def apply_duel_result(
+    chat_id: int, winner_id: int, loser_id: int, bet: int
+) -> tuple[int, int]:
+    """Apply both sides of a duel atomically and return their saved lengths."""
+    if winner_id == loser_id:
+        raise ValueError("Duel winner and loser must be different users")
+    bet = int(bet)
+    if bet <= 0:
+        raise ValueError("Duel bet must be positive")
+    with closing(get_connection()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        winner_length = apply_dick_length_change(conn, winner_id, chat_id, bet)
+        loser_length = apply_dick_length_change(conn, loser_id, chat_id, -bet)
+        conn.commit()
+        return winner_length, loser_length
+
+
 def set_grow_date(user_id: int, chat_id: int, date_str: str) -> None:
     with get_connection() as conn:
         cur = conn.cursor()
@@ -708,8 +725,9 @@ def register_dick_handlers(dp):
         winner_id = longer_id if longer_wins else shorter_id
         loser_id = shorter_id if longer_wins else longer_id
 
-        winner_length = update_dick_length(winner_id, chat_id, bet)
-        loser_length = update_dick_length(loser_id, chat_id, -bet)
+        winner_length, loser_length = apply_duel_result(
+            chat_id, winner_id, loser_id, bet
+        )
 
         winner_place = get_user_place(chat_id, winner_id)
         loser_place = get_user_place(chat_id, loser_id)
