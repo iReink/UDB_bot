@@ -334,16 +334,34 @@ class CepenTests(unittest.TestCase):
         self.assertIsNone(cepen.rating_keyboard(1, full_total, full=True))
 
     def test_directional_pair_probabilities(self):
+        self.assertEqual(
+            {
+                "sos": (.45, .05),
+                "shpeh": (.49, .06),
+                "bite": (.475, .015),
+                "duel": (.10, .10),
+            },
+            cepen.PAIR_CHANCES,
+        )
+        self.assertEqual(
+            {"group_participant": .075, "group_spectator": .025, "daily": .075},
+            cepen.GROUP_CHANCES,
+        )
+        self.assertEqual(.0025, cepen.REPLY_CHANCE)
+        self.assertEqual(
+            {"geyser": .025, "coffee": .004, "round": .003, "sticker": .0006},
+            cepen.PRIMARY_CHANCES,
+        )
         with patch("cepen.random.random", return_value=0):
             cepen.attempt_primary(CHAT, 2, "coffee")
         self.assertEqual("named", cepen.set_name(CHAT, 2, "Виталик"))
-        with patch("cepen.random.random", return_value=.5):
+        with patch("cepen.random.random", return_value=.4):
             text = cepen.attempt_pair(CHAT, 1, 2, "sos")
         self.assertIn("@first засосал @second", text)
         self.assertIn("цепня по имени Виталик", text)
         with patch("cepen.random.random", return_value=.5):
             self.assertIsNone(cepen.attempt_pair(CHAT, 2, 3, "sos"))
-        with patch("cepen.random.random", return_value=.05):
+        with patch("cepen.random.random", return_value=.04):
             text = cepen.attempt_pair(CHAT, 2, 3, "sos")
         self.assertIn("@second всосал в @third", text)
 

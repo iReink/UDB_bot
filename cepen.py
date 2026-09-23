@@ -34,13 +34,13 @@ INSTRUCTION = (
 )
 PRIMARY_CHANCES = {"geyser": .025, "coffee": .004, "round": .003, "sticker": .0006}
 PAIR_CHANCES = {
-    "sos": (.90, .10),
-    "shpeh": (.98, .12),
-    "bite": (.95, .03),
-    "duel": (.20, .20),
+    "sos": (.45, .05),
+    "shpeh": (.49, .06),
+    "bite": (.475, .015),
+    "duel": (.10, .10),
 }
-GROUP_CHANCES = {"group_participant": .15, "group_spectator": .05, "daily": .15}
-REPLY_CHANCE = .005
+GROUP_CHANCES = {"group_participant": .075, "group_spectator": .025, "daily": .075}
+REPLY_CHANCE = .0025
 _THOUSANDTH = Decimal("0.001")
 HOST_PHRASES_PATH = Path(__file__).resolve().parent / "docs" / "cepen-host-phrases.md"
 HOST_MESSAGE_START_HOUR = 10
