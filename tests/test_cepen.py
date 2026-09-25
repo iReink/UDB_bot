@@ -381,6 +381,17 @@ class CepenTests(unittest.TestCase):
         self.assertEqual("cepen:profession_set:1:designer", buttons[0].callback_data)
         self.assertEqual("cepen:back:1", buttons[-1].callback_data)
         self.assertIn("Первый выбор бесплатный", cepen.profession_menu_text(None, None))
+        preview_keyboard = cepen.profession_keyboard(1, None, "designer")
+        preview_buttons = [
+            button for row in preview_keyboard.inline_keyboard for button in row
+        ]
+        self.assertEqual(12, len(preview_buttons))
+        self.assertEqual("✓ 🎨 Дизайнер", preview_buttons[0].text)
+        self.assertEqual("Подтвердить", preview_buttons[-2].text)
+        self.assertEqual(
+            "cepen:profession_confirm:1:designer",
+            preview_buttons[-2].callback_data,
+        )
 
         first = cepen.set_profession(CHAT, 1, "designer")
         self.assertEqual(cepen.ProfessionResult("changed", "designer", 0), first)
@@ -440,9 +451,12 @@ class CepenTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_profession_callback_replaces_photo_and_keeps_submenu(self):
+    def test_profession_preview_does_not_charge_until_confirmation(self):
         with closing(db.get_connection()) as conn:
-            conn.execute("UPDATE users SET cepen=31,sits=10 WHERE user_id=1")
+            conn.execute(
+                "UPDATE users SET cepen=31,sits=10,cepen_profession='designer' "
+                "WHERE user_id=1"
+            )
             conn.commit()
 
         async def scenario():
@@ -450,7 +464,7 @@ class CepenTests(unittest.TestCase):
             cepen.register_handlers(dp)
             bot = Bot("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk")
             bot.session = AsyncMock(return_value=True)
-            update = Update.model_validate({
+            preview_update = Update.model_validate({
                 "update_id": 42,
                 "callback_query": {
                     "id": "profession-callback",
@@ -472,7 +486,7 @@ class CepenTests(unittest.TestCase):
                     },
                 },
             })
-            await dp.feed_update(bot, update)
+            await dp.feed_update(bot, preview_update)
             methods = [type(call.args[1]).__name__ for call in bot.session.await_args_list]
             self.assertIn("AnswerCallbackQuery", methods)
             self.assertIn("EditMessageMedia", methods)
@@ -481,8 +495,54 @@ class CepenTests(unittest.TestCase):
                 if type(call.args[1]).__name__ == "EditMessageMedia"
             )
             edit_method = edit_call.args[1]
-            self.assertIn("Цепень-учёный", edit_method.media.caption)
+            self.assertIn("Предпросмотр: Цепень-учёный", edit_method.media.caption)
             self.assertEqual("✓ 🧪 Учёный", edit_method.reply_markup.inline_keyboard[2][1].text)
+            self.assertEqual(
+                "Подтвердить", edit_method.reply_markup.inline_keyboard[-2][0].text
+            )
+            self.assertEqual("designer", cepen.profession(CHAT, 1))
+            with closing(db.get_connection()) as conn:
+                balance = conn.execute(
+                    "SELECT sits FROM users WHERE chat_id=? AND user_id=1", (CHAT,)
+                ).fetchone()[0]
+            self.assertEqual(10, balance)
+
+            bot.session.reset_mock()
+            confirm_update = Update.model_validate({
+                "update_id": 43,
+                "callback_query": {
+                    "id": "profession-confirm",
+                    "chat_instance": "chat",
+                    "from": {"id": 1, "is_bot": False, "first_name": "Первый"},
+                    "data": "cepen:profession_confirm:1:scientist",
+                    "message": {
+                        "message_id": 21,
+                        "date": 1700000000,
+                        "chat": {"id": CHAT, "type": "supergroup"},
+                        "photo": [{
+                            "file_id": "AgACAgIAAxkBAAIC",
+                            "file_unique_id": "AQAD-preview",
+                            "width": 1024,
+                            "height": 1024,
+                            "file_size": 1000,
+                        }],
+                        "caption": "preview",
+                    },
+                },
+            })
+            await dp.feed_update(bot, confirm_update)
+            confirm_methods = [
+                type(call.args[1]).__name__ for call in bot.session.await_args_list
+            ]
+            self.assertIn("AnswerCallbackQuery", confirm_methods)
+            self.assertIn("EditMessageMedia", confirm_methods)
+            confirm_edit = next(
+                call.args[1] for call in bot.session.await_args_list
+                if type(call.args[1]).__name__ == "EditMessageMedia"
+            )
+            self.assertNotEqual(
+                "Подтвердить", confirm_edit.reply_markup.inline_keyboard[-2][0].text
+            )
 
         asyncio.run(scenario())
         self.assertEqual("scientist", cepen.profession(CHAT, 1))
@@ -490,7 +550,56 @@ class CepenTests(unittest.TestCase):
             balance = conn.execute(
                 "SELECT sits FROM users WHERE chat_id=? AND user_id=1", (CHAT,)
             ).fetchone()[0]
-        self.assertEqual(10, balance)
+        self.assertEqual(5, balance)
+
+    def test_profession_back_restores_saved_avatar(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute(
+                "UPDATE users SET cepen=31,cepen_profession='designer' WHERE user_id=1"
+            )
+            conn.commit()
+
+        async def scenario():
+            dp = Dispatcher()
+            cepen.register_handlers(dp)
+            bot = Bot("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk")
+            bot.session = AsyncMock(return_value=True)
+            update = Update.model_validate({
+                "update_id": 44,
+                "callback_query": {
+                    "id": "profession-back",
+                    "chat_instance": "chat",
+                    "from": {"id": 1, "is_bot": False, "first_name": "Первый"},
+                    "data": "cepen:back:1",
+                    "message": {
+                        "message_id": 22,
+                        "date": 1700000000,
+                        "chat": {"id": CHAT, "type": "supergroup"},
+                        "photo": [{
+                            "file_id": "AgACAgIAAxkBAAID",
+                            "file_unique_id": "AQAD-preview-back",
+                            "width": 1024,
+                            "height": 1024,
+                            "file_size": 1000,
+                        }],
+                        "caption": "scientist preview",
+                    },
+                },
+            })
+            await dp.feed_update(bot, update)
+            edit_method = next(
+                call.args[1] for call in bot.session.await_args_list
+                if type(call.args[1]).__name__ == "EditMessageMedia"
+            )
+            self.assertTrue(
+                str(edit_method.media.media.path).endswith("level-03-designer.png")
+            )
+            self.assertEqual(
+                "Сменить профессию", edit_method.reply_markup.inline_keyboard[2][0].text
+            )
+
+        asyncio.run(scenario())
+        self.assertEqual("designer", cepen.profession(CHAT, 1))
 
     def test_scratching_rewards_owner_and_enforces_daily_limits(self):
         today = datetime.now().date().isoformat()

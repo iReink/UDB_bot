@@ -697,8 +697,13 @@ _PROFESSION_BUTTONS = (
 )
 
 
-def profession_keyboard(user_id: int, current: str | None) -> InlineKeyboardMarkup:
-    selected = cepen_avatar.normalize_profession(current)
+def profession_keyboard(
+    user_id: int,
+    current: str | None,
+    preview: str | None = None,
+) -> InlineKeyboardMarkup:
+    preview_key = cepen_avatar.normalize_profession(preview)
+    selected = preview_key or cepen_avatar.normalize_profession(current)
     choices = []
     for key, title in _PROFESSION_BUTTONS:
         text = f"✓ {title}" if key == selected else title
@@ -709,17 +714,34 @@ def profession_keyboard(user_id: int, current: str | None) -> InlineKeyboardMark
             )
         )
     rows = [choices[index:index + 2] for index in range(0, len(choices), 2)]
+    if preview_key:
+        rows.append([
+            InlineKeyboardButton(
+                text="Подтвердить",
+                callback_data=f"cepen:profession_confirm:{user_id}:{preview_key}",
+            )
+        ])
     rows.append([
         InlineKeyboardButton(text="← Назад", callback_data=f"cepen:back:{user_id}")
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def profession_menu_text(cepen_name: str | None, current: str | None) -> str:
+def profession_menu_text(
+    cepen_name: str | None,
+    current: str | None,
+    preview: str | None = None,
+) -> str:
     subject = f"цепня {cepen_name}" if cepen_name else "цепня"
+    preview_key = cepen_avatar.normalize_profession(preview)
+    selection = (
+        f"Сохранено: {cepen_avatar.profession_title(current)}.\n"
+        f"Предпросмотр: {cepen_avatar.profession_title(preview_key)}.\n\n"
+        if preview_key else f"Сейчас: {cepen_avatar.profession_title(current)}.\n\n"
+    )
     return (
         f"🎭 Выбор профессии {subject}\n"
-        f"Сейчас: {cepen_avatar.profession_title(current)}.\n\n"
+        f"{selection}"
         "Первый выбор бесплатный. Каждая следующая смена стоит 5 сит."
     )
 
@@ -1211,7 +1233,9 @@ def register_handlers(dp):
             return
         action, owner_id = parts[1], int(parts[2])
         selected_profession = parts[3] if len(parts) == 4 else None
-        if (action == "profession_set") != (selected_profession is not None):
+        if (
+            action in {"profession_set", "profession_confirm"}
+        ) != (selected_profession is not None):
             await query.answer()
             return
         chat_id = query.message.chat.id
@@ -1303,7 +1327,28 @@ def register_handlers(dp):
             await query.answer()
             return
         if action == "profession_set":
-            result = set_profession(chat_id, owner_id, selected_profession)
+            preview = cepen_avatar.normalize_profession(selected_profession)
+            if preview is None:
+                await query.answer("Неизвестная профессия.", show_alert=True)
+                return
+            current_name = name(chat_id, owner_id)
+            current_profession = profession(chat_id, owner_id)
+            current_length = length(chat_id, owner_id)
+            avatar = cepen_avatar.render_avatar(current_length, preview)
+            await _edit_cepen_message(
+                query.message,
+                profession_menu_text(current_name, current_profession, preview),
+                profession_keyboard(owner_id, current_profession, preview),
+                photo_path=avatar,
+            )
+            await query.answer("Предпросмотр. Подтверди выбор кнопкой ниже.")
+            return
+        if action == "profession_confirm":
+            confirmed = cepen_avatar.normalize_profession(selected_profession)
+            if confirmed is None:
+                await query.answer("Неизвестная профессия.", show_alert=True)
+                return
+            result = set_profession(chat_id, owner_id, confirmed)
             if result.status == "disabled":
                 await query.answer("Цепень отключён в этом чате.", show_alert=True)
                 return
@@ -1317,6 +1362,12 @@ def register_handlers(dp):
                 return
             if result.status == "same":
                 await query.answer("Эта профессия уже выбрана.")
+                current_name = name(chat_id, owner_id)
+                await _edit_cepen_message(
+                    query.message,
+                    profession_menu_text(current_name, result.profession),
+                    profession_keyboard(owner_id, result.profession),
+                )
                 return
             if result.charged:
                 await query.answer("Профессия изменена. Списано 5 сит.")
@@ -1335,6 +1386,7 @@ def register_handlers(dp):
         if action == "back":
             current_name = name(chat_id, owner_id)
             current_profession = profession(chat_id, owner_id)
+            current_length = length(chat_id, owner_id)
             _, scratch_count = scratch_summary(chat_id, owner_id)
             await _edit_cepen_message(
                 query.message,
@@ -1346,6 +1398,9 @@ def register_handlers(dp):
                     scratch_count,
                     current_profession,
                 ),
+                photo_path=cepen_avatar.render_avatar(
+                    current_length, current_profession
+                ) if current_length > 0 else None,
             )
             await query.answer()
             return
