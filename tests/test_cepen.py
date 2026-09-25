@@ -11,8 +11,10 @@ from unittest.mock import AsyncMock, patch
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
+from PIL import Image
 
 import cepen
+import cepen_avatar
 import db
 import settings
 
@@ -89,6 +91,7 @@ class CepenTests(unittest.TestCase):
         self.assertIn("cepen", columns)
         self.assertIn("cepen_growth_date", columns)
         self.assertIn("cepen_name", columns)
+        self.assertIn("cepen_profession", columns)
         self.assertIsNotNone(daily_messages_table)
         self.assertIsNotNone(scratches_table)
         self.assertEqual("👑 🐛 Первый", db.get_user_display_name(1, CHAT))
@@ -311,11 +314,21 @@ class CepenTests(unittest.TestCase):
             button for row in infected_keyboard.inline_keyboard for button in row
         ]
         self.assertEqual(
-            ["Почесать Виталик [15/50]", "Изменить имя цепня", "Рейтинг цепней"],
+            [
+                "Почесать Виталик [15/50]",
+                "Изменить имя цепня",
+                "Выбрать профессию",
+                "Рейтинг цепней",
+            ],
             [button.text for button in infected_buttons],
         )
         self.assertEqual(
-            ["cepen:scratch:1", "cepen:name:1", "cepen:rating:1"],
+            [
+                "cepen:scratch:1",
+                "cepen:name:1",
+                "cepen:profession:1",
+                "cepen:rating:1",
+            ],
             [button.callback_data for button in infected_buttons],
         )
         healthy_keyboard = cepen.menu_keyboard(3, has_cepen=False)
@@ -339,6 +352,145 @@ class CepenTests(unittest.TestCase):
         self.assertEqual(12, len(full_text.splitlines()) - 1)
         self.assertIn("12. 🐛 Игрок 4 — 4 см", full_text)
         self.assertIsNone(cepen.rating_keyboard(1, full_total, full=True))
+
+    def test_avatar_levels_render_base_and_profession_layers(self):
+        values = [0, 15, 15.001, 30, 31, 60, 61, 120, 121, 200,
+                  201, 300, 301, 400, 401, 500, 501, 700, 701]
+        self.assertEqual(
+            [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10],
+            [cepen_avatar.level_for_length(value) for value in values],
+        )
+        with tempfile.TemporaryDirectory() as cache:
+            base = cepen_avatar.render_avatar(5, cache_dir=cache)
+            gamer = cepen_avatar.render_avatar(701, "gamer", cache_dir=cache)
+            self.assertNotEqual(base.read_bytes(), gamer.read_bytes())
+            with Image.open(base) as image:
+                self.assertEqual((1024, 1024), image.size)
+                self.assertEqual("RGB", image.mode)
+            with Image.open(gamer) as image:
+                self.assertEqual((1024, 1024), image.size)
+
+    def test_profession_menu_and_atomic_paid_changes(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=25,sits=10 WHERE user_id=1")
+            conn.commit()
+
+        keyboard = cepen.profession_keyboard(1, None)
+        buttons = [button for row in keyboard.inline_keyboard for button in row]
+        self.assertEqual(11, len(buttons))
+        self.assertEqual("cepen:profession_set:1:designer", buttons[0].callback_data)
+        self.assertEqual("cepen:back:1", buttons[-1].callback_data)
+        self.assertIn("Первый выбор бесплатный", cepen.profession_menu_text(None, None))
+
+        first = cepen.set_profession(CHAT, 1, "designer")
+        self.assertEqual(cepen.ProfessionResult("changed", "designer", 0), first)
+        self.assertEqual("same", cepen.set_profession(CHAT, 1, "designer").status)
+        second = cepen.set_profession(CHAT, 1, "programmer")
+        self.assertEqual(cepen.ProfessionResult("changed", "programmer", 5), second)
+        third = cepen.set_profession(CHAT, 1, "doctor")
+        self.assertEqual(cepen.ProfessionResult("changed", "doctor", 5), third)
+        self.assertEqual("insufficient", cepen.set_profession(CHAT, 1, "teacher").status)
+        self.assertEqual("doctor", cepen.profession(CHAT, 1))
+
+        with closing(db.get_connection()) as conn:
+            user = conn.execute(
+                "SELECT sits,cepen_profession FROM users WHERE chat_id=? AND user_id=1",
+                (CHAT,),
+            ).fetchone()
+            ledger = conn.execute(
+                "SELECT amount,action_code FROM sit_ledger "
+                "WHERE action_code='cepen_profession_change' ORDER BY id"
+            ).fetchall()
+        self.assertEqual((0, "doctor"), tuple(user))
+        self.assertEqual(
+            [(-5, "cepen_profession_change"), (-5, "cepen_profession_change")],
+            [tuple(row) for row in ledger],
+        )
+        self.assertEqual("cured", cepen.cure(CHAT, 1))
+        self.assertIsNone(cepen.profession(CHAT, 1))
+
+    def test_cepen_command_sends_avatar_as_photo(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute(
+                "UPDATE users SET cepen=31,cepen_profession='artist' WHERE user_id=1"
+            )
+            conn.commit()
+
+        async def scenario():
+            dp = Dispatcher()
+            cepen.register_handlers(dp)
+            bot = Bot("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk")
+            bot.session = AsyncMock(return_value=True)
+            update = Update.model_validate({
+                "update_id": 41,
+                "message": {
+                    "message_id": 20,
+                    "date": 1700000000,
+                    "chat": {"id": CHAT, "type": "supergroup"},
+                    "from": {"id": 1, "is_bot": False, "first_name": "Первый"},
+                    "text": "/cepen",
+                    "entities": [{"type": "bot_command", "offset": 0, "length": 6}],
+                },
+            })
+            await dp.feed_update(bot, update)
+            method = bot.session.await_args.args[1]
+            self.assertEqual("SendPhoto", type(method).__name__)
+            self.assertIn("Длина цепня: 31 см", method.caption)
+            self.assertEqual("Сменить профессию", method.reply_markup.inline_keyboard[2][0].text)
+
+        asyncio.run(scenario())
+
+    def test_profession_callback_replaces_photo_and_keeps_submenu(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute("UPDATE users SET cepen=31,sits=10 WHERE user_id=1")
+            conn.commit()
+
+        async def scenario():
+            dp = Dispatcher()
+            cepen.register_handlers(dp)
+            bot = Bot("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk")
+            bot.session = AsyncMock(return_value=True)
+            update = Update.model_validate({
+                "update_id": 42,
+                "callback_query": {
+                    "id": "profession-callback",
+                    "chat_instance": "chat",
+                    "from": {"id": 1, "is_bot": False, "first_name": "Первый"},
+                    "data": "cepen:profession_set:1:scientist",
+                    "message": {
+                        "message_id": 21,
+                        "date": 1700000000,
+                        "chat": {"id": CHAT, "type": "supergroup"},
+                        "photo": [{
+                            "file_id": "AgACAgIAAxkBAAIB",
+                            "file_unique_id": "AQAD-avatar",
+                            "width": 1024,
+                            "height": 1024,
+                            "file_size": 1000,
+                        }],
+                        "caption": "old",
+                    },
+                },
+            })
+            await dp.feed_update(bot, update)
+            methods = [type(call.args[1]).__name__ for call in bot.session.await_args_list]
+            self.assertIn("AnswerCallbackQuery", methods)
+            self.assertIn("EditMessageMedia", methods)
+            edit_call = next(
+                call for call in bot.session.await_args_list
+                if type(call.args[1]).__name__ == "EditMessageMedia"
+            )
+            edit_method = edit_call.args[1]
+            self.assertIn("Цепень-учёный", edit_method.media.caption)
+            self.assertEqual("✓ 🧪 Учёный", edit_method.reply_markup.inline_keyboard[2][1].text)
+
+        asyncio.run(scenario())
+        self.assertEqual("scientist", cepen.profession(CHAT, 1))
+        with closing(db.get_connection()) as conn:
+            balance = conn.execute(
+                "SELECT sits FROM users WHERE chat_id=? AND user_id=1", (CHAT,)
+            ).fetchone()[0]
+        self.assertEqual(10, balance)
 
     def test_scratching_rewards_owner_and_enforces_daily_limits(self):
         today = datetime.now().date().isoformat()

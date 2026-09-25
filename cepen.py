@@ -18,9 +18,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+)
 
 import db
+import cepen_avatar
 from sits import format_sits
 
 
@@ -52,6 +58,7 @@ CEPEN_NAME_DELETE_MARKS = frozenset("-‐‑‒–—―−﹣－")
 SCRATCH_REWARD = 0.1
 SCRATCH_DAILY_LIMIT = 50
 SCRATCH_USER_DAILY_LIMIT = 5
+PROFESSION_CHANGE_PRICE = 5
 _SCRATCH_MENU_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
 
 
@@ -86,6 +93,13 @@ class ScratchResult:
     status: str
     total_count: int
     scratcher_count: int
+
+
+@dataclass(frozen=True)
+class ProfessionResult:
+    status: str
+    profession: str | None
+    charged: float = 0
 
 GROWTH_LINES = (
     "{name}: {worm} сходил в /shop за питанием — {length} см (+{gain}), −{cost} сит.",
@@ -180,6 +194,68 @@ def _stored_name(conn, chat_id: int, user_id: int) -> str | None:
 def name(chat_id: int, user_id: int) -> str | None:
     with closing(db.get_connection()) as conn:
         return _stored_name(conn, chat_id, user_id)
+
+
+def _stored_profession(conn, chat_id: int, user_id: int) -> str | None:
+    try:
+        row = conn.execute(
+            "SELECT cepen_profession FROM users WHERE chat_id=? AND user_id=?",
+            (chat_id, user_id),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return cepen_avatar.normalize_profession(
+        row["cepen_profession"] if row else None
+    )
+
+
+def profession(chat_id: int, user_id: int) -> str | None:
+    with closing(db.get_connection()) as conn:
+        return _stored_profession(conn, chat_id, user_id)
+
+
+def set_profession(chat_id: int, user_id: int, value: str) -> ProfessionResult:
+    selected = cepen_avatar.normalize_profession(value)
+    if selected is None:
+        raise ValueError(f"Unknown tapeworm profession: {value}")
+    with closing(db.get_connection()) as conn:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if not db.cepen_enabled(chat_id, conn):
+                conn.rollback()
+                return ProfessionResult("disabled", None)
+            if _status(conn, chat_id, user_id) <= 0:
+                conn.rollback()
+                return ProfessionResult("healthy", None)
+            current = _stored_profession(conn, chat_id, user_id)
+            if current == selected:
+                conn.rollback()
+                return ProfessionResult("same", current)
+            price = 0 if current is None else PROFESSION_CHANGE_PRICE
+            if price:
+                try:
+                    db.apply_sit_change(
+                        conn,
+                        chat_id,
+                        user_id,
+                        -price,
+                        action_code="cepen_profession_change",
+                        action_ru="Смена профессии цепня",
+                        metadata={"old": current, "new": selected},
+                        require_sufficient=True,
+                    )
+                except db.InsufficientSitsError:
+                    conn.rollback()
+                    return ProfessionResult("insufficient", current)
+            conn.execute(
+                "UPDATE users SET cepen_profession=? WHERE chat_id=? AND user_id=?",
+                (selected, chat_id, user_id),
+            )
+            conn.commit()
+            return ProfessionResult("changed", selected, price)
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def subject_from_name(value: str | None, *, capital: bool = False, html_mode: bool = False) -> str:
@@ -554,7 +630,10 @@ def _scratch_summary_text(chat_id: int, owner_id: int) -> str:
     rows, total = scratch_summary(chat_id, owner_id)
     if not rows:
         return ""
-    people = ", ".join(f"{person} ({count})" for person, count in rows)
+    people = ", ".join(
+        f"{person[:37] + '…' if len(person) > 38 else person} ({count})"
+        for person, count in rows
+    )
     return (
         f"\n\nСегодня чесали: {people}\n"
         f"Получено {format_sits(total * SCRATCH_REWARD)} сит."
@@ -566,6 +645,7 @@ def menu_keyboard(
     has_cepen: bool,
     cepen_name: str | None = None,
     scratch_count: int = 0,
+    cepen_profession: str | None = None,
 ) -> InlineKeyboardMarkup:
     buttons = []
     if has_cepen:
@@ -585,12 +665,63 @@ def menu_keyboard(
                 callback_data=f"cepen:name:{user_id}",
             )
         ])
+        buttons.append([
+            InlineKeyboardButton(
+                text=(
+                    "Сменить профессию"
+                    if cepen_avatar.normalize_profession(cepen_profession)
+                    else "Выбрать профессию"
+                ),
+                callback_data=f"cepen:profession:{user_id}",
+            )
+        ])
     buttons.append([
         InlineKeyboardButton(
             text="Рейтинг цепней", callback_data=f"cepen:rating:{user_id}"
         )
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+_PROFESSION_BUTTONS = (
+    ("designer", "🎨 Дизайнер"),
+    ("programmer", "💻 Программист"),
+    ("doctor", "🩺 Дядя доктор (или тётя)"),
+    ("teacher", "📚 Училка"),
+    ("chef", "👨‍🍳 Поварёнок"),
+    ("scientist", "🧪 Учёный"),
+    ("plumber", "🔧 Сантехник"),
+    ("artist", "🖌 Художник"),
+    ("detective", "🔎 Сыщик"),
+    ("gamer", "🎮 Геймер"),
+)
+
+
+def profession_keyboard(user_id: int, current: str | None) -> InlineKeyboardMarkup:
+    selected = cepen_avatar.normalize_profession(current)
+    choices = []
+    for key, title in _PROFESSION_BUTTONS:
+        text = f"✓ {title}" if key == selected else title
+        choices.append(
+            InlineKeyboardButton(
+                text=text,
+                callback_data=f"cepen:profession_set:{user_id}:{key}",
+            )
+        )
+    rows = [choices[index:index + 2] for index in range(0, len(choices), 2)]
+    rows.append([
+        InlineKeyboardButton(text="← Назад", callback_data=f"cepen:back:{user_id}")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def profession_menu_text(cepen_name: str | None, current: str | None) -> str:
+    subject = f"цепня {cepen_name}" if cepen_name else "цепня"
+    return (
+        f"🎭 Выбор профессии {subject}\n"
+        f"Сейчас: {cepen_avatar.profession_title(current)}.\n\n"
+        "Первый выбор бесплатный. Каждая следующая смена стоит 5 сит."
+    )
 
 
 def rating_keyboard(user_id: int, total: int, full: bool = False) -> InlineKeyboardMarkup | None:
@@ -611,7 +742,7 @@ def _infect(conn, chat_id: int, user_id: int) -> bool:
     if created.rowcount == 1:
         return True
     cur = conn.execute(
-        "UPDATE users SET cepen=?,cepen_name=NULL "
+        "UPDATE users SET cepen=?,cepen_name=NULL,cepen_profession=NULL "
         "WHERE chat_id=? AND user_id=? AND COALESCE(cepen,0)=0",
         (INITIAL_LENGTH, chat_id, user_id),
     )
@@ -770,7 +901,8 @@ def cure(chat_id: int, user_id: int, *, price: float = 0) -> str:
             except db.InsufficientSitsError:
                 conn.rollback()
                 return "insufficient"
-        conn.execute("UPDATE users SET cepen=0,cepen_name=NULL,cepen_growth_date=NULL "
+        conn.execute("UPDATE users SET cepen=0,cepen_name=NULL,cepen_profession=NULL,"
+                     "cepen_growth_date=NULL "
                      "WHERE chat_id=? AND user_id=?",
                      (chat_id, user_id))
         conn.commit()
@@ -1022,31 +1154,66 @@ def _target_by_nick(chat_id: int, nickname: str) -> int | None:
     return int(row["user_id"]) if row else None
 
 
+async def _edit_cepen_message(message, text: str, keyboard, photo_path=None):
+    """Edit both new photo menus and pre-avatar text menus."""
+    if getattr(message, "photo", None):
+        if photo_path is not None:
+            await message.edit_media(
+                InputMediaPhoto(media=FSInputFile(photo_path), caption=text),
+                reply_markup=keyboard,
+            )
+        else:
+            await message.edit_caption(caption=text, reply_markup=keyboard)
+    else:
+        await message.edit_text(text, reply_markup=keyboard)
+
+
 def register_handlers(dp):
     @dp.message(Command("cepen"))
     async def cepen_command(message):
         chat_id, user_id = message.chat.id, message.from_user.id
         enabled = db.cepen_enabled(chat_id)
         cepen_name = name(chat_id, user_id) if enabled else None
+        cepen_length = length(chat_id, user_id) if enabled else 0
+        cepen_profession = profession(chat_id, user_id) if enabled else None
         _, scratch_count = scratch_summary(chat_id, user_id) if enabled else ([], 0)
         keyboard = (
             menu_keyboard(
                 user_id,
-                length(chat_id, user_id) > 0,
+                cepen_length > 0,
                 cepen_name,
                 scratch_count,
+                cepen_profession,
             )
             if enabled else None
         )
-        await message.reply(status_text(chat_id, user_id), reply_markup=keyboard)
+        text = status_text(chat_id, user_id)
+        if enabled and cepen_length > 0:
+            try:
+                avatar = cepen_avatar.render_avatar(cepen_length, cepen_profession)
+                await message.reply_photo(
+                    photo=FSInputFile(avatar),
+                    caption=text,
+                    reply_markup=keyboard,
+                )
+                return
+            except Exception:
+                logging.exception(
+                    "tapeworm avatar failed for chat=%s user=%s", chat_id, user_id
+                )
+        await message.reply(text, reply_markup=keyboard)
 
     @dp.callback_query(lambda query: query.data and query.data.startswith("cepen:"))
     async def cepen_menu_callback(query, state: FSMContext):
         parts = query.data.split(":")
-        if len(parts) != 3 or not parts[2].isdigit():
+        if len(parts) not in {3, 4} or not parts[2].isdigit():
             await query.answer()
             return
         action, owner_id = parts[1], int(parts[2])
+        selected_profession = parts[3] if len(parts) == 4 else None
+        if (action == "profession_set") != (selected_profession is not None):
+            await query.answer()
+            return
         chat_id = query.message.chat.id
         if not db.cepen_enabled(chat_id):
             await query.answer("Цепень отключён в этом чате.", show_alert=True)
@@ -1101,13 +1268,15 @@ def register_handlers(dp):
 
                 _, scratch_count = scratch_summary(chat_id, owner_id)
                 try:
-                    await query.message.edit_text(
+                    await _edit_cepen_message(
+                        query.message,
                         status_text(chat_id, owner_id),
-                        reply_markup=menu_keyboard(
+                        menu_keyboard(
                             owner_id,
                             length(chat_id, owner_id) > 0,
                             cepen_name,
                             scratch_count,
+                            profession(chat_id, owner_id),
                         ),
                     )
                 except TelegramBadRequest as exc:
@@ -1119,6 +1288,66 @@ def register_handlers(dp):
                 "Это меню другого пользователя. Вызови своё с помощью /cepen",
                 show_alert=True,
             )
+            return
+        if action == "profession":
+            if length(chat_id, owner_id) <= 0:
+                await query.answer("У тебя больше нет цепня.", show_alert=True)
+                return
+            current_name = name(chat_id, owner_id)
+            current_profession = profession(chat_id, owner_id)
+            await _edit_cepen_message(
+                query.message,
+                profession_menu_text(current_name, current_profession),
+                profession_keyboard(owner_id, current_profession),
+            )
+            await query.answer()
+            return
+        if action == "profession_set":
+            result = set_profession(chat_id, owner_id, selected_profession)
+            if result.status == "disabled":
+                await query.answer("Цепень отключён в этом чате.", show_alert=True)
+                return
+            if result.status == "healthy":
+                await query.answer("У тебя больше нет цепня.", show_alert=True)
+                return
+            if result.status == "insufficient":
+                await query.answer(
+                    "Для смены профессии нужно 5 сит.", show_alert=True
+                )
+                return
+            if result.status == "same":
+                await query.answer("Эта профессия уже выбрана.")
+                return
+            if result.charged:
+                await query.answer("Профессия изменена. Списано 5 сит.")
+            else:
+                await query.answer("Первая профессия выбрана бесплатно!")
+            current_name = name(chat_id, owner_id)
+            current_length = length(chat_id, owner_id)
+            avatar = cepen_avatar.render_avatar(current_length, result.profession)
+            await _edit_cepen_message(
+                query.message,
+                profession_menu_text(current_name, result.profession),
+                profession_keyboard(owner_id, result.profession),
+                photo_path=avatar,
+            )
+            return
+        if action == "back":
+            current_name = name(chat_id, owner_id)
+            current_profession = profession(chat_id, owner_id)
+            _, scratch_count = scratch_summary(chat_id, owner_id)
+            await _edit_cepen_message(
+                query.message,
+                status_text(chat_id, owner_id),
+                menu_keyboard(
+                    owner_id,
+                    length(chat_id, owner_id) > 0,
+                    current_name,
+                    scratch_count,
+                    current_profession,
+                ),
+            )
+            await query.answer()
             return
         if action == "name":
             if length(chat_id, owner_id) <= 0:
@@ -1139,9 +1368,10 @@ def register_handlers(dp):
         if action in {"rating", "rating_full"}:
             full = action == "rating_full"
             text, total = ranking_text(chat_id, full=full)
-            await query.message.edit_text(
+            await _edit_cepen_message(
+                query.message,
                 text,
-                reply_markup=rating_keyboard(owner_id, total, full=full),
+                rating_keyboard(owner_id, total, full=full),
             )
             await query.answer()
             return
