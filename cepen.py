@@ -1212,7 +1212,11 @@ def register_handlers(dp):
         text = status_text(chat_id, user_id)
         if enabled and cepen_length > 0:
             try:
-                avatar = cepen_avatar.render_avatar(cepen_length, cepen_profession)
+                avatar = cepen_avatar.render_avatar(
+                    cepen_length,
+                    cepen_profession,
+                    happy=scratch_count > 0,
+                )
                 await message.reply_photo(
                     photo=FSInputFile(avatar),
                     caption=text,
@@ -1291,16 +1295,27 @@ def register_handlers(dp):
                     await query.answer("Это нажатие уже учтено.")
 
                 _, scratch_count = scratch_summary(chat_id, owner_id)
+                current_length = length(chat_id, owner_id)
+                current_profession = profession(chat_id, owner_id)
                 try:
                     await _edit_cepen_message(
                         query.message,
                         status_text(chat_id, owner_id),
                         menu_keyboard(
                             owner_id,
-                            length(chat_id, owner_id) > 0,
+                            current_length > 0,
                             cepen_name,
                             scratch_count,
-                            profession(chat_id, owner_id),
+                            current_profession,
+                        ),
+                        photo_path=(
+                            cepen_avatar.render_avatar(
+                                current_length,
+                                current_profession,
+                                happy=True,
+                            )
+                            if result.status == "scratched" and current_length > 0
+                            else None
                         ),
                     )
                 except TelegramBadRequest as exc:
@@ -1334,7 +1349,10 @@ def register_handlers(dp):
             current_name = name(chat_id, owner_id)
             current_profession = profession(chat_id, owner_id)
             current_length = length(chat_id, owner_id)
-            avatar = cepen_avatar.render_avatar(current_length, preview)
+            _, scratch_count = scratch_summary(chat_id, owner_id)
+            avatar = cepen_avatar.render_avatar(
+                current_length, preview, happy=scratch_count > 0
+            )
             await _edit_cepen_message(
                 query.message,
                 profession_menu_text(current_name, current_profession, preview),
@@ -1375,7 +1393,10 @@ def register_handlers(dp):
                 await query.answer("Первая профессия выбрана бесплатно!")
             current_name = name(chat_id, owner_id)
             current_length = length(chat_id, owner_id)
-            avatar = cepen_avatar.render_avatar(current_length, result.profession)
+            _, scratch_count = scratch_summary(chat_id, owner_id)
+            avatar = cepen_avatar.render_avatar(
+                current_length, result.profession, happy=scratch_count > 0
+            )
             await _edit_cepen_message(
                 query.message,
                 profession_menu_text(current_name, result.profession),
@@ -1399,7 +1420,9 @@ def register_handlers(dp):
                     current_profession,
                 ),
                 photo_path=cepen_avatar.render_avatar(
-                    current_length, current_profession
+                    current_length,
+                    current_profession,
+                    happy=scratch_count > 0,
                 ) if current_length > 0 else None,
             )
             await query.answer()

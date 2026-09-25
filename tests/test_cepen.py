@@ -363,7 +363,11 @@ class CepenTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as cache:
             base = cepen_avatar.render_avatar(5, cache_dir=cache)
             gamer = cepen_avatar.render_avatar(701, "gamer", cache_dir=cache)
+            sad = cepen_avatar.render_avatar(5, happy=False, cache_dir=cache)
             self.assertNotEqual(base.read_bytes(), gamer.read_bytes())
+            self.assertNotEqual(base.read_bytes(), sad.read_bytes())
+            self.assertTrue(base.name.endswith("base-happy.png"))
+            self.assertTrue(sad.name.endswith("base-sad.png"))
             with Image.open(base) as image:
                 self.assertEqual((1024, 1024), image.size)
                 self.assertEqual("RGB", image.mode)
@@ -391,7 +395,8 @@ class CepenTests(unittest.TestCase):
                 self.assertEqual("RGBA", sheet.mode)
             source = cepen_avatar._sheet(str(sheet_path))
             for level in range(1, 11):
-                alpha_bounds = cepen_avatar._cell(source, level).getchannel("A").getbbox()
+                sprite = cepen_avatar._cell(source, level)
+                alpha_bounds = sprite.getchannel("A").getbbox()
                 self.assertIsNotNone(alpha_bounds, (sheet_path, level))
                 left, top, right, bottom = alpha_bounds
                 self.assertGreaterEqual(
@@ -399,6 +404,14 @@ class CepenTests(unittest.TestCase):
                     10,
                     (sheet_path, level, alpha_bounds),
                 )
+                mouth_box = cepen_avatar._mouth_box(sprite, level)
+                self.assertNotEqual(
+                    sprite.tobytes(),
+                    cepen_avatar._sad_sprite(sprite, level).tobytes(),
+                    (sheet_path, level, mouth_box),
+                )
+                self.assertGreater(mouth_box[2] - mouth_box[0], 20)
+                self.assertGreater(mouth_box[3] - mouth_box[1], 20)
 
     def test_profession_menu_and_atomic_paid_changes(self):
         with closing(db.get_connection()) as conn:
@@ -476,8 +489,55 @@ class CepenTests(unittest.TestCase):
             await dp.feed_update(bot, update)
             method = bot.session.await_args.args[1]
             self.assertEqual("SendPhoto", type(method).__name__)
+            self.assertTrue(str(method.photo.path).endswith("artist-sad.png"))
             self.assertIn("Длина цепня: 31 см", method.caption)
             self.assertEqual("Сменить профессию", method.reply_markup.inline_keyboard[2][0].text)
+
+        asyncio.run(scenario())
+
+    def test_first_successful_scratch_turns_menu_avatar_happy(self):
+        with closing(db.get_connection()) as conn:
+            conn.execute(
+                "UPDATE users SET cepen=31,cepen_profession='artist' WHERE user_id=1"
+            )
+            conn.commit()
+
+        async def scenario():
+            dp = Dispatcher()
+            cepen.register_handlers(dp)
+            bot = Bot("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk")
+            bot.session = AsyncMock(return_value=True)
+            update = Update.model_validate({
+                "update_id": 45,
+                "callback_query": {
+                    "id": "first-scratch",
+                    "chat_instance": "chat",
+                    "from": {"id": 2, "is_bot": False, "first_name": "Второй"},
+                    "data": "cepen:scratch:1",
+                    "message": {
+                        "message_id": 23,
+                        "date": 1700000000,
+                        "chat": {"id": CHAT, "type": "supergroup"},
+                        "photo": [{
+                            "file_id": "AgACAgIAAxkBAAIE",
+                            "file_unique_id": "AQAD-sad-avatar",
+                            "width": 1024,
+                            "height": 1024,
+                            "file_size": 1000,
+                        }],
+                        "caption": "sad",
+                    },
+                },
+            })
+            await dp.feed_update(bot, update)
+            edit_method = next(
+                call.args[1] for call in bot.session.await_args_list
+                if type(call.args[1]).__name__ == "EditMessageMedia"
+            )
+            self.assertTrue(
+                str(edit_method.media.media.path).endswith("artist-happy.png")
+            )
+            self.assertIn("[1/50]", edit_method.reply_markup.inline_keyboard[0][0].text)
 
         asyncio.run(scenario())
 
@@ -622,7 +682,9 @@ class CepenTests(unittest.TestCase):
                 if type(call.args[1]).__name__ == "EditMessageMedia"
             )
             self.assertTrue(
-                str(edit_method.media.media.path).endswith("level-03-designer.png")
+                str(edit_method.media.media.path).endswith(
+                    "level-03-designer-sad.png"
+                )
             )
             self.assertEqual(
                 "Сменить профессию", edit_method.reply_markup.inline_keyboard[2][0].text
