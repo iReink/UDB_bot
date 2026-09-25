@@ -353,7 +353,7 @@ class CepenTests(unittest.TestCase):
         self.assertIn("12. 🐛 Игрок 4 — 4 см", full_text)
         self.assertIsNone(cepen.rating_keyboard(1, full_total, full=True))
 
-    def test_avatar_levels_render_base_and_profession_layers(self):
+    def test_avatar_levels_render_registered_profession_sprites(self):
         values = [0, 15, 15.001, 30, 31, 60, 61, 120, 121, 200,
                   201, 300, 301, 400, 401, 500, 501, 700, 701]
         self.assertEqual(
@@ -369,6 +369,36 @@ class CepenTests(unittest.TestCase):
                 self.assertEqual("RGB", image.mode)
             with Image.open(gamer) as image:
                 self.assertEqual((1024, 1024), image.size)
+                rendered_gamer = image.copy()
+            expected_gamer = Image.alpha_composite(
+                cepen_avatar._background(),
+                cepen_avatar._cell(
+                    cepen_avatar._sheet(
+                        str(cepen_avatar.SKIN_DIR / "gamer.png")
+                    ),
+                    10,
+                ),
+            ).convert("RGB")
+            self.assertEqual(expected_gamer.tobytes(), rendered_gamer.tobytes())
+
+        sheets = [
+            cepen_avatar.BASE_SHEET,
+            *(cepen_avatar.SKIN_DIR / f"{key}.png" for key in cepen_avatar.PROFESSIONS),
+        ]
+        for sheet_path in sheets:
+            with Image.open(sheet_path) as sheet:
+                self.assertEqual((2000, 800), sheet.size)
+                self.assertEqual("RGBA", sheet.mode)
+            source = cepen_avatar._sheet(str(sheet_path))
+            for level in range(1, 11):
+                alpha_bounds = cepen_avatar._cell(source, level).getchannel("A").getbbox()
+                self.assertIsNotNone(alpha_bounds, (sheet_path, level))
+                left, top, right, bottom = alpha_bounds
+                self.assertGreaterEqual(
+                    min(left, top, 1024 - right, 1024 - bottom),
+                    10,
+                    (sheet_path, level, alpha_bounds),
+                )
 
     def test_profession_menu_and_atomic_paid_changes(self):
         with closing(db.get_connection()) as conn:

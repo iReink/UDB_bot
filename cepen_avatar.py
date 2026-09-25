@@ -1,4 +1,4 @@
-"""Build tapeworm avatars from a neutral growth level and profession overlay."""
+"""Build tapeworm avatars from registered base and profession sprite sheets."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from PIL import Image
 ASSET_DIR = Path(__file__).resolve().parent / "assets" / "cepen"
 BASE_SHEET = ASSET_DIR / "base-levels.png"
 SKIN_DIR = ASSET_DIR / "skins"
-CACHE_DIR = Path(tempfile.gettempdir()) / "udb-cepen-avatars-v1"
+CACHE_DIR = Path(tempfile.gettempdir()) / "udb-cepen-avatars-v2"
 AVATAR_SIZE = 1024
 LEVEL_BREAKPOINTS = (15, 30, 60, 120, 200, 300, 400, 500, 700)
 PROFESSIONS = {
@@ -97,12 +97,9 @@ def render_avatar(
     if target.exists():
         return target
 
-    base = _cell(_sheet(str(BASE_SHEET)), level)
-    canvas = Image.alpha_composite(_background(), base)
-    if skin:
-        overlay_path = SKIN_DIR / f"{skin}.png"
-        overlay = _cell(_sheet(str(overlay_path)), level)
-        canvas = Image.alpha_composite(canvas, overlay)
+    sprite_path = SKIN_DIR / f"{skin}.png" if skin else BASE_SHEET
+    sprite = _cell(_sheet(str(sprite_path)), level)
+    canvas = Image.alpha_composite(_background(), sprite)
 
     temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
     canvas.convert("RGB").save(temporary, format="PNG", optimize=True)
