@@ -300,6 +300,8 @@ def initialize_db():
                 INSERT OR IGNORE INTO achievements (key, name_m, name_f)
                 VALUES ('bitten', 'Месиво', 'Месиво')
             """)
+        import bank_core
+        bank_core.ensure_schema(conn)
         conn.commit()
 
 # -------------------------------
@@ -770,13 +772,35 @@ def apply_sit_change(
     require_sufficient: bool = False,
 ) -> tuple[float, float]:
     """Change a balance and append its audit row using the caller's transaction."""
-    delta = to_sits(amount)
-    if delta == 0:
+    gross_delta = to_sits(amount)
+    if gross_delta == 0:
         raise ValueError("sit change amount must not be zero")
     if not action_code.strip() or not action_ru.strip():
         raise ValueError("action_code and action_ru are required")
 
     cur = conn.cursor()
+    split = None
+    effective_metadata = dict(metadata or {})
+    delta = gross_delta
+    if gross_delta > 0:
+        import bank_core
+        split = bank_core.split_incoming(
+            conn,
+            chat_id,
+            user_id,
+            bank_core.sits_to_milli(gross_delta),
+            action_code,
+        )
+        delta = to_sits(bank_core.milli_to_sits(split.player_milli))
+        if split.tax_milli or split.garnishment_milli:
+            effective_metadata.update(
+                {
+                    "bank_gross_milli": split.gross_milli,
+                    "bank_tax_milli": split.tax_milli,
+                    "bank_garnishment_milli": split.garnishment_milli,
+                    "bank_player_net_milli": split.player_milli,
+                }
+            )
     cur.execute(
         """
         SELECT COALESCE(name, '') AS name,
@@ -842,7 +866,7 @@ def apply_sit_change(
             balance_after,
             action_code.strip(),
             action_ru.strip(),
-            json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+            json.dumps(effective_metadata, ensure_ascii=False, sort_keys=True),
         ),
     )
 
@@ -908,6 +932,27 @@ def add_sits(
         metadata=metadata,
     )
     return balance_after
+
+
+def award_sits(
+    chat_id: int,
+    user_id: int,
+    amount: float,
+    *,
+    action_code: str,
+    action_ru: str,
+    metadata: Optional[dict] = None,
+) -> tuple[float, float]:
+    """Apply a positive award and return (actual player income, new balance)."""
+    balance_before, balance_after = change_sits(
+        chat_id,
+        user_id,
+        amount,
+        action_code=action_code,
+        action_ru=action_ru,
+        metadata=metadata,
+    )
+    return to_sits(balance_after - balance_before), balance_after
 
 # --- Функции для работы с гейзером ---
 def add_geyser_event(chat_id: int, date_str: str, scheduled_time: str, status: str = 'pending'):

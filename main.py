@@ -38,6 +38,7 @@ from db import (
     increment_sticker_stats,
     get_user_display_name,
     add_sits,
+    award_sits,
     apply_sit_change,
     change_sits,
     InsufficientSitsError,
@@ -166,7 +167,9 @@ dick.register_dick_handlers(dp)
 
 import dashboard
 import chat_summary
+import bank_bot
 dashboard.register_dashboard_handlers(dp)
+bank_bot.register_handlers(dp)
 
 from profanity import count_profanity
 from ai_tasks import (
@@ -1561,7 +1564,7 @@ async def handle_give(message: types.Message):
                 metadata={"counterparty_user_id": receiver_id},
                 require_sufficient=True,
             )
-            apply_sit_change(
+            receiver_before, receiver_after = apply_sit_change(
                 conn,
                 chat_id,
                 receiver_id,
@@ -1570,6 +1573,7 @@ async def handle_give(message: types.Message):
                 action_ru="Перевод от другого игрока",
                 metadata={"counterparty_user_id": sender_id},
             )
+            received_amount = normalize_sits(receiver_after - receiver_before)
             conn.commit()
     except InsufficientSitsError as exc:
         await message.answer(
@@ -1585,7 +1589,8 @@ async def handle_give(message: types.Message):
     verb = "передала" if sender_sex == "f" else "передал"
 
     await message.answer(
-        f"💦 {sender_name} {verb} {format_sits(amount)} {sits_word(amount)} пользователю {receiver_name} {nick_raw}."
+        f"💦 {sender_name} {verb} {format_sits(received_amount)} {sits_word(received_amount)} "
+        f"пользователю {receiver_name} {nick_raw}. Списано: {format_sits(amount)}."
     )
 
 
@@ -2486,7 +2491,7 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
             return
 
         if n >= 4:
-            add_sits(
+            actual_reward, _ = award_sits(
                 chat_id,
                 user_id,
                 1,
@@ -2494,7 +2499,7 @@ async def action_drink_coffee(callback: types.CallbackQuery, item: dict):
                 action_ru="Награда за фильтр",
             )
             new_bal = normalize_sits(get_user(user_id, chat_id)["sits"])
-            msg = f"{user_name} получил 1 сит за фильтр. Остаток: {format_sits(new_bal)} сит"
+            msg = f"{user_name} получил {format_sits(actual_reward)} сита за фильтр. Остаток: {format_sits(new_bal)} сит"
             await callback.message.answer(msg)
             from quest import update_quest_progress
             if n >= 5:
@@ -2636,7 +2641,7 @@ async def reward_daily_top(bot: Bot):
         for i, (uid, count, name) in enumerate(top3):
             amount = rewards[i]
             # Добавляем ситы
-            add_sits(
+            actual_amount, _ = award_sits(
                 chat_id,
                 uid,
                 amount=amount,
@@ -2644,7 +2649,7 @@ async def reward_daily_top(bot: Bot):
                 action_ru=f"Ежедневная награда за активность: {i + 1} место",
                 metadata={"place": i + 1, "messages": count},
             )
-            text_lines.append(f"{i + 1} место — {name} — {amount} сит")
+            text_lines.append(f"{i + 1} место — {name} — {format_sits(actual_amount)} сит")
 
         # Отправка сообщения в чат
         try:
@@ -2710,6 +2715,7 @@ async def main():
     asyncio.create_task(profile_update_scheduler_task())
     asyncio.create_task(ai_summary_scheduler_task())
     asyncio.create_task(quest_progress_worker())
+    asyncio.create_task(bank_bot.bank_scheduler(bot))
 
     # Цикл polling с автоперезапуском при ошибках
     while True:

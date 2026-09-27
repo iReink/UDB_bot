@@ -750,7 +750,7 @@ class CepenTests(unittest.TestCase):
         self.assertEqual(("Второй", 5), rows[0])
         text = cepen.status_text(CHAT, 1)
         self.assertIn("Сегодня чесали: Второй (5)", text)
-        self.assertIn("Получено 5 сит.", text)
+        self.assertIn("Получено 4.75 сита.", text)
         self.assertIn("Друзья могут чесать твоего цепня и ты получишь сит.", text)
         self.assertNotIn("Виталик", cepen._manual_text("Виталик"))
         with closing(db.get_connection()) as conn:
@@ -761,8 +761,8 @@ class CepenTests(unittest.TestCase):
                 "SELECT COUNT(*),SUM(amount) FROM sit_ledger "
                 "WHERE action_code='cepen_scratch_reward'"
             ).fetchone()
-        self.assertEqual(15, balance)
-        self.assertEqual((50, 5), tuple(ledger))
+        self.assertEqual(14.75, balance)
+        self.assertEqual((50, 4.75), tuple(ledger))
 
     def test_concurrent_scratches_do_not_exceed_personal_limit(self):
         today = datetime.now().date().isoformat()
@@ -784,7 +784,7 @@ class CepenTests(unittest.TestCase):
                 "SELECT sits FROM users WHERE chat_id=? AND user_id=1", (CHAT,)
             ).fetchone()[0]
             events = conn.execute("SELECT COUNT(*) FROM cepen_scratches").fetchone()[0]
-        self.assertEqual(10.5, balance)
+        self.assertEqual(10.475, balance)
         self.assertEqual(5, events)
 
     def test_directional_pair_probabilities(self):

@@ -11,6 +11,7 @@ from contextlib import closing
 from db import (
     add_geyser_event,
     add_sits,
+    award_sits,
     claim_geyser_event_with_reward,
     expire_geyser_event_if_sent,
     get_all_chats,
@@ -181,6 +182,7 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
     # Определяем окончание глагола в зависимости от пола пользователя
     user_data = get_user(user_id, chat_id)
     user_sex = user_data["sex"] if user_data else None
+    balance_before = float(user_data["sits"] or 0) if user_data else 0.0
 
     caught_verb = "поймала" if user_sex == 'f' else "поймал"
     run_verb = "бегала" if user_sex == 'f' else "бегал"
@@ -191,6 +193,8 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
     if not claim_geyser_event_with_reward(event_id, chat_id, message_id, user_id, sit_reward):
         await callback.answer("❌ Кто-то уже успел поймать сито!", show_alert=True)
         return
+    updated_user = get_user(user_id, chat_id)
+    displayed_reward = round(float(updated_user["sits"] or 0) - balance_before, 3) if updated_user else sit_reward
 
     infection_notice = cepen.attempt_primary(chat_id, user_id, "geyser")
     if infection_notice:
@@ -202,15 +206,15 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
         if geyser_data["timeout_task"]:
             geyser_data["timeout_task"].cancel()
 
-    if sit_reward == 0:
+    if displayed_reward == 0:
         result_message = f"{user_name} успешно {caught_verb} сит, но ведро оказалось дырявым. +0 сит"
-    elif sit_reward < 0:
+    elif displayed_reward < 0:
         result_message = (
             f"{user_name} так старательно {run_verb} за гейзером, что {stumble_verb} и пролил то, что было "
-            f"({sit_reward} сита)"
+            f"({displayed_reward} сита)"
         )
     else:
-        result_message = f"{user_name} успешно {caught_verb} {sit_reward} сита в ведёрко!"
+        result_message = f"{user_name} успешно {caught_verb} {displayed_reward} сита в ведёрко!"
 
     # Удаляем кнопку и отправляем сообщение о победе
     try:
@@ -244,7 +248,7 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
                     f"{bonus_user_name} {grabbed_verb} капельку себе в карман (+1 сит)"
                 )
 
-            add_sits(
+            net_bonus, _ = award_sits(
                 chat_id,
                 bonus_user_id,
                 bonus_amount,
@@ -252,6 +256,16 @@ async def handle_geyser_catch(callback: types.CallbackQuery):
                 action_ru="Дополнительная награда из гейзера",
                 metadata={"catcher_user_id": user_id},
             )
+            if idx == 0:
+                bonus_message = (
+                    f"{bonus_user_name} хоть и {late_verb} но {grabbed_verb} "
+                    f"прихватить {net_bonus} сита"
+                )
+            else:
+                bonus_message = (
+                    f"{bonus_user_name} {grabbed_verb} капельку себе в карман "
+                    f"(+{net_bonus} сита)"
+                )
             try:
                 await callback.message.answer(bonus_message)
             except Exception as e:

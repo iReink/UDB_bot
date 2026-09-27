@@ -6,6 +6,7 @@ import sqlite3
 import db
 from db import add_or_update_user_achievement
 from db import add_or_update_user_achievement, get_achievement_title, get_connection, get_user_sex, get_user_display_name
+from sits import format_sits
 
 
 bot = None       # сюда пробрасывается экземпляр бота из main.py
@@ -115,7 +116,7 @@ async def award_weekly_top(chat_id, users):
     lines = ["🏆 Топ-10 флудеров недели:"]
     for i, (msgs, uid, name) in enumerate(top10):
         reward = WEEKLY_TOP_REWARDS[i]
-        add_sits(
+        net_reward, _ = db.award_sits(
             chat_id,
             uid,
             reward,
@@ -124,7 +125,7 @@ async def award_weekly_top(chat_id, users):
             metadata={"place": i + 1, "messages": msgs},
         )
         display_name = get_user_display_name(uid, chat_id)
-        lines.append(f"{i+1}. {display_name} — {msgs} сообщений (+{reward} сит)")
+        lines.append(f"{i+1}. {display_name} — {msgs} сообщений (+{format_sits(net_reward)} сит)")
 
     await bot.send_message(chat_id, "\n".join(lines))
 
@@ -146,7 +147,7 @@ async def award_stickerbomber(chat_id, users):
     winner_name = get_user_display_name(winner_id, chat_id)
 
     # Начисляем ситы
-    add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_sticker_bomber_award", action_ru="Недельная награда «Стикербомбер»")
+    net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_sticker_bomber_award", action_ru="Недельная награда «Стикербомбер»")
 
     # Определяем пол победителя
     sex = get_user_sex(winner_id, chat_id)
@@ -156,7 +157,7 @@ async def award_stickerbomber(chat_id, users):
     add_or_update_user_achievement(winner_id, chat_id, "sticker_bomber")
 
     # Формируем и отправляем сообщение
-    text = f"🎯 {title} недели — {winner_name} ({winner_stickers} стикеров)! +{ACHIEVEMENT_REWARD} сит"
+    text = f"🎯 {title} недели — {winner_name} ({winner_stickers} стикеров)! +{format_sits(net_reward)} сит"
     await bot.send_message(chat_id, text)
 
 
@@ -196,7 +197,7 @@ async def award_flooder(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         # Начисляем сит
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_flooder_award", action_ru="Недельная награда «Флудер»")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_flooder_award", action_ru="Недельная награда «Флудер»")
 
         # Получаем пол пользователя
         sex = get_user_sex(winner_id, chat_id)
@@ -219,7 +220,7 @@ async def award_flooder(chat_id: int):
             title = f"{name_m}(?)"
 
         # Отправка сообщения в чат
-        text = f"💬 {title} недели — {winner_name} (ср. длина {ratio:.1f} симв./сообщ.)! +{ACHIEVEMENT_REWARD} сит"
+        text = f"💬 {title} недели — {winner_name} (ср. длина {ratio:.1f} симв./сообщ.)! +{format_sits(net_reward)} сит"
         await bot.send_message(chat_id, text)
 
         # Добавление записи в user_achievements
@@ -265,7 +266,7 @@ async def award_dushnila(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         # Начисляем сит
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_dushnila_award", action_ru="Недельная награда «Душнила»")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_dushnila_award", action_ru="Недельная награда «Душнила»")
 
         # Получаем пол пользователя
         sex = get_user_sex(winner_id, chat_id)
@@ -288,7 +289,7 @@ async def award_dushnila(chat_id: int):
             title = f"{name_m}(?)"
 
         # Отправка сообщения в чат
-        text = f"📜 {title} недели — {winner_name} (ср. длина {ratio:.1f} симв./сообщ.)! +{ACHIEVEMENT_REWARD} сит"
+        text = f"📜 {title} недели — {winner_name} (ср. длина {ratio:.1f} симв./сообщ.)! +{format_sits(net_reward)} сит"
         await bot.send_message(chat_id, text)
 
         # Добавление записи в user_achievements
@@ -328,7 +329,7 @@ async def award_skomrnyashka(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         # Начисляем сит
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_skomnyashka_award", action_ru="Недельная награда «Скромняшка»")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_skomnyashka_award", action_ru="Недельная награда «Скромняшка»")
 
         # Получаем пол пользователя
         sex = get_user_sex(winner_id, chat_id)
@@ -351,7 +352,7 @@ async def award_skomrnyashka(chat_id: int):
             title = f"{name_f}(?)"
 
         # Отправка сообщения в чат
-        text = f"🙈 {title} недели — {winner_name} ({week_msgs} сообщений)! +{ACHIEVEMENT_REWARD} сит"
+        text = f"🙈 {title} недели — {winner_name} ({week_msgs} сообщений)! +{format_sits(net_reward)} сит"
         await bot.send_message(chat_id, text)
 
         # Добавление записи в user_achievements
@@ -433,13 +434,13 @@ async def award_likes_collector(chat_id: int):
 
         # добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "likes_collector")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_likes_collector_award", action_ru="Недельная награда «Сборщик лайков»")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_likes_collector_award", action_ru="Недельная награда «Сборщик лайков»")
 
         # получаем правильное название ачивки из БД
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("likesobornik", sex)
 
-        text = f"👍 {title} недели — {winner_name} ({week_likes} лайков)! +{ACHIEVEMENT_REWARD} сит"
+        text = f"👍 {title} недели — {winner_name} ({week_likes} лайков)! +{format_sits(net_reward)} сит"
         await bot.send_message(chat_id, text)
 
     finally:
@@ -473,13 +474,13 @@ async def award_dobroe_serdtse(chat_id: int):
 
         # Добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "dobroe_serdtse")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_kind_heart_award", action_ru="Недельная награда «Доброе сердце»")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_kind_heart_award", action_ru="Недельная награда «Доброе сердце»")
 
         # Получаем название ачивки из БД
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("dobroe_serdtse", sex)
 
-        text = f"💖 {title} недели — {winner_name} (поставил {week_given} лайков)! +{ACHIEVEMENT_REWARD} сит"
+        text = f"💖 {title} недели — {winner_name} (поставил {week_given} лайков)! +{format_sits(net_reward)} сит"
         await bot.send_message(chat_id, text)
 
     finally:
@@ -518,12 +519,12 @@ async def award_tsarsky_like(chat_id: int):
 
         # Добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "tsarsky_like")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_royal_like_award", action_ru="Недельная награда «Царский лайк»")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_royal_like_award", action_ru="Недельная награда «Царский лайк»")
 
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("tsarsky_like", sex)
 
-        text = f"👑 {title} недели — {winner_name} (соотношение лайков: {ratio:.2f})! +{ACHIEVEMENT_REWARD} сит"
+        text = f"👑 {title} недели — {winner_name} (соотношение лайков: {ratio:.2f})! +{format_sits(net_reward)} сит"
         await bot.send_message(chat_id, text)
 
     finally:
@@ -557,13 +558,13 @@ async def award_kolobok(chat_id: int):
 
         # Добавляем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "kolobok")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_kolobok_award", action_ru="Недельная награда «Колобок»")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_kolobok_award", action_ru="Недельная награда «Колобок»")
 
         # Получаем название ачивки с учётом пола пользователя
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("kolobok", sex)
 
-        text = f"🏆 {title} недели — {winner_name} (отправил {week_rounds} кружочков)! +{ACHIEVEMENT_REWARD} сит"
+        text = f"🏆 {title} недели — {winner_name} (отправил {week_rounds} кружочков)! +{format_sits(net_reward)} сит"
         await bot.send_message(chat_id, text)
 
     finally:
@@ -598,13 +599,13 @@ async def award_biter(chat_id: int):
 
         # Записываем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "biter")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_biter_award", action_ru="Недельная награда «Кусака»")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_biter_award", action_ru="Недельная награда «Кусака»")
 
         # Определяем пол
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("biter", sex)
 
-        text = f"🦷 {title} — {winner_name} ({bites_given} укусов)! +{ACHIEVEMENT_REWARD} сит"
+        text = f"🦷 {title} — {winner_name} ({bites_given} укусов)! +{format_sits(net_reward)} сит"
         await bot.send_message(chat_id, text)
 
     finally:
@@ -639,13 +640,13 @@ async def award_bitten(chat_id: int):
 
         # Записываем ачивку
         add_or_update_user_achievement(winner_id, chat_id, "bitten")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_bitten_award", action_ru="Недельная награда «Месиво»")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_bitten_award", action_ru="Недельная награда «Месиво»")
 
         # Пол юзера
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("bitten", sex)
 
-        text = f"🥩 {title} — {winner_name} (получил {bites_taken} укусов)! +{ACHIEVEMENT_REWARD} сит"
+        text = f"🥩 {title} — {winner_name} (получил {bites_taken} укусов)! +{format_sits(net_reward)} сит"
         await bot.send_message(chat_id, text)
 
     finally:
@@ -684,13 +685,13 @@ async def award_matsturbator(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         add_or_update_user_achievement(winner_id, chat_id, "matsturbator")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_group_participant_award", action_ru="Недельная награда за участие в групповых событиях")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_group_participant_award", action_ru="Недельная награда за участие в групповых событиях")
 
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("matsturbator", sex)
         text = (
             f"🍆 {title} недели — {winner_name} "
-            f"({participations} участий)! +{ACHIEVEMENT_REWARD} сит"
+            f"({participations} участий)! +{format_sits(net_reward)} сит"
         )
         await bot.send_message(chat_id, text)
     finally:
@@ -729,13 +730,13 @@ async def award_matershinnik(chat_id: int):
         winner_name = get_user_display_name(winner_id, chat_id)
 
         add_or_update_user_achievement(winner_id, chat_id, "matershinnik")
-        add_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_profanity_award", action_ru="Недельная награда за мат")
+        net_reward, _ = db.award_sits(chat_id, winner_id, ACHIEVEMENT_REWARD, action_code="weekly_profanity_award", action_ru="Недельная награда за мат")
 
         sex = get_user_sex(winner_id, chat_id)
         title = get_achievement_title("matershinnik", sex)
         text = (
             f"🤬 {title} недели — {winner_name} "
-            f"({week_profanity} матерных слов)! +{ACHIEVEMENT_REWARD} сит"
+            f"({week_profanity} матерных слов)! +{format_sits(net_reward)} сит"
         )
         await bot.send_message(chat_id, text)
     finally:

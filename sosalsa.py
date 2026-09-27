@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import logging
 
-from db import get_connection, get_user_sex, add_sits, get_user_display_name as db_get_user_display_name
+from db import get_connection, get_user_sex, add_sits, award_sits, get_user_display_name as db_get_user_display_name
 from dick import try_bite_dick
 from sits import normalize_sits
 
@@ -545,7 +545,7 @@ def register_sos_handlers(dp):
 
             # Случайная награда партнёру: 1–3 сита
             reward = random.randint(1, 3)
-            add_sits(
+            reward, _ = award_sits(
                 chat_id,
                 target_id,
                 reward,

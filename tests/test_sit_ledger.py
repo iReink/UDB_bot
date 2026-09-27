@@ -142,8 +142,8 @@ class SitLedgerTests(unittest.TestCase):
                 "SELECT status, caught_by FROM geyser_events ORDER BY id"
             ).fetchall()
 
-        self.assertEqual(12, balance)
-        self.assertEqual([(2, "geyser_catch_reward")], [tuple(row) for row in ledger_rows])
+        self.assertEqual(11.9, balance)
+        self.assertEqual([(1.9, "geyser_catch_reward")], [tuple(row) for row in ledger_rows])
         self.assertEqual([("caught", 101), ("caught", 101)], [tuple(row) for row in statuses])
 
 

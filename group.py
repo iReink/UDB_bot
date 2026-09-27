@@ -13,6 +13,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db import (
     add_sits,
+    award_sits,
     get_connection,
     get_user_display_name as db_get_user_display_name,
     get_user_sex,
@@ -578,18 +579,17 @@ async def _run_event_flow(bot: Bot, chat_id: int):
         winner_name = participant_names.get(winner_id) or get_user_display_name(winner_id, chat_id)
         winner_mention = get_winner_mention(chat_id, winner_id, winner_name)
         reward = len(participants) + 1
-        winner_reward_sits = float(reward)
-        add_sits(
+        winner_reward_sits, _ = award_sits(
             chat_id,
             winner_id,
             reward,
             action_code="group_event_win",
             action_ru="Победа в групповой мастурбации",
         )
-        await bot.send_message(chat_id, f"🎉 Победитель: {winner_mention}! Получает {reward} сит!", **send_kwargs)
+        await bot.send_message(chat_id, f"🎉 Победитель: {winner_mention}! Получает {winner_reward_sits} сит!", **send_kwargs)
         await update_quest_progress(winner_id, chat_id, "group_win", 1, bot=bot)
         try:
-            log_masturbation_results(chat_id, participants, winner_id, reward)
+            log_masturbation_results(chat_id, participants, winner_id, winner_reward_sits)
         except Exception:
             logger.exception("[group] failed to log masturbation results")
 
@@ -598,14 +598,14 @@ async def _run_event_flow(bot: Bot, chat_id: int):
             lucky_freebie_name = freebie_names.get(lucky_freebie) or get_user_display_name(lucky_freebie, chat_id)
             lucky_freebie_user_id = lucky_freebie
             lucky_freebie_name = lucky_freebie_name
-            add_sits(
+            freebie_reward, _ = award_sits(
                 chat_id,
                 lucky_freebie,
                 1,
                 action_code="group_event_freebie_reward",
                 action_ru="Случайная награда зрителю групповой мастурбации",
             )
-            await bot.send_message(chat_id, f"✨ Также немножко капнуло на {lucky_freebie_name} — +1 сит!", **send_kwargs)
+            await bot.send_message(chat_id, f"✨ Также немножко капнуло на {lucky_freebie_name} — +{freebie_reward} сита!", **send_kwargs)
 
     _store.save_event_result(
         chat_id=chat_id,

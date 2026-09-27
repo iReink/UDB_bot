@@ -12,7 +12,7 @@ from aiogram.filters.command import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from db import add_sits, get_user, get_user_display_name
+from db import add_sits, award_sits, get_user, get_user_display_name
 from sits import normalize_sits
 
 INITIAL_HEALTH = 100
@@ -269,15 +269,23 @@ async def finalize_fight(bot: Bot, fight: FightSession, winner_id: int, winner_r
     await edit_fight_message(bot, fight)
 
     reward_bonus = random.randint(WIN_SITS_MIN, WIN_SITS_MAX)
-    reward_total = BET_COST + reward_bonus
     add_sits(
         fight.chat_id,
         winner_id,
-        reward_total,
+        BET_COST,
+        action_code="fight_club_bet_refund",
+        action_ru="Возврат ставки победителю бойцовского клуба",
+        metadata={"fight_id": fight.fight_id},
+    )
+    net_bonus, _ = award_sits(
+        fight.chat_id,
+        winner_id,
+        reward_bonus,
         action_code="fight_club_win",
         action_ru="Выигрыш в бойцовском клубе",
         metadata={"fight_id": fight.fight_id},
     )
+    reward_total = BET_COST + net_bonus
     winner_name = get_user_display_name(winner_id, fight.chat_id)
     current_balance = await get_current_sits(winner_id, fight.chat_id)
 
@@ -287,7 +295,7 @@ async def finalize_fight(bot: Bot, fight: FightSession, winner_id: int, winner_r
             f"{winner_reason}\n\n"
             f"🏆 Победитель: <b>{html.escape(winner_name)}</b>\n"
             f"💰 Награда: {reward_total} сита "
-            f"(возврат ставки {BET_COST} + выигрыш {reward_bonus}).\n"
+            f"(возврат ставки {BET_COST} + выигрыш после налога {net_bonus}).\n"
             f"Текущий баланс: {current_balance} сита."
         ),
         parse_mode="HTML",

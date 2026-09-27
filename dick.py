@@ -19,6 +19,7 @@ from db import (
     get_user_display_name,
     get_user_sex,
     add_sits,
+    award_sits,
     get_all_chats,
 )
 from sits import normalize_sits
@@ -82,7 +83,7 @@ def process_top1_throne_for_chat(chat_id: int) -> str | None:
     reward = _throne_reward(days)
 
     if reward > 0:
-        add_sits(
+        reward, _ = award_sits(
             chat_id,
             top_user_id,
             reward,

@@ -9,7 +9,7 @@ from aiogram import types, Bot
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from db import get_connection, get_user_display_name, add_sits
+from db import get_connection, get_user_display_name, award_sits
 
 # Кэш доступных квестов на текущий день: {(user_id, chat_id): (date, [quests])}
 quest_daily_cache = {}
@@ -79,7 +79,7 @@ async def complete_quest(
     await asyncio.to_thread(db_logic)
 
     user_name = get_user_display_name(user_id, chat_id)
-    add_sits(
+    reward, _ = award_sits(
         chat_id,
         user_id,
         reward,

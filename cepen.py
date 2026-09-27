@@ -585,7 +585,7 @@ def scratch(
                     SCRATCH_REWARD, now,
                 ),
             )
-            db.apply_sit_change(
+            balance_before, balance_after = db.apply_sit_change(
                 conn,
                 chat_id,
                 owner_id,
@@ -597,6 +597,10 @@ def scratch(
                     "scratch_date": day,
                     "callback_query_id": str(callback_query_id),
                 },
+            )
+            conn.execute(
+                "UPDATE cepen_scratches SET reward=? WHERE callback_query_id=?",
+                (round(balance_after - balance_before, 3), str(callback_query_id)),
             )
             conn.commit()
             return ScratchResult("scratched", total + 1, personal + 1)
@@ -634,9 +638,20 @@ def _scratch_summary_text(chat_id: int, owner_id: int) -> str:
         f"{person[:37] + '…' if len(person) > 38 else person} ({count})"
         for person, count in rows
     )
+    day = datetime.now().date().isoformat()
+    with closing(db.get_connection()) as conn:
+        reward_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(reward), 0) AS total
+            FROM cepen_scratches
+            WHERE chat_id=? AND owner_id=? AND scratch_date=?
+            """,
+            (chat_id, owner_id, day),
+        ).fetchone()
+    received = float(reward_row["total"] or 0)
     return (
         f"\n\nСегодня чесали: {people}\n"
-        f"Получено {format_sits(total * SCRATCH_REWARD)} сит."
+        f"Получено {format_sits(received)} сита."
     )
 
 

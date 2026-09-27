@@ -748,7 +748,7 @@ def _catch_geyser_for_today(
         )
 
         if effective_beneficiary_user_id == user_id:
-            _, new_beneficiary_balance = apply_sit_change(
+            beneficiary_before, new_beneficiary_balance = apply_sit_change(
                 conn,
                 chat_id,
                 user_id,
@@ -756,9 +756,11 @@ def _catch_geyser_for_today(
                 action_code="web_geyser_catch_reward",
                 action_ru="Награда за поимку веб-гейзера",
             )
+            reward_sits = new_beneficiary_balance - beneficiary_before
+            reward_millisits = int(round(reward_sits * IDLE_MICROSITS_IN_SIT))
             new_catcher_balance = new_beneficiary_balance
         else:
-            _, new_beneficiary_balance = apply_sit_change(
+            beneficiary_before, new_beneficiary_balance = apply_sit_change(
                 conn,
                 chat_id,
                 effective_beneficiary_user_id,
@@ -767,7 +769,7 @@ def _catch_geyser_for_today(
                 action_ru="Доход владельца веб-гейзера",
                 metadata={"catcher_user_id": user_id},
             )
-            _, new_catcher_balance = apply_sit_change(
+            catcher_before, new_catcher_balance = apply_sit_change(
                 conn,
                 chat_id,
                 user_id,
@@ -776,6 +778,10 @@ def _catch_geyser_for_today(
                 action_ru="Награда гостю за поимку веб-гейзера",
                 metadata={"owner_user_id": effective_beneficiary_user_id},
             )
+            reward_sits = new_beneficiary_balance - beneficiary_before
+            reward_millisits = int(round(reward_sits * IDLE_MICROSITS_IN_SIT))
+            visitor_reward_sits = new_catcher_balance - catcher_before
+            visitor_reward_millisits = int(round(visitor_reward_sits * IDLE_MICROSITS_IN_SIT))
         conn.commit()
 
     return {
@@ -1874,7 +1880,7 @@ def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw
                 metadata={"counterparty_user_id": receiver_user_id},
                 require_sufficient=True,
             )
-            _, new_receiver_balance = apply_sit_change(
+            receiver_before, new_receiver_balance = apply_sit_change(
                 conn,
                 chat_id,
                 receiver_user_id,
@@ -1883,6 +1889,7 @@ def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw
                 action_ru="Веб-перевод от другого игрока",
                 metadata={"counterparty_user_id": user_id},
             )
+            received_sits = normalize_sits(new_receiver_balance - receiver_before)
         except InsufficientSitsError as exc:
             conn.rollback()
             raise HTTPException(
@@ -1901,7 +1908,8 @@ def _transfer_sits(user_id: int, chat_id: int, receiver_user_id: int, amount_raw
         "chat_id": chat_id,
         "sender_user_id": user_id,
         "receiver_user_id": receiver_user_id,
-        "transferred": transferred_sits,
+        "transferred": received_sits,
+        "debited": transferred_sits,
         "balance": new_sender_balance,
     }
 

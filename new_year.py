@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from contextlib import closing
 
-from db import add_sits
+from db import award_sits
 
 # ================== НАСТРОЙКИ ==================
 
@@ -218,13 +218,15 @@ async def run_new_year(bot):
     await send("🎅 Лезем в чей-то дымоход…")
 
     for user, greeting in zip(users, greetings):
-        text = format_greeting(user, greeting)
-        await bot.send_message(CHAT_ID, text)
-        add_sits(
+        actual_gift, _ = award_sits(
             CHAT_ID,
             user["user_id"],
             greeting["gift_sits"],
             action_code="new_year_gift",
             action_ru="Новогодний подарок",
         )
+        shown_greeting = dict(greeting)
+        shown_greeting["gift_sits"] = actual_gift
+        text = format_greeting(user, shown_greeting)
+        await bot.send_message(CHAT_ID, text)
         await asyncio.sleep(MESSAGE_DELAY)

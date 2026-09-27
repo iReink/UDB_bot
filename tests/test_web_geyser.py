@@ -50,15 +50,15 @@ class WebGeyserTests(unittest.TestCase):
         result = server._catch_geyser_for_today(user_id=101, chat_id=-500)
 
         self.assertEqual("Веб-игрок", result["beneficiary_name"])
-        self.assertEqual(0.5, result["reward_sits"])
-        self.assertEqual(10.5, result["balance"])
+        self.assertEqual(0.475, result["reward_sits"])
+        self.assertEqual(10.475, result["balance"])
         self.assertEqual(1, result["caught_today"])
 
         with closing(db.get_connection()) as conn:
             row = conn.execute(
                 "SELECT amount, action_code FROM sit_ledger ORDER BY id DESC LIMIT 1"
             ).fetchone()
-        self.assertEqual(0.5, row["amount"])
+        self.assertEqual(0.475, row["amount"])
         self.assertEqual("web_geyser_catch_reward", row["action_code"])
 
 
