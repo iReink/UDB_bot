@@ -322,6 +322,41 @@ class BankTests(unittest.TestCase):
         )
         self.assertGreater(once, 0)
 
+    def test_deposit_limit_uses_available_capital_and_term(self) -> None:
+        free_capital = 50_000
+        one_week = bank_core.max_deposit_for_capital_milli(
+            free_capital, 1_000, 1
+        )
+        five_weeks = bank_core.max_deposit_for_capital_milli(
+            free_capital, 1_000, 5
+        )
+        self.assertLess(five_weeks, one_week)
+        self.assertLess(one_week, bank_core.MAX_DEPOSIT_MILLI)
+        self.assertLessEqual(
+            bank_core.deposit_capital_reserve_milli(one_week, 1_000, 1),
+            free_capital,
+        )
+        self.assertGreater(
+            bank_core.deposit_capital_reserve_milli(one_week + 1, 1_000, 1),
+            free_capital,
+        )
+
+    def test_deposit_ui_limits_include_bank_capacity_and_user_balance(self) -> None:
+        with closing(db.get_connection()) as conn:
+            bank_core.ensure_account(conn, CHAT, datetime(2026, 9, 1, 10, 0))
+            rate, balance_milli, limits = bank_bot._deposit_limits(conn, CHAT, USER)
+            expected_rate, _ = bank_core.offered_rates(conn, CHAT)
+            metrics = bank_core.bank_metrics(conn, CHAT, date(2026, 9, 1))
+        self.assertEqual(200_000, balance_milli)
+        self.assertEqual(expected_rate, rate)
+        for term, limit in limits.items():
+            self.assertLess(limit, bank_core.MAX_DEPOSIT_MILLI)
+            self.assertLessEqual(limit, balance_milli)
+            self.assertLessEqual(
+                bank_core.deposit_capital_reserve_milli(limit, rate, term),
+                metrics["free_capital_milli"],
+            )
+
     def test_mature_deposit_pays_principal_and_taxed_interest(self) -> None:
         with closing(db.get_connection()) as conn:
             conn.execute("BEGIN IMMEDIATE")

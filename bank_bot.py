@@ -161,6 +161,25 @@ def _deposit_opening_error(user_state: dict) -> str | None:
     return None
 
 
+def _deposit_limits(
+    conn, chat_id: int, user_id: int
+) -> tuple[int, int, dict[int, int]]:
+    deposit_rate, _ = bank_core.offered_rates(conn, chat_id)
+    metrics = bank_core.bank_metrics(conn, chat_id, _now().date())
+    balance_milli = _user_balance_milli(conn, chat_id, user_id)
+    limits = {
+        term: min(
+            bank_core.MAX_DEPOSIT_MILLI,
+            balance_milli,
+            bank_core.max_deposit_for_capital_milli(
+                int(metrics["free_capital_milli"]), deposit_rate, term
+            ),
+        )
+        for term in bank_core.ALLOWED_TERMS
+    }
+    return deposit_rate, balance_milli, limits
+
+
 def _menu_keyboard(owner_id: int, managed: bool = False, has_contracts: bool = False):
     kb = InlineKeyboardBuilder()
     kb.row(
@@ -420,20 +439,30 @@ def register_handlers(dp: Dispatcher) -> None:
             )
             opening_error = _deposit_opening_error(user_state)
             if not opening_error:
-                rate, _ = bank_core.offered_rates(conn, query.message.chat.id)
+                rate, balance_milli, limits = _deposit_limits(
+                    conn, query.message.chat.id, query.from_user.id
+                )
                 tax_rate = int(
                     bank_core.bank_metrics(conn, query.message.chat.id)["tax_rate_bp"]
-                )
-                balance_milli = _user_balance_milli(
-                    conn, query.message.chat.id, query.from_user.id
                 )
         if opening_error:
             await query.answer(opening_error, show_alert=True)
             return
+        available_terms = [
+            term
+            for term in bank_core.ALLOWED_TERMS
+            if limits[term] >= bank_core.MIN_DEPOSIT_MILLI
+        ]
+        if not available_terms:
+            await query.answer(
+                "Банк сейчас не может принять минимальный вклад в 10 сит.",
+                show_alert=True,
+            )
+            return
         kb = InlineKeyboardBuilder()
-        for term in bank_core.ALLOWED_TERMS:
+        for term in available_terms:
             kb.button(
-                text=f"{term} нед.",
+                text=f"{term} нед. · до {_sits(limits[term])}",
                 callback_data=_callback(query.from_user.id, "deposit_term", term),
             )
         kb.adjust(3)
@@ -448,8 +477,12 @@ def register_handlers(dp: Dispatcher) -> None:
             f"Текущая ставка: {_pct(rate)} в неделю\n"
             f"Налог на доход: {_pct(tax_rate)}\n"
             f"Ваш баланс: {_sits(balance_milli)} сит\n"
-            f"Допустимая сумма: {_sits(bank_core.MIN_DEPOSIT_MILLI)}–"
-            f"{_sits(bank_core.MAX_DEPOSIT_MILLI)} сит\n\n"
+            "Максимум с учётом возможностей банка:\n"
+            + "\n".join(
+                f"• {term} нед.: {_sits(limits[term])} сит"
+                for term in available_terms
+            )
+            + "\n\n"
             "Выберите срок вклада:",
             reply_markup=kb.as_markup(),
         )
@@ -465,10 +498,16 @@ def register_handlers(dp: Dispatcher) -> None:
             await query.answer("Недоступный срок вклада.", show_alert=True)
             return
         with closing(db.get_connection()) as conn:
-            rate, _ = bank_core.offered_rates(conn, query.message.chat.id)
-            balance_milli = _user_balance_milli(
+            rate, balance_milli, limits = _deposit_limits(
                 conn, query.message.chat.id, query.from_user.id
             )
+        max_amount_milli = limits[term]
+        if max_amount_milli < bank_core.MIN_DEPOSIT_MILLI:
+            await query.answer(
+                "Банк больше не может принять минимальный вклад на этот срок.",
+                show_alert=True,
+            )
+            return
         await state.set_state(BankStates.deposit_amount)
         await state.update_data(
             chat_id=query.message.chat.id,
@@ -479,7 +518,7 @@ def register_handlers(dp: Dispatcher) -> None:
             f"Вклад на {term} нед.\n"
             f"Текущая ставка: {_pct(rate)} в неделю\n"
             f"Ваш баланс: {_sits(balance_milli)} сит\n\n"
-            "Введите сумму вклада от 10 до 1000 сит одним сообщением."
+            f"Введите сумму от 10 до {_sits(max_amount_milli)} сит одним сообщением."
         )
         await query.answer()
 
@@ -495,10 +534,24 @@ def register_handlers(dp: Dispatcher) -> None:
         try:
             amount = parse_sits(message.text or "")
             amount_milli = bank_core.sits_to_milli(amount)
-            if not bank_core.MIN_DEPOSIT_MILLI <= amount_milli <= bank_core.MAX_DEPOSIT_MILLI:
-                raise ValueError
         except (ValueError, TypeError):
-            await message.answer("Введите сумму от 10 до 1000 сит.")
+            await message.answer("Введите сумму вклада числом.")
+            return
+        with closing(db.get_connection()) as conn:
+            _, _, limits = _deposit_limits(
+                conn, message.chat.id, message.from_user.id
+            )
+        max_amount_milli = limits[int(data["term_weeks"])]
+        if not bank_core.MIN_DEPOSIT_MILLI <= amount_milli <= max_amount_milli:
+            if max_amount_milli < bank_core.MIN_DEPOSIT_MILLI:
+                await message.answer(
+                    "Банк больше не может принять минимальный вклад на этот срок. "
+                    "Вернитесь в /bank и выберите новые условия."
+                )
+            else:
+                await message.answer(
+                    f"Введите сумму от 10 до {_sits(max_amount_milli)} сит."
+                )
             return
         await state.update_data(amount_milli=amount_milli)
         await state.set_state(BankStates.deposit_auto)

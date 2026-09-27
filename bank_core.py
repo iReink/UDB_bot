@@ -103,6 +103,28 @@ def deposit_capital_reserve_milli(principal_milli: int, rate_bp: int, weeks: int
     )
 
 
+def max_deposit_for_capital_milli(
+    free_capital_milli: int,
+    rate_bp: int,
+    weeks: int,
+    *,
+    product_max_milli: int = MAX_DEPOSIT_MILLI,
+) -> int:
+    """Largest principal whose full normal and crisis reserve fits capital."""
+    if free_capital_milli < 0 or product_max_milli <= 0:
+        return 0
+    low = 0
+    high = int(product_max_milli)
+    while low < high:
+        middle = (low + high + 1) // 2
+        reserve = deposit_capital_reserve_milli(middle, rate_bp, weeks)
+        if reserve <= int(free_capital_milli):
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
 def ensure_schema(conn) -> None:
     conn.executescript(
         """
