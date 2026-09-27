@@ -5,14 +5,30 @@ import unittest
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import bank_core
+import bank_bot
 import db
 
 
 CHAT = -500
 USER = 101
+
+
+class BankMenuOwnershipTests(unittest.IsolatedAsyncioTestCase):
+    async def test_foreign_callback_is_rejected(self) -> None:
+        query = SimpleNamespace(
+            data=bank_bot._callback(USER, "deposit"),
+            from_user=SimpleNamespace(id=202),
+            answer=AsyncMock(),
+        )
+        self.assertIsNone(await bank_bot._require_menu_owner(query))
+        query.answer.assert_awaited_once_with(
+            "Это меню другого пользователя. Вызовите /bank, чтобы открыть своё.",
+            show_alert=True,
+        )
 
 
 class BankTests(unittest.TestCase):
@@ -90,6 +106,78 @@ class BankTests(unittest.TestCase):
         self.assertEqual(9.5, ledger["amount"])
         self.assertEqual(500, metadata["bank_tax_milli"])
         self.assertEqual(9_500, income["amount_milli"])
+
+    def test_personal_bank_menu_hides_global_and_empty_contract_details(self) -> None:
+        with closing(db.get_connection()) as conn:
+            bank_core.ensure_account(conn, CHAT, datetime(2026, 9, 1, 10, 0))
+            state = bank_bot._user_bank_state(conn, CHAT, USER)
+            text = bank_bot._personal_menu_text(conn, CHAT, USER, state)
+        self.assertIn("Выберите действие", text)
+        self.assertNotIn("Ликвидность", text)
+        self.assertNotIn("Средний доход", text)
+        self.assertNotIn("Исходный лимит", text)
+        self.assertNotIn("активного кредита нет", text)
+        self.assertNotIn("активного вклада нет", text)
+
+        keyboard = bank_bot._menu_keyboard(USER, managed=False, has_contracts=False)
+        labels = [button.text for row in keyboard.inline_keyboard for button in row]
+        callbacks = [
+            button.callback_data for row in keyboard.inline_keyboard for button in row
+        ]
+        self.assertNotIn("👤 Мои договоры", labels)
+        self.assertNotIn("🛠 Управление", labels)
+        self.assertTrue(all(value.startswith(f"bank:{USER}:") for value in callbacks))
+
+    def test_personal_bank_menu_shows_only_material_user_state(self) -> None:
+        opened = datetime(2026, 9, 1, 10, 0)
+        with closing(db.get_connection()) as conn:
+            bank_core.ensure_account(conn, CHAT, opened)
+            bank_core.credit_profile(conn, CHAT, USER)
+            conn.execute(
+                """
+                UPDATE bank_credit_profiles SET default_debt_milli=12345
+                WHERE chat_id=? AND user_id=?
+                """,
+                (CHAT, USER),
+            )
+            bank_core.open_deposit(
+                conn, CHAT, USER, 100_000, 1, False, db.apply_sit_change, now=opened
+            )
+            state = bank_bot._user_bank_state(conn, CHAT, USER)
+            text = bank_bot._personal_menu_text(conn, CHAT, USER, state)
+            contracts = bank_bot._mine_text(conn, CHAT, USER, state)
+            conn.commit()
+        self.assertIn("Остаток долга после дефолта", text)
+        self.assertIn("Выплата по вкладу", text)
+        self.assertNotIn("Средний доход", contracts)
+        self.assertNotIn("Исходный лимит", contracts)
+        self.assertNotIn("активного кредита нет", contracts)
+
+        keyboard = bank_bot._menu_keyboard(USER, managed=True, has_contracts=True)
+        labels = [button.text for row in keyboard.inline_keyboard for button in row]
+        self.assertIn("👤 Мои договоры", labels)
+        self.assertIn("🛠 Управление", labels)
+
+    def test_contract_actions_are_conditional_and_owner_bound(self) -> None:
+        state = {
+            "deposit": {"id": 1},
+            "loan": None,
+            "overdue_count": 0,
+            "overdue_milli": 0,
+            "rating": 0,
+            "default_debt_milli": 0,
+            "claim_milli": 0,
+        }
+        keyboard = bank_bot._mine_keyboard(USER, state)
+        buttons = [button for row in keyboard.inline_keyboard for button in row]
+        labels = [button.text for button in buttons]
+        self.assertIn("Автопродление вкл/выкл", labels)
+        self.assertIn("Закрыть вклад досрочно", labels)
+        self.assertNotIn("Погасить просрочки", labels)
+        self.assertNotIn("Погасить кредит досрочно", labels)
+        self.assertTrue(
+            all(button.callback_data.startswith(f"bank:{USER}:") for button in buttons)
+        )
 
     def test_p2p_is_taxed_but_excluded_from_credit_income(self) -> None:
         db.change_sits(
