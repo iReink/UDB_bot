@@ -21,6 +21,7 @@ MAX_RATING = 60
 DEFAULT_GARNISHMENT_BP = 8_000
 HISTORY_START_DATE = date(2026, 8, 29)
 CRISIS_INTEREST_MAX_DAYS = 30
+MAX_DEPOSIT_DISCOUNT_BP = 400
 MIN_DEPOSIT_MILLI = 10 * MILLI_PER_SIT
 MAX_DEPOSIT_MILLI = 1_000 * MILLI_PER_SIT
 MIN_CREDIT_MILLI = 10 * MILLI_PER_SIT
@@ -689,7 +690,13 @@ def offered_rates(conn, chat_id: int) -> tuple[int, int]:
     metrics = bank_metrics(conn, chat_id)
     mod = market_mod_bp(float(metrics["utilization"]))
     key = int(metrics["key_rate_bp"])
-    return max(10, key - 400 + mod), max(key, key + 600 + mod)
+    base_deposit_rate = key - MAX_DEPOSIT_DISCOUNT_BP
+    deposit_rate = max(
+        10,
+        base_deposit_rate,
+        base_deposit_rate + mod,
+    )
+    return deposit_rate, max(key, key + 600 + mod)
 
 
 def credit_profile(conn, chat_id: int, user_id: int):

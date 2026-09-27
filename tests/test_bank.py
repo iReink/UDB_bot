@@ -266,8 +266,9 @@ class BankTests(unittest.TestCase):
             ).fetchone()
             conn.commit()
         self.assertEqual("2026-09-08", deposit["maturity_date"])
-        self.assertEqual(103_000, deposit["maturity_milli"])
-        self.assertGreater(metrics["reserved_capital_milli"], 3_000)
+        self.assertEqual(600, deposit["rate_bp"])
+        self.assertEqual(106_000, deposit["maturity_milli"])
+        self.assertGreater(metrics["reserved_capital_milli"], 6_000)
         self.assertEqual(150_000, metrics["liquidity_milli"])
         with closing(db.get_connection()) as conn:
             balance = conn.execute(
@@ -341,6 +342,16 @@ class BankTests(unittest.TestCase):
             free_capital,
         )
 
+    def test_deposit_rate_cannot_fall_more_than_four_points_below_key(self) -> None:
+        with patch.object(
+            bank_core,
+            "bank_metrics",
+            return_value={"utilization": 0.0, "key_rate_bp": 1_000},
+        ):
+            deposit_rate, credit_rate = bank_core.offered_rates(object(), CHAT)
+        self.assertEqual(600, deposit_rate)
+        self.assertEqual(1_300, credit_rate)
+
     def test_deposit_ui_limits_include_bank_capacity_and_user_balance(self) -> None:
         with closing(db.get_connection()) as conn:
             bank_core.ensure_account(conn, CHAT, datetime(2026, 9, 1, 10, 0))
@@ -383,10 +394,10 @@ class BankTests(unittest.TestCase):
                 "SELECT liquidity_milli,capital_milli FROM bank_accounts WHERE chat_id=?",
                 (CHAT,),
             ).fetchone()
-        self.assertEqual(202.85, balance)
+        self.assertEqual(205.7, balance)
         self.assertEqual("paid", claim["status"])
-        self.assertEqual(103_000, report["claim_payments_milli"])
-        self.assertEqual((47_150, 47_150), tuple(account))
+        self.assertEqual(106_000, report["claim_payments_milli"])
+        self.assertEqual((44_300, 44_300), tuple(account))
 
     def test_three_open_overdues_create_one_fixed_default(self) -> None:
         self._add_message_history(date(2026, 8, 29), 20)
