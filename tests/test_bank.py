@@ -147,6 +147,10 @@ class BankTests(unittest.TestCase):
             text = bank_bot._personal_menu_text(conn, CHAT, USER, state)
             contracts = bank_bot._mine_text(conn, CHAT, USER, state)
             conn.commit()
+        self.assertEqual(
+            "Одновременно можно иметь только один активный вклад",
+            bank_bot._deposit_opening_error(state),
+        )
         self.assertIn("Остаток долга после дефолта", text)
         self.assertIn("Выплата по вкладу", text)
         self.assertNotIn("Средний доход", contracts)
@@ -157,6 +161,12 @@ class BankTests(unittest.TestCase):
         labels = [button.text for row in keyboard.inline_keyboard for button in row]
         self.assertIn("👤 Мои договоры", labels)
         self.assertIn("🛠 Управление", labels)
+
+    def test_deposit_opening_has_no_early_error_without_active_deposit(self) -> None:
+        with closing(db.get_connection()) as conn:
+            bank_core.ensure_account(conn, CHAT, datetime(2026, 9, 1, 10, 0))
+            state = bank_bot._user_bank_state(conn, CHAT, USER)
+        self.assertIsNone(bank_bot._deposit_opening_error(state))
 
     def test_contract_actions_are_conditional_and_owner_bound(self) -> None:
         state = {

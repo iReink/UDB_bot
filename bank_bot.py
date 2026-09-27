@@ -155,6 +155,12 @@ def _user_balance_milli(conn, chat_id: int, user_id: int) -> int:
     return bank_core.sits_to_milli(row["sits"] if row else 0)
 
 
+def _deposit_opening_error(user_state: dict) -> str | None:
+    if user_state["deposit"]:
+        return "Одновременно можно иметь только один активный вклад"
+    return None
+
+
 def _menu_keyboard(owner_id: int, managed: bool = False, has_contracts: bool = False):
     kb = InlineKeyboardBuilder()
     kb.row(
@@ -409,13 +415,21 @@ def register_handlers(dp: Dispatcher) -> None:
         if not await _require_menu_owner(query):
             return
         with closing(db.get_connection()) as conn:
-            rate, _ = bank_core.offered_rates(conn, query.message.chat.id)
-            tax_rate = int(
-                bank_core.bank_metrics(conn, query.message.chat.id)["tax_rate_bp"]
-            )
-            balance_milli = _user_balance_milli(
+            user_state = _user_bank_state(
                 conn, query.message.chat.id, query.from_user.id
             )
+            opening_error = _deposit_opening_error(user_state)
+            if not opening_error:
+                rate, _ = bank_core.offered_rates(conn, query.message.chat.id)
+                tax_rate = int(
+                    bank_core.bank_metrics(conn, query.message.chat.id)["tax_rate_bp"]
+                )
+                balance_milli = _user_balance_milli(
+                    conn, query.message.chat.id, query.from_user.id
+                )
+        if opening_error:
+            await query.answer(opening_error, show_alert=True)
+            return
         kb = InlineKeyboardBuilder()
         for term in bank_core.ALLOWED_TERMS:
             kb.button(
