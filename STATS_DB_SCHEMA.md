@@ -1,6 +1,6 @@
 # Карта схемы `stats.db`
 
-Источник: продовая SQLite-база `/root/UDB_bot/stats.db` на VPS, схема прочитана 2026-06-06.
+Источник исходного описания: продовая SQLite-база `/root/UDB_bot/stats.db` на VPS, схема прочитана 2026-06-06. Банковские таблицы и `sit_ledger` сверены с `bank_core.ensure_schema` и `db.initialize_db` 2026-10-02; это сверка с кодом, а не новый снимок продовой БД.
 
 Назначение файла: компактное описание схемы для text2sql. Описания намеренно короткие, но смысловые.
 
@@ -11,7 +11,7 @@
 - Даты в полях `date`, `date_taken`, `date_completed`, `catch_date`, `grow_date`, `subscription_till` обычно хранятся как текст `YYYY-MM-DD`.
 - Время в поле `time` обычно `HH:MM`, в `scheduled_time` - `HH:MM`, в `sit_stats.time` - `HH:MM:SS`.
 - Поля-флаги обычно `INTEGER`: `0` = нет/выключено, `1` = да/включено.
-- Валюта бота называется "ситы"; баланс лежит в `users.sits`, движения сит - в `sit_stats`.
+- Валюта бота называется "ситы"; баланс лежит в `users.sits`, полный аудит движений — в `sit_ledger`. `sit_stats` — старый журнал начислений, не полный источник банковских операций.
 - Полный аудит пользовательских движений находится в `sit_ledger`; банковские суммы в таблицах `bank_*` хранятся целыми миллиситами, ставки — в базисных пунктах.
 - Для имен пользователей в статистике обычно JOIN: `... JOIN users u ON u.user_id = t.user_id AND u.chat_id = t.chat_id`.
 - Для обычной статистики активности используйте `daily_stats` за период или `total_stats` за всё время.
@@ -21,17 +21,316 @@
 
 ### Банковские таблицы `bank_*`
 
-Сит-банк существует отдельно для каждого `chat_id`. `bank_accounts` хранит
-ликвидность, капитал, ключевую и налоговую ставки. `bank_deposits` и
-`bank_deposit_claims` описывают вклады и невыплаченные требования;
-`bank_loans`, `bank_loan_payments` и `bank_credit_profiles` — кредиты, график,
-рейтинг и дефолтный долг. `bank_daily_income` содержит чистый доход для
-90-дневного кредитного среднего. `bank_ledger` — аудит банка со снимками
-ликвидности и капитала, `bank_daily_runs` защищает клиринг от повторного запуска,
-`bank_rate_changes` хранит изменения ставок, `bank_ministers` — министра чата.
+Сит-банк существует отдельно для каждого `chat_id`. Все банковские запросы
+фильтруются по чату; пользовательские — также по `user_id`.
 
-Денежные поля с суффиксом `_milli` измеряются в тысячных долях сита. Поля с
-суффиксом `_bp` измеряются в базисных пунктах: `100 bp = 1%`.
+Денежные поля `_milli` — `INTEGER` в тысячных долях сита: `135000 = 135 сит`.
+Для отображения в SQL делить на `1000.0`, чтобы избежать целочисленного деления.
+Ставки `_bp` — `INTEGER` в базисных пунктах: `100 bp = 1%`, `600 = 6%`.
+Депозитные и кредитные ставки фиксируются в договоре и относятся к неделе;
+налоговая ставка применяется к облагаемому начислению.
+Даты — `YYYY-MM-DD`, время — ISO datetime; банковский планировщик работает
+по `Asia/Yekaterinburg`, клиринг — в 23:00. Договор после 23:00 начинает
+банковский срок со следующего дня.
+
+Связи ниже логические: `bank_core.ensure_schema` не объявляет `FOREIGN KEY`
+и `CHECK` для банковских таблиц. Значения статусов, диапазоны ставок, суммы,
+сроки и запрет отрицательного капитала проверяет бизнес-логика.
+Не складывать снимки остатков из журналов: суммируются дельты либо выбирается
+последний снимок. Возврат тела вклада и выдача тела кредита не являются доходом.
+
+### `bank_accounts`
+
+Собственные средства и деньги банка чата. Ключ: `chat_id`.
+Счёт создаётся лениво с однократной эмиссией 50 сит, отражённой в `bank_ledger`.
+Тело вклада увеличивает ликвидность, но не капитал. Резервы, свободная
+ликвидность, свободный капитал, Coverage, U и состояние банка вычисляются
+в `bank_core.bank_metrics`, отдельных колонок для них здесь нет.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `chat_id` | INTEGER | PK; чат банка. |
+| `liquidity_milli` | INTEGER | Обязательное поле; текущие реальные деньги банка. |
+| `capital_milli` | INTEGER | Обязательное поле; собственный капитал банка. |
+| `key_rate_bp` | INTEGER | Ключевая ставка, NOT NULL, DEFAULT `1000` (10%). |
+| `tax_rate_bp` | INTEGER | Налог, NOT NULL, DEFAULT `500` (5%). |
+| `last_key_rate_change_date` | TEXT | День последнего изменения КС, NULL до первого изменения. |
+| `last_tax_rate_change_date` | TEXT | День последнего изменения налога, NULL до первого изменения. |
+| `created_at` | TEXT | NOT NULL; время создания банка. |
+| `created_date` | TEXT | NOT NULL; первый банковский день, начало догоняющего клиринга. |
+
+### `bank_ministers`
+
+Министр банка конкретного чата; отсутствие строки означает отсутствие министра.
+Глобальные администраторы задаются в конфигурации, не в этой таблице.
+Ключ: `chat_id`. Миграция идемпотентно назначает первоначального министра основного чата.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `chat_id` | INTEGER | PK; чат банка. |
+| `user_id` | INTEGER | NOT NULL; Telegram ID министра. |
+| `appointed_at` | TEXT | NOT NULL; время назначения. |
+
+### `bank_credit_profiles`
+
+Кредитный рейтинг и оставшийся фиксированный дефолтный долг пользователя в чате.
+Ключ: `PRIMARY KEY (chat_id, user_id)`; связь с `users` по обоим полям.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `chat_id` | INTEGER | NOT NULL; чат профиля. |
+| `user_id` | INTEGER | NOT NULL; пользователь. |
+| `rating` | INTEGER | NOT NULL, DEFAULT `15`; рейтинг, в логике ограничен диапазоном 3–60. |
+| `default_debt_milli` | INTEGER | NOT NULL, DEFAULT `0`; остаток долга после дефолта, уменьшается взысканиями с доходов. |
+| `defaults_count` | INTEGER | NOT NULL, DEFAULT `0`; число состоявшихся дефолтов. |
+| `updated_at` | TEXT | NOT NULL; время создания/изменения профиля. |
+
+### `bank_daily_income`
+
+Дневной чистый доход, учитываемый при расчёте кредитного лимита. Ключ:
+`PRIMARY KEY (chat_id, user_id, income_date)`; все поля NOT NULL.
+Сумма после налога и дефолтного взыскания, только для классифицированных
+доходов. P2P, `/charity`, возврат тела вклада и выдача кредита исключены.
+Текущий доход по вкладу учитывается. Среднее вычисляется по календарным дням
+(включая нулевые), максимум за 90 дней, не ранее 2026-08-29 и первого сообщения
+пользователя. Сами дни сообщений находятся в `daily_stats`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `chat_id` | INTEGER | Чат дохода. |
+| `user_id` | INTEGER | Получатель дохода. |
+| `income_date` | TEXT | Банковская дата дохода. |
+| `amount_milli` | INTEGER | Чистый учтённый доход за день, DEFAULT `0`. |
+
+### `bank_deposits`
+
+Договоры вкладов, включая завершённые. Ключ: `id` (AUTOINCREMENT).
+Связь с `users` по `(chat_id, user_id)`.
+Частичный уникальный индекс `idx_bank_deposit_one_active(chat_id, user_id)`
+при `status='active'` разрешает только один активный вклад пользователя в чате.
+Индекс `idx_bank_deposit_maturity(chat_id, status, maturity_date)` — для клиринга.
+Все поля NOT NULL, кроме полей предложения/уведомления о продлении и `closed_at`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `id` | INTEGER | PK; номер договора. |
+| `chat_id` | INTEGER | Чат банка. |
+| `user_id` | INTEGER | Вкладчик. |
+| `principal_milli` | INTEGER | Первоначальное тело вклада. |
+| `rate_bp` | INTEGER | Зафиксированная недельная ставка договора. |
+| `term_weeks` | INTEGER | Срок: 1, 3 или 5 недель. |
+| `opened_at` | TEXT | Время открытия. |
+| `start_date` | TEXT | Первый день банковского срока. |
+| `maturity_date` | TEXT | День окончания срока; расчёт на клиринге. |
+| `maturity_milli` | INTEGER | Тело плюс полный договорный доход до налога/взыскания с дохода. |
+| `capital_reserve_milli` | INTEGER | Резерв собственного капитала под обычный доход и максимум 30 дней кризисных процентов. |
+| `auto_renew` | INTEGER | DEFAULT `0`; согласие на продление тела на тот же срок по новой ставке. |
+| `renewal_offer_rate_bp` | INTEGER | NULL или ставка предложения автопродления. |
+| `renewal_offer_date` | TEXT | NULL или день подготовки предложения. |
+| `renewal_notified_at` | TEXT | NULL или время отметки обработанного уведомления; отметка ставится также при ошибке доставки. |
+| `status` | TEXT | DEFAULT `active`; `active`, `closed_early`, `matured`, `renewed`. |
+| `closed_at` | TEXT | NULL или время завершения договора. |
+
+`matured` означает передачу обязательства в `bank_deposit_claims`, а не
+гарантированную выплату. `renewed` — прежний договор завершён, для продлённого
+тела создаётся новая строка; доход прежнего договора становится требованием.
+Резерв активных вкладов суммируется только с `status='active'`.
+
+### `bank_loans`
+
+Кредитные договоры. Ключ: `id` (AUTOINCREMENT); связь с `users` по
+`(chat_id, user_id)`. Частичный уникальный индекс
+`idx_bank_loan_one_active(chat_id, user_id)` при `status='active'` запрещает
+несколько активных кредитов в чате. Все поля NOT NULL, кроме `closed_at`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `id` | INTEGER | PK; номер кредита. |
+| `chat_id` | INTEGER | Чат банка. |
+| `user_id` | INTEGER | Заёмщик. |
+| `principal_milli` | INTEGER | Первоначально выданное тело кредита. |
+| `remaining_principal_milli` | INTEGER | Непогашенное тело; используется для активного кредитного портфеля. |
+| `rate_bp` | INTEGER | Зафиксированная недельная ставка с учётом рейтинга. |
+| `term_weeks` | INTEGER | Срок: 1, 3 или 5 недель. |
+| `total_milli` | INTEGER | Первоначальная полная договорная сумма тела и процентов. |
+| `paid_milli` | INTEGER | DEFAULT `0`; сумма успешных выплат. |
+| `issued_at` | TEXT | Время выдачи. |
+| `start_date` | TEXT | Первый банковский день кредита. |
+| `first_payment_date` | TEXT | День первого платежа после grace-периода. |
+| `raw_limit_milli` | INTEGER | Снимок исходного расчётного лимита на момент выдачи. |
+| `available_limit_milli` | INTEGER | Снимок доступного лимита с учётом ограничений банка на момент выдачи. |
+| `rating_threshold_milli` | INTEGER | Снимок минимальной суммы кредита, позволяющей получить бонус рейтинга. |
+| `had_overdue` | INTEGER | DEFAULT `0`; была ли хоть одна просрочка, даже если впоследствии погашена. |
+| `status` | TEXT | DEFAULT `active`; `active`, `paid`, `paid_early`, `defaulted`. |
+| `closed_at` | TEXT | NULL или время закрытия/дефолта. |
+
+При дефолте текущий фиксированный долг следует брать из
+`bank_credit_profiles.default_debt_milli`: `total_milli - paid_milli`
+завершённого кредита не отражает последующие взыскания.
+
+### `bank_loan_payments`
+
+График ежедневных платежей и их состояние. Ключ: `id` (AUTOINCREMENT),
+`UNIQUE (loan_id, installment_no)`. Связь: `loan_id -> bank_loans.id`.
+Индекс `idx_bank_payments_due(status, due_date)`. Все поля NOT NULL, кроме `paid_at`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `id` | INTEGER | PK; ID платежа. |
+| `loan_id` | INTEGER | Кредитный договор. |
+| `installment_no` | INTEGER | Порядковый номер платежа, начиная с 1. |
+| `due_date` | TEXT | День планового списания на клиринге. |
+| `amount_milli` | INTEGER | Полная сумма платежа. |
+| `principal_milli` | INTEGER | Часть платежа в погашение тела. |
+| `interest_milli` | INTEGER | Процентная часть платежа; доход банка. |
+| `status` | TEXT | DEFAULT `scheduled`; `scheduled`, `overdue`, `paid`, `cancelled`, `defaulted`. |
+| `paid_at` | TEXT | NULL или время успешного платежа. |
+
+Просрочки считаются по `status='overdue'`, привязка к чату/пользователю —
+через JOIN с `bank_loans`. `cancelled` — оставшиеся платежи при досрочном
+погашении, `defaulted` — оставшиеся платежи кредита, перешедшего в дефолт.
+
+### `bank_deposit_claims`
+
+Неисполненные обязательства по завершённым/продлённым вкладам. Ключ: `id`
+(AUTOINCREMENT). Связь: `deposit_id -> bank_deposits.id`, пользователь —
+`(chat_id, user_id) -> users`. Индекс `idx_bank_claims_open(chat_id, status)`.
+Все поля NOT NULL, кроме `last_capitalized_date`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `id` | INTEGER | PK; ID требования. |
+| `deposit_id` | INTEGER | Исходный договор вклада. |
+| `chat_id` | INTEGER | Чат банка. |
+| `user_id` | INTEGER | Вкладчик. |
+| `principal_remaining_milli` | INTEGER | Остаток тела к возврату, освобождён от налога и взыскания. |
+| `interest_remaining_milli` | INTEGER | Остаток дохода к выплате, включая кризисные проценты; облагается налогом и взысканием. |
+| `rate_bp` | INTEGER | Недельная ставка для кризисной капитализации. |
+| `capital_reserve_remaining_milli` | INTEGER | DEFAULT `0`; оставшийся резерв капитала под будущую кризисную капитализацию. |
+| `crisis_interest_days` | INTEGER | DEFAULT `0`; число уже начисленных кризисных дней, не более 30 в логике. |
+| `created_date` | TEXT | День появления требования. |
+| `last_capitalized_date` | TEXT | NULL или последний обработанный день кризисных процентов. |
+| `status` | TEXT | DEFAULT `open`; `open` — есть остаток, `paid` — требование полностью погашено. |
+
+Остаток требования: `principal_remaining_milli + interest_remaining_milli`.
+В статистику текущих обязательств включать только `status='open'`.
+После 30 дней прекращается начисление дополнительных процентов, долг сохраняется.
+
+### `bank_ledger`
+
+Аудит всех движений ликвидности и капитала банка. Ключ: `id` (AUTOINCREMENT);
+`idempotency_key` уникален, допускает NULL. Индекс
+`idx_bank_ledger_chat_date(chat_id, operation_date)`.
+Все поля NOT NULL, кроме `user_id`, `reference_type`, `reference_id`, `idempotency_key`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `id` | INTEGER | PK; порядок банковских операций. |
+| `created_at` | TEXT | Время события. |
+| `operation_date` | TEXT | Банковский день события; при догоняющем клиринге может быть прошлым. |
+| `chat_id` | INTEGER | Банк чата. |
+| `user_id` | INTEGER | NULL или участник операции. |
+| `event_code` | TEXT | Машинный код события: например `bank_genesis`, `income_split`, `deposit_open`, `credit_payment`, `deposit_claim_payment`. |
+| `liquidity_delta_milli` | INTEGER | DEFAULT `0`; изменение ликвидности, со знаком. |
+| `capital_delta_milli` | INTEGER | DEFAULT `0`; изменение капитала, со знаком. |
+| `liquidity_after_milli` | INTEGER | Снимок ликвидности после операции. |
+| `capital_after_milli` | INTEGER | Снимок капитала после операции. |
+| `reference_type` | TEXT | NULL или тип ссылки: например `deposit`, `loan`, `claim`. |
+| `reference_id` | INTEGER | NULL или ID связанного объекта указанного типа. |
+| `idempotency_key` | TEXT | NULL или ключ защиты события от повторного учёта. |
+| `metadata_json` | TEXT | DEFAULT `'{}'`; подробности события. |
+
+Для `income_split` JSON содержит `action_code`, `gross_milli`, `player_milli`,
+`tax_milli`, `garnishment_milli`. Ликвидность растёт на налог плюс взыскание,
+капитал — только на налог. Для аналитики налогов/взысканий извлекать эти
+поля через `json_extract`; не считать всю положительную дельту налогом.
+
+### `bank_daily_runs`
+
+Выполненные клиринги и их сохранённые отчёты. Ключ:
+`PRIMARY KEY (chat_id, run_date)` предотвращает повторный клиринг за день.
+Все поля NOT NULL.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `chat_id` | INTEGER | Чат банка. |
+| `run_date` | TEXT | Обработанный банковский день. |
+| `completed_at` | TEXT | Время, записанное расчётом; при догоняющем запуске передаётся 23:00 обрабатываемого дня. |
+| `report_json` | TEXT | DEFAULT `'{}'`; результат клиринга и снимок метрик. |
+
+JSON включает `chat_id`, `run_date`, `credit_payments_milli`, `new_overdue`,
+`new_defaults`, `matured_deposits`, `renewed_deposits`, `claim_payments_milli`,
+`crisis_interest_milli`, `tax_income_milli`, `credit_interest_income_milli`,
+`deposit_interest_expense_milli` и `metrics`. В `metrics` хранятся вычисленные
+остатки, резервы, портфель, Coverage, U и состояние; бесконечный Coverage
+сериализуется как JSON `null`.
+
+### `bank_rate_changes`
+
+История управленческих изменений ставок. Ключ: `id` (AUTOINCREMENT).
+Все поля NOT NULL; ограничение частоты изменений проверяет код по датам
+в `bank_accounts`, а не уникальный индекс этой таблицы.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `id` | INTEGER | PK; ID изменения. |
+| `chat_id` | INTEGER | Чат банка. |
+| `changed_at` | TEXT | Время изменения. |
+| `changed_date` | TEXT | Банковский день изменения. |
+| `user_id` | INTEGER | Администратор или министр, изменивший ставку. |
+| `rate_kind` | TEXT | `key` — ключевая ставка, `tax` — налог. |
+| `old_bp` | INTEGER | Предыдущее значение ставки. |
+| `new_bp` | INTEGER | Новое значение ставки. |
+
+### `bank_migrations`
+
+Идемпотентные переносы банковских данных. Ключ: `migration_key`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `migration_key` | TEXT | PK; уникальное имя выполненного переноса. |
+| `applied_at` | TEXT | NOT NULL; время отметки выполнения. |
+
+`credit-income-from-sit-ledger-v1` отмечает однократный перенос
+классифицированного положительного дохода с 2026-08-29 из `sit_ledger`
+в `bank_daily_income`; исторический доход по вкладу исключён из переноса.
+Сама схема создаётся через `CREATE ... IF NOT EXISTS`; недостающие
+`bank_deposits.renewal_notified_at` и
+`bank_deposit_claims.capital_reserve_remaining_milli` добавляются после проверки
+`PRAGMA table_info`. Эти структурные миграции не отмечаются отдельными строками
+в `bank_migrations`.
+
+### `sit_ledger`
+
+Полный аудит изменения балансов пользователей через `db.apply_sit_change`.
+Ключ: `id` (AUTOINCREMENT). Все поля NOT NULL. Индексы:
+`idx_sit_ledger_user_chat_created(user_id, chat_id, created_at)`,
+`idx_sit_ledger_chat_created(chat_id, created_at)`,
+`idx_sit_ledger_action_created(action_code, created_at)`.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `id` | INTEGER | PK; ID движения. |
+| `created_at` | TEXT | Время операции. |
+| `date` | TEXT | День операции `YYYY-MM-DD`. |
+| `time` | TEXT | Время операции `HH:MM:SS`. |
+| `chat_id` | INTEGER | Чат баланса. |
+| `user_id` | INTEGER | Пользователь. |
+| `nick` | TEXT | DEFAULT `''`; снимок username. |
+| `display_name` | TEXT | DEFAULT `''`; снимок отображаемого имени. |
+| `amount` | REAL | Фактическая дельта баланса в ситах; положительное начисление уже после налога/взыскания. |
+| `balance_before` | REAL | Баланс до операции в ситах. |
+| `balance_after` | REAL | Баланс после операции в ситах. |
+| `action_code` | TEXT | Машинный код источника/операции. |
+| `action_ru` | TEXT | Человекочитаемая причина движения. |
+| `metadata_json` | TEXT | DEFAULT `'{}'`; детали операции. |
+
+При налоге или взыскании JSON содержит `bank_gross_milli`, `bank_tax_milli`,
+`bank_garnishment_milli`, `bank_player_net_milli`. Если удержаний не было,
+эти ключи могут отсутствовать. Не смешивать `amount` (ситы) с JSON-суммами
+(миллиситы). Для аналитики заработка выбирать доходные `action_code`, а не
+все положительные движения: выдача кредита, возврат вклада и переводы тоже
+могут иметь положительную дельту.
 
 ### `tamagotchi_pets`
 
@@ -170,7 +469,7 @@
 | `chat_id` | INTEGER | Чат цепня. |
 | `owner_id` | INTEGER | Владелец цепня и получатель награды. |
 | `scratcher_id` | INTEGER | Пользователь, который почесал цепня. |
-| `reward` | REAL | Начисленная владельцу сумма, сейчас `0.1` сита. |
+| `reward` | REAL | Фактически начисленная владельцу сумма после налога и взыскания; исходная награда — `0.1` сита. |
 | `created_at` | TEXT | Серверные дата и время успешного нажатия. |
 
 ### `daily_stats`
@@ -661,7 +960,14 @@ Key: `id`; unique message attachment slot: `(chat_id, message_id, attachment_ind
 - "Топ сообщений по реакциям" - `messages_reactions` + `users`, сортировать по `reactions_count`.
 - "Стикеры/стикерпак за день" - `sticker_stats`.
 - "Баланс сит" - `users.sits`.
-- "Начисления сит" - `sit_stats`.
+- "Начисления и списания сит, налог и взыскание с дохода" - `sit_ledger`; `sit_stats` — старый неполный журнал.
+- "Ликвидность, капитал и текущие ставки банка" - `bank_accounts`; свободные остатки и резервы рассчитываются по договорам и требованиям в `bank_core.bank_metrics`.
+- "Вклады и их сроки" - `bank_deposits` + `users`; только активные: `status='active'`.
+- "Невыплаченные вклады и кризисные проценты" - `bank_deposit_claims` + `bank_deposits`; текущие требования: `status='open'`.
+- "Кредиты, платежи и просрочки" - `bank_loans` + `bank_loan_payments` + `users`.
+- "Кредитный рейтинг, дефолтный долг и учитываемый доход" - `bank_credit_profiles`, `bank_daily_income`.
+- "История операций банка, налоговые поступления" - `bank_ledger`; детали удержаний в `metadata_json`.
+- "Отчёты за банковские дни" - `bank_daily_runs`; историю изменения ставок смотреть в `bank_rate_changes`.
 - "Ачивки" - `user_achievements` + `achievements` + `users`.
 - "Квесты" - `user_quests` + `quests_catalog` + `users`.
 - "Дейлики/мероприятия" - `daily_events`, участники через `daily_participants` + `users`.
