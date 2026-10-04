@@ -15,6 +15,7 @@ import rag_search
 import mechanics
 
 STOP=threading.Event()
+READY=threading.Event()
 
 
 def write_status(**values):
@@ -44,9 +45,10 @@ def supervise(threads):
 def retrieval_loop():
     while not STOP.is_set():
         try:
+            READY.clear()
             task=rag_search.claim()
             if task: rag_search.prepare(task)
-            else: STOP.wait(.25)
+            else: READY.wait(25)
         except Exception:
             logging.exception('RAG context preparation failed')
             STOP.wait(1)
@@ -258,6 +260,8 @@ def main():
     except ImportError: pass
     for signum in (signal.SIGINT,signal.SIGTERM): signal.signal(signum,lambda *_:STOP.set())
     logging.basicConfig(level=logging.INFO)
+    from ai_notifications import rag_listener
+    threading.Thread(target=rag_listener,args=(STOP,READY),daemon=True).start()
     threads=[threading.Thread(target=retrieval_loop,name=f'rag-search-{i}') for i in range(2)]
     threads.append(threading.Thread(target=indexing_loop,name='rag-index'))
     for thread in threads: thread.start()
@@ -265,6 +269,7 @@ def main():
         while not STOP.wait(5): supervise(threads)
     finally:
         STOP.set()
+        READY.set()
         for thread in threads: thread.join(25)
         report('stopped')
         if lock: lock.close()
