@@ -14,7 +14,7 @@
         "поиск"
       ],
       "path": "docs/mechanics/ai.md",
-      "hash": "327582cee25e69c3d3341b97a4601ceea57dc6cbefe25823aab37b70fc624e18",
+      "hash": "d9d563112f9461b156828c062c693d19768d4cc6d71b351660e11435c91296a5",
       "dependencies": {
         "ai_tasks.py": "201f58be3b3bed131fc50e9675d69e9157bc83410700bbb380674ced11ce5344",
         "ai_runtime.py": "a8b34ca462df099c4f8da6aaddfdc6ad2fae27e0afebc13a6a9f98d28613a019",
@@ -35,7 +35,7 @@
         "settings.py": "efa5696b7eda37d3d997d91f08e389e87acda9cbd7d1442f5e410bc0776e24df",
         "web/static/summary_app.js": "aa9e2240594b135b1453e7c2fb222214d3ba3a5d28e5e9fa39a5ae63962806ce",
         "web/templates/summary_app.html": "7191424b581eee37cab79f076b94c1c0b48e26d853e237b6d2eea426bf882222",
-        "web/static/ai_tasks.js": "c400dd481aedc2c207046af3be91af4214560f0d41e3461463b718322b0e7fea",
+        "web/static/ai_tasks.js": "8899df8318939fcc7d7c052c955356d899dc82b670c7dafa850cb5260c36d1a5",
         "web/static/rag_status.js": "c61e67cd04d0846f90d07da75c9bddb5aa622c4c012d122458d4521d9185218f",
         "photo_story.py": "42e845f30fbb99056ec832cb4b3dc3b577f3b76c0a8ae7c18997686309ac35cd",
         "photo_story_bot.py": "4a2a58862c37ba90afc846e31ba76eb3efc3397f3a0ed62a71fe4376ecd9753f",
@@ -52,8 +52,8 @@
         "web/static/album.css": "69d51d409c8bd52be49a8cbda943915a307d19257a1b5ce96c0dc7758f4a3c9d",
         "web/templates/album.html": "34c4a8626086503efd5bdd5768b7e31ff94efcefdfb169962b8f58d32b6cdcb6",
         "web/ai_dashboard.py": "4a7f41d3eeb1d60369d764e1f117283612e5985623a1bc6da0d26689bb222272",
-        "web/templates/ai_tasks.html": "69742db9cc7ee927087d25736b728d4ed983ad52da520e85c1cf702c7fee23ee",
-        "web/static/ai_tasks.css": "d80436685354483fc5921fc3f67d388fe5891e3b341e43391df79c6c0f4c934b"
+        "web/templates/ai_tasks.html": "9e846ad75a357053039c8bcd760ccf6a435fa53cf81f7c7584cd2250287a7eeb",
+        "web/static/ai_tasks.css": "3339f00e89e612ad42a57d927833892b2c6d0825c7c1d849263187a6ab082bef"
       }
     },
     {

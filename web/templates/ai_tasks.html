@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ИИ · журнал задач</title><link rel="stylesheet" href="/static/ai_tasks.css?v=4"><script defer src="/static/ai_tasks.js?v=9"></script></head>
+<body>
+<main>
+  <header><div><a class="back" href="/">← UDB</a><h1>Работа ИИ<span class="dot"></span></h1><p>Модели, контекст и результаты — в одном журнале.</p></div><div class="refresh-controls"><span id="live" role="status">Подключение…</span><button id="refresh-tasks" type="button" hidden>Обновить ↻</button></div></header>
+  <section id="login" hidden><h2>Вход администратора</h2><p>Получите код командой /code в боте и введите его здесь.</p><form id="login-form"><input id="code" aria-label="Код авторизации" autocomplete="one-time-code" required><button>Войти</button></form><p id="login-error" role="alert"></p></section>
+  <div id="dashboard" hidden>
+    <section class="overview"><div class="section-head"><div><span class="eyebrow">ИСПОЛЬЗОВАНИЕ</span><h2><span id="call-count">0</span> обращений к моделям</h2></div><div class="period"><label>Период<select id="days"><option value="1">Последние 24 часа</option><option value="7" selected>7 дней</option><option value="30">30 дней</option><option value="90">90 дней</option><option value="custom">Выбрать даты</option></select></label><div id="dates" hidden><label>С<input type="date" id="start"></label><label>По<input type="date" id="end"></label></div></div></div>
+      <div class="charts"><div><h3>По моделям</h3><div id="model-chart" class="bars"></div><button id="models-more" class="quiet" type="button" aria-controls="model-chart" aria-expanded="false" hidden>ещё</button></div><div><h3>По типам задач</h3><div id="type-chart" class="distribution"></div></div></div>
+      <p class="caption" id="coverage">Учитываются генеративные вызовы, включая неудачные попытки и резервные модели. История до включения аудита может быть неполной.</p>
+    </section>
+    <section class="journal"><div class="section-head"><div><span class="eyebrow">ЖУРНАЛ</span><h2>Задачи <span id="task-count" class="muted"></span></h2></div><button id="reset-all" class="quiet">Сбросить всё ↺</button></div>
+      <div class="filters"><label>Чат<div><select id="chat"><option value="">Все чаты</option></select><button type="button" data-reset="chat" aria-label="Сбросить чат">↺</button></div></label><label>Тип задачи<div><select id="kind"><option value="">Все типы</option></select><button type="button" data-reset="kind" aria-label="Сбросить тип">↺</button></div></label><label>Модель<div><select id="model"><option value="">Все модели</option></select><button type="button" data-reset="model" aria-label="Сбросить модель">↺</button></div></label></div>
+      <div class="table-scroll"><table><thead><tr><th>Дата и время</th><th>Чат</th><th>Тип задачи</th><th>Контекст</th><th>Модель</th><th>Ответ</th><th>Результат</th></tr></thead><tbody id="rows"></tbody></table></div><p id="empty" hidden>За этот период задач с выбранными фильтрами нет.</p>
+      <footer><span>Время — в часовом поясе браузера · обновление каждые 2 минуты</span><div><button id="prev-page" aria-label="Предыдущая страница">←</button><span id="page-label"></span><button id="next-page" aria-label="Следующая страница">→</button></div></footer>
+    </section>
+  </div>
+</main>
+<dialog id="modal" aria-labelledby="modal-title"><div class="modal-scroll"><div class="modal-surface"><button id="close" class="close" aria-label="Закрыть">×</button><div class="modal-head"><div class="modal-identity"><div id="modal-avatar" class="profile-avatar" hidden aria-hidden="true"></div><div><span class="eyebrow" id="modal-label"></span><h2 id="modal-title"></h2><p id="modal-meta"></p></div></div></div><div id="attempts"></div><div id="content"></div><div id="navigation" hidden><button id="previous" aria-label="Предыдущий снимок">← Назад</button><span id="history-date"></span><button id="following" aria-label="Следующий снимок">Вперёд →</button></div></div></div></dialog>
+</body></html>
