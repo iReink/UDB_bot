@@ -68,7 +68,7 @@ class Worker:
             output, metadata = (call_local if self.provider == 'local' else call_external)(task, timeout)
             data.update(output=output, metadata=metadata)
         except ProviderUnavailable as exc:
-            data.update(error=str(exc), error_kind='unavailable', metadata={'retry_after':exc.retry_after,'provider_cooldown':exc.provider_cooldown})
+            data.update(error=str(exc), error_kind='unavailable', metadata={'retry_after':exc.retry_after,'provider_cooldown':exc.provider_cooldown,'refusal_kind':exc.kind})
         except PromptTooLarge as exc:
             data.update(error=str(exc), error_kind='too_large')
         except Exception as exc:

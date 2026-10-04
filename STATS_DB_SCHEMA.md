@@ -982,3 +982,8 @@ ai_rag_counters: scope TEXT NOT NULL (all — все сообщения, initial
 
 Индекс idx_rag_events_message на ai_rag_events(chat_id,message_id,id) ускоряет проверку событий за границей снимка. Ключи ai_rag_state: night_open (0/1), night_event_cutoff (максимальный id событий снимка), night_finished_day (местная дата завершения). Незавершённая граница сохраняется между ночами.
 
+
+Индексы очередей ai_tasks, ai_type_checks, ai_search_plans: idx_<table>_ready(status,retry_at,created_at) и idx_<table>_lease(status,lease_until). Проверка наличия готовой задачи читает SELECT 1 LIMIT 1; уведомления не являются источником состояния.
+
+Очереди ai_tasks/ai_type_checks/ai_search_plans: minute_retry INTEGER NOT NULL DEFAULT 0 — использованные повторы после минутного лимита; refusal_kind TEXT NULL — daily/minute/transport/permanent. transport_attempt сохраняет число отказов и переключений источника, retry_at — UTC ближайшей попытки. ai_provider_state.reason сохраняет структурированную причину ограничения модели.
+

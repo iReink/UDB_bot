@@ -20,6 +20,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request as UrlRequest, urlopen
 from zoneinfo import ZoneInfo
 import photo_albums
+import ai_runtime
+from functools import wraps
 from web.asset_version import PHOTO_ASSET_VERSION
 
 from ai_tasks import (
@@ -35,6 +37,7 @@ from ai_tasks import (
     TYPE_CHECK_RESULT_RESPONSE,
     TYPE_CHECK_RESULT_TEXT_TO_SQL,
     TYPE_CHECK_RESULT_WEB_SEARCH,
+    TYPE_CHECK_RESULT_MAPS,
     RESPONSE_REACTION_DONE,
     RESPONSE_REACTION_ERROR,
     RESPONSE_REACTION_IN_PROGRESS,
@@ -55,7 +58,6 @@ from ai_tasks import (
     get_task,
     get_response_cooldown_left,
     get_search_plan,
-    get_text_to_sql_cooldown,
     get_type_check,
     mark_chat_summary_task_done,
     mark_data_analysis_done,
@@ -96,7 +98,7 @@ from auth_code import (
     AuthCodeUsedError,
     consume_auth_code,
 )
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Query, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -211,6 +213,25 @@ class ChatMessageRequest(BaseModel):
 class AiTaskResultRequest(BaseModel):
     output: str = ""
     error: str = ""
+    worker_id: str
+    lease_token: str
+    error_kind: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AiWorkerHeartbeatRequest(BaseModel):
+    worker_id: str
+    provider: str
+    queues: list[str]
+    ready: bool = True
+    task_types: list[str] = Field(default_factory=list)
+
+
+class AiLeaseRequest(BaseModel):
+    worker_id: str
+    queue: str
+    task_id: int
+    lease_token: str
 
 
 class DailyEventUpsertRequest(BaseModel):
@@ -2679,6 +2700,8 @@ def _require_ai_worker(request: Request) -> None:
 
 
 def _send_telegram_message(chat_id: int, text: str, *, reply_to_message_id: int | None = None) -> int | None:
+    if getattr(ai_runtime.delivery_context, "active", False) and not ai_runtime.enabled(chat_id):
+        raise ai_runtime.DeliveryError("AI disabled before delivery")
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not configured")
 
@@ -2703,9 +2726,13 @@ def _send_telegram_message(chat_id: int, text: str, *, reply_to_message_id: int 
         with urlopen(req, timeout=10) as resp:
             response_data = json.loads(resp.read().decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        if getattr(ai_runtime.delivery_context, "active", False):
+            raise ai_runtime.DeliveryError("Telegram delivery failed") from exc
         raise RuntimeError(f"Telegram sendMessage failed: {exc}") from exc
 
     if not response_data.get("ok"):
+        if getattr(ai_runtime.delivery_context, "active", False):
+            raise ai_runtime.DeliveryError("Telegram rejected delivery")
         raise RuntimeError(f"Telegram sendMessage returned error: {response_data}")
     result = response_data.get("result") or {}
     message_id = result.get("message_id")
@@ -4063,28 +4090,163 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/ai/tasks/next")
-def ai_task_next(request: Request) -> JSONResponse:
+@app.on_event("startup")
+async def startup_ai_runtime() -> None:
+    ai_runtime.initialize()
+    from ai_notifications import coordinator
+    await coordinator.start()
+
+
+@app.on_event("shutdown")
+async def stop_ai_coordinator():
+    from ai_notifications import coordinator
+    await coordinator.close()
+
+
+@app.post("/api/ai/workers/heartbeat")
+def ai_worker_heartbeat(request: Request, data: AiWorkerHeartbeatRequest) -> dict:
     _require_ai_worker(request)
-    task = claim_next_task()
-    return JSONResponse({"ok": True, "task": task})
+    try:
+        ai_runtime.heartbeat(data.worker_id, data.provider, data.queues, data.ready,data.task_types)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True}
 
 
-@app.get("/api/ai/type-checks/next")
-def ai_type_check_next(request: Request) -> JSONResponse:
+@app.post("/api/ai/workers/renew")
+def ai_worker_renew(request: Request, data: AiLeaseRequest) -> dict:
     _require_ai_worker(request)
-    task = claim_next_type_check()
-    return JSONResponse({"ok": True, "task": task})
+    if data.queue not in ai_runtime.TABLES:
+        raise HTTPException(status_code=422, detail="Unknown queue")
+    if not ai_runtime.renew(data.queue, data.task_id, data.worker_id, data.lease_token):
+        raise HTTPException(status_code=409, detail="Stale lease")
+    return {"ok": True}
 
 
-@app.get("/api/ai/search-plans/next")
-def ai_search_plan_next(request: Request) -> JSONResponse:
+def _claim_ai_task(request: Request, queue: str):
+    try:
+        return ai_runtime.claim(queue, request.query_params.get("worker_id", ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _guard_ai_result(queue):
+    def decorate(handler):
+        @wraps(handler)
+        def guarded(task_id=None, **kwargs):
+            # Preserve FastAPI's original parameter names/signature via wraps.
+            actual_id = task_id if task_id is not None else kwargs.get("type_check_id", kwargs.get("search_plan_id"))
+            request, data = kwargs["request"], kwargs["data"]
+            _require_ai_worker(request)
+            terminal_failure=False
+            try:
+                previous = ai_runtime.accept_result(queue, actual_id, data.worker_id, data.lease_token)
+                if previous is not None:
+                    return JSONResponse(previous)
+                if data.error_kind == "unavailable" or (data.error_kind == "too_large" and ai_runtime.mode(_get_ai_chat(queue, actual_id)) in ("api_local", "local_api")):
+                    deferred=ai_runtime.defer(queue, actual_id, data.worker_id, data.lease_token, data.error,
+                                     retry_seconds=data.metadata.get('retry_after'),
+                                     provider_cooldown=data.metadata.get('provider_cooldown', True),
+                                     refusal_kind=data.metadata.get('refusal_kind','transport'))
+                    ai_runtime.record_attempt(queue, actual_id, data.lease_token, data.metadata, data.error_kind)
+                    if deferred:
+                        body={"ok":True,"status":"waiting","task_id":actual_id}
+                        ai_runtime.finish_receipt(data.lease_token,body)
+                        return JSONResponse(body)
+                    terminal_failure=True
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            try:
+                args = dict(kwargs)
+                if task_id is not None:
+                    args["task_id"] = task_id
+                ai_runtime.record_attempt(queue, actual_id, data.lease_token, data.metadata, 'accepted')
+                ai_runtime.delivery_context.active = True
+                if terminal_failure:
+                    task={'tasks':get_task,'type-checks':get_type_check,'search-plans':get_search_plan}[queue](actual_id)
+                    payload=json.loads(dict(task).get('payload_json') or '{}')
+                    with closing(ai_runtime.connect()) as conn,conn:
+                        conn.execute(f"UPDATE {ai_runtime.TABLES[queue]} SET status='failed',error_text=?,finished_at=?,lease_until=NULL WHERE id=?",(data.error,ai_runtime.stamp(),actual_id))
+                        if queue=='tasks':
+                            for table in ('ai_profiles','ai_summary'):
+                                conn.execute(f"UPDATE {table} SET status='failed',error_text=?,updated_at=? WHERE task_id=?",(data.error,ai_runtime.stamp(),actual_id))
+                    if payload.get('analysis_id'):
+                        from ai_tasks import mark_data_analysis_failed
+                        mark_data_analysis_failed(payload['analysis_id'],error_text=data.error)
+                    reason=data.metadata.get('refusal_kind','transport')
+                    text={'daily':'Извини, на сегодня квоты доступных моделей исчерпаны. Попробуй после их сброса.', 'minute':'Модели временно заняты: минутный лимит пока не освободился. Попробуй немного позже.', 'transport':'Не удалось связаться с ИИ после повторных попыток. Попробуй позже.', 'permanent':'ИИ не смог обработать этот запрос. Попробуй изменить формулировку.'}.get(reason,'ИИ временно недоступен.')
+                    background=queue=='tasks' and (task['task_type']=='chat_summary' and payload.get('background',True) or task['task_type']=='profile_update' and payload.get('background',True) or payload.get('daily_id') and not payload.get('notify_chat'))
+                    if not background:_send_telegram_message(task['chat_id'],text,reply_to_message_id=task['request_message_id'])
+                    body={'ok':True,'status':'failed','task_id':actual_id}
+                    result=JSONResponse(body)
+                else:
+                    result=handler(**args)
+                    body=json.loads(result.body)
+                ai_runtime.record_attempt(queue, actual_id, data.lease_token, data.metadata, body.get('status', 'unknown'))
+                ai_runtime.finish_receipt(data.lease_token, body)
+                return result
+            except ai_runtime.DeliveryError:
+                ai_runtime.fail_delivery(queue, actual_id)
+                body = {"ok": False, "status": "delivery_unknown", "task_id": actual_id}
+                ai_runtime.record_attempt(queue, actual_id, data.lease_token, data.metadata, 'delivery_unknown')
+                ai_runtime.finish_receipt(data.lease_token, body)
+                return JSONResponse(body)
+            except Exception:
+                ai_runtime.record_attempt(queue, actual_id, data.lease_token, data.metadata, 'delivery_unknown')
+                ai_runtime.finish_receipt(data.lease_token, {"ok": False, "status": "delivery_unknown", "task_id": actual_id})
+                raise
+            finally:
+                ai_runtime.delivery_context.active = False
+        return guarded
+    return decorate
+
+
+def _get_ai_chat(queue, task_id):
+    getter = {"tasks": get_task, "type-checks": get_type_check, "search-plans": get_search_plan}[queue]
+    task = getter(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return int(task["chat_id"])
+
+
+async def _wait_ai_task(request, queues, wait_seconds):
+    from ai_notifications import coordinator
     _require_ai_worker(request)
-    task = claim_next_search_plan()
-    return JSONResponse({"ok": True, "task": task})
+    end=asyncio.get_running_loop().time()+wait_seconds
+    while True:
+        versions=coordinator.versions.copy()
+        for queue in queues:
+            task=await asyncio.to_thread(_claim_ai_task,request,queue)
+            if task:return JSONResponse({'ok':True,'task':task})
+        remaining=end-asyncio.get_running_loop().time()
+        if remaining<=0:return JSONResponse({'ok':True,'task':None})
+        await coordinator.wait(queues,versions,remaining)
+
+
+@app.get('/api/ai/workers/next')
+async def ai_worker_next(request: Request, queues: str='tasks', wait_seconds: float=Query(0,ge=0,le=25)):
+    selected=list(dict.fromkeys(queues.split(',')))
+    if not selected or any(q not in ai_runtime.TABLES for q in selected):raise HTTPException(422,'Unknown queue')
+    return await _wait_ai_task(request,selected,wait_seconds)
+
+
+@app.get('/api/ai/tasks/next')
+async def ai_task_next(request: Request, wait_seconds: float=Query(0,ge=0,le=25)) -> JSONResponse:
+    return await _wait_ai_task(request,['tasks'],wait_seconds)
+
+
+@app.get('/api/ai/type-checks/next')
+async def ai_type_check_next(request: Request, wait_seconds: float=Query(0,ge=0,le=25)) -> JSONResponse:
+    return await _wait_ai_task(request,['type-checks'],wait_seconds)
+
+
+@app.get('/api/ai/search-plans/next')
+async def ai_search_plan_next(request: Request, wait_seconds: float=Query(0,ge=0,le=25)) -> JSONResponse:
+    return await _wait_ai_task(request,['search-plans'],wait_seconds)
 
 
 @app.post("/api/ai/type-checks/{type_check_id}/result")
+@_guard_ai_result("type-checks")
 def ai_type_check_result(type_check_id: int, request: Request, data: AiTaskResultRequest) -> JSONResponse:
     _require_ai_worker(request)
     task = get_type_check(type_check_id)
@@ -4117,13 +4279,13 @@ def ai_type_check_result(type_check_id: int, request: Request, data: AiTaskResul
 
     if result_type == TYPE_CHECK_RESULT_IGNORE:
         skipped_reason = "ignore"
-    elif result_type == TYPE_CHECK_RESULT_WEB_SEARCH:
+    elif result_type in (TYPE_CHECK_RESULT_WEB_SEARCH,TYPE_CHECK_RESULT_MAPS):
         search_plan_id = create_search_plan_task(
             chat_id=chat_id,
             user_id=user_id,
             request_message_id=request_message_id,
             message_text=message_text,
-            trigger_reason=trigger_reason,
+            trigger_reason='maps' if result_type==TYPE_CHECK_RESULT_MAPS else trigger_reason,
         )
         if search_plan_id is None:
             skipped_reason = "search plan already pending"
@@ -4149,19 +4311,24 @@ def ai_type_check_result(type_check_id: int, request: Request, data: AiTaskResul
                     )
                     if final_task_id is None:
                         skipped_reason = "response task already pending"
+            elif result_type == 'imagegen':
+                from imagegen import create_task as create_imagegen_task
+                final_task_id=create_imagegen_task(chat_id=chat_id,user_id=user_id,
+                    request_message_id=request_message_id,user_query=message_text)
+            elif result_type == 'mechanics':
+                from ai_tasks import create_mechanics_task
+                final_task_id=create_mechanics_task(chat_id=chat_id,user_id=user_id,
+                    request_message_id=request_message_id,user_query=message_text,
+                    requester_name=requester_name,requester_nick=requester_nick)
             elif result_type == TYPE_CHECK_RESULT_TEXT_TO_SQL:
-                cooldown_left = get_text_to_sql_cooldown(chat_id)
-                if cooldown_left > 0:
-                    skipped_reason = "text_to_sql cooldown"
-                else:
-                    final_task_id = create_text_to_sql_task(
-                        chat_id=chat_id,
-                        user_id=user_id,
-                        request_message_id=request_message_id,
-                        user_query=message_text,
-                        requester_name=requester_name,
-                        requester_nick=requester_nick,
-                    )
+                final_task_id = create_text_to_sql_task(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    request_message_id=request_message_id,
+                    user_query=message_text,
+                    requester_name=requester_name,
+                    requester_nick=requester_nick,
+                )
             elif result_type == TYPE_CHECK_RESULT_DATA_ANALYSIS:
                 final_task_id = create_data_analysis_task(
                     chat_id=chat_id,
@@ -4202,6 +4369,7 @@ def ai_type_check_result(type_check_id: int, request: Request, data: AiTaskResul
 
 
 @app.post("/api/ai/search-plans/{search_plan_id}/result")
+@_guard_ai_result("search-plans")
 def ai_search_plan_result(search_plan_id: int, request: Request, data: AiTaskResultRequest) -> JSONResponse:
     _require_ai_worker(request)
     task = get_search_plan(search_plan_id)
@@ -4268,6 +4436,8 @@ def ai_search_plan_result(search_plan_id: int, request: Request, data: AiTaskRes
 
     try:
         search_plan = validate_search_plan_output(raw_output)
+        from ai_grounding import checked_plan
+        search_plan=checked_plan(task,search_plan)
     except Exception as exc:
         logger.warning("AI search-plan task %s failed during validation: %s", search_plan_id, exc)
         failure_reason = str(exc)
@@ -4288,8 +4458,18 @@ def ai_search_plan_result(search_plan_id: int, request: Request, data: AiTaskRes
         return fallback_response(failure_reason)
 
     mark_search_plan_done(search_plan_id, result=search_plan)
+    import ai_grounding
+    maps=trigger_reason=='maps'
+    if maps and search_plan.get('needs_clarification'):
+        final=ai_grounding.create_task(task,'grounding_notice',{},search_plan.get('clarification') or 'Уточните город, адрес или координаты для поиска рядом.')
+        return JSONResponse({'ok':True,'status':'done','task_id':search_plan_id,'final_task_id':final})
+    if 'groq' in ai_runtime.providers(ai_runtime.mode(chat_id)):
+        final=ai_grounding.create_from_plan(task,search_plan)
+        _set_in_progress_reaction_best_effort(chat_id,request_message_id,label='AI grounding',task_id=search_plan_id)
+        return JSONResponse({'ok':True,'status':'done','task_id':search_plan_id,'final_task_id':final})
     try:
         web_context = build_web_context(question=message_text, search_plan=search_plan)
+        if maps:web_context+='\nGoogle Maps недоступен в локальном режиме. Это веб-поиск, не подтверждённые данные Maps. Не выдумывай адреса и часы работы.'
     except WebSearchError as exc:
         logger.warning("AI search-plan task %s failed during SearXNG search: %s", search_plan_id, exc)
         return fallback_response(str(exc))
@@ -4346,6 +4526,7 @@ def _format_data_analysis_message(answer_text: str, preview_text: str | None) ->
 
 
 @app.post("/api/ai/tasks/{task_id}/result")
+@_guard_ai_result("tasks")
 def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) -> JSONResponse:
     _require_ai_worker(request)
     task = get_task(task_id)
@@ -4358,23 +4539,45 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
     worker_error = (data.error or "").strip()
     sql_for_retry: str | None = raw_output or None
     failure_reason: str | None = None
+    if task['task_type'] in ('photo_story','photo_story_merge'):
+        from photo_story import complete as complete_photo_story
+        return JSONResponse(complete_photo_story(task,raw_output,worker_error,_send_telegram_message))
+    if task['task_type']=='grounding_notice':
+        # A backend-authored clarification is never rendered from worker output.
+        raw_output=str(task['prompt'])
 
-    if task["task_type"] == TASK_TYPE_RESPONSE:
+    if task['task_type'] in ('web_grounding','maps_grounding','maps_translation'):
+        from web.grounding import complete
+        if worker_error:
+            from ai_grounding import retry_or_fail
+            retry=retry_or_fail(task_id,worker_error)
+            return JSONResponse({'ok':True,'status':'retry' if retry else 'failed','task_id':task_id})
+        result=complete(task,data,_send_telegram_message,_create_response_from_ai_context)
+        if result.get('response_message_id'):
+            try:_set_telegram_reaction(int(task['chat_id']),int(task['request_message_id']),RESPONSE_REACTION_DONE)
+            except Exception:logger.warning('Grounding task %s: done reaction unavailable',task_id)
+        return JSONResponse(result)
+
+    if task["task_type"] in (TASK_TYPE_RESPONSE,'grounding_notice','mechanics'):
         if worker_error:
             failure_reason = f"Worker/Ollama error: {worker_error}"
         else:
             try:
-                response_text = validate_response_output(raw_output)
+                response_text = validate_response_output(raw_output,allow_markdown=task['task_type']=='mechanics')
             except Exception as exc:
                 logger.warning("AI response task %s failed during validation: %s", task_id, exc)
                 failure_reason = str(exc)
             else:
+                from ai_formatting import answer_html as format_ai_answer
+                rendered_response=format_ai_answer(response_text) if task['task_type']=='mechanics' else escape(response_text)
                 try:
                     response_message_id = _send_telegram_message(
                         int(task["chat_id"]),
-                        escape(response_text),
+                        rendered_response,
                         reply_to_message_id=int(task["request_message_id"]),
                     )
+                except ai_runtime.DeliveryError:
+                    raise
                 except Exception as exc:
                     logger.exception("AI response task %s failed to send Telegram response", task_id)
                     failure_reason = str(exc)
@@ -4503,6 +4706,8 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
                 f"Не удалось подготовить данные для анализа после повторной попытки.\n<pre>{error_message}</pre>",
                 reply_to_message_id=int(task["request_message_id"]),
             )
+        except ai_runtime.DeliveryError:
+            raise
         except Exception:
             logger.exception("AI data-analysis SQL task %s failed to send final error message", task_id)
         return JSONResponse(
@@ -4534,6 +4739,8 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
                         message_text,
                         reply_to_message_id=int(task["request_message_id"]),
                     )
+                except ai_runtime.DeliveryError:
+                    raise
                 except Exception as exc:
                     logger.exception("AI data-analysis response task %s failed to send Telegram response", task_id)
                     failure_reason = str(exc)
@@ -4594,6 +4801,8 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
                 f"Не удалось подготовить аналитический ответ.\n<pre>{escape(failure_reason[:1200])}</pre>",
                 reply_to_message_id=int(task["request_message_id"]),
             )
+        except ai_runtime.DeliveryError:
+            raise
         except Exception:
             logger.exception("AI data-analysis response task %s failed to send final error message", task_id)
         return JSONResponse(
@@ -4712,6 +4921,8 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
                     message_text,
                     reply_to_message_id=int(task["request_message_id"]),
                 )
+            except ai_runtime.DeliveryError:
+                raise
             except Exception as exc:
                 logger.exception("AI task %s failed to send Telegram response", task_id)
                 failure_reason = str(exc)
@@ -4765,6 +4976,8 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
             f"Не удалось выполнить запрос к базе после повторной попытки.\n<pre>{error_message}</pre>",
             reply_to_message_id=int(task["request_message_id"]),
         )
+    except ai_runtime.DeliveryError:
+        raise
     except Exception:
         logger.exception("AI task %s failed to send final error message", task_id)
 
@@ -4776,3 +4989,35 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
             "error": failure_reason,
         }
     )
+
+
+from web.ai_dashboard import register as register_ai_dashboard
+register_ai_dashboard(app, templates, DB_FILE, _require_session, ADMIN_IDS_SET, bot_token=BOT_TOKEN)
+from web.rag_status import register as register_rag_status
+register_rag_status(app, templates, DB_FILE, _require_session, ADMIN_IDS_SET)
+
+
+@app.on_event("startup")
+def warm_ai_dashboard_chat_titles() -> None:
+    def warm():
+        try:
+            from web.ai_dashboard import connection, union
+            with closing(connection(DB_FILE)) as conn:
+                chats = [r[0] for r in conn.execute(f"WITH tasks AS ({union(brief=True)}) SELECT DISTINCT chat_id FROM tasks")]
+            for chat_id in chats:
+                if chat_id > 0:
+                    name = _get_user_name_for_session(chat_id)
+                    if name:
+                        _upsert_cached_chat_title(chat_id, "ЛС · " + name)
+                else:
+                    _resolve_chat_label(0, chat_id)
+        except Exception:
+            logger.warning("AI dashboard chat-title cache warm-up failed")
+    threading.Thread(target=warm, daemon=True, name="ai-dashboard-chat-titles").start()
+
+
+from web.summary_app import register as register_summary_app
+register_summary_app(app, templates, DB_FILE, BOT_TOKEN)
+
+from web.grounding import register as register_grounding
+register_grounding(app)
