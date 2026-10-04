@@ -19,6 +19,30 @@
 
 ## Таблицы
 
+### Справочник `ai_mechanics_sections` и `ai_mechanics_fts`
+
+Повторяемая схема создаётся `mechanics.ensure_schema` при общей инициализации RAG.
+- Служебные ai_mechanics_sections/ai_mechanics_fts недоступны пользовательскому SQL; справка проходит проверку актуальности в отдельном поиске, не через чтение индекса моделью.
+`ai_mechanics_sections`: id TEXT PK (детерминированный UUID ревизии фрагмента);
+document_id, section_id, title, text, hash, revision, sources_json, state, vector_json — TEXT;
+current INTEGER NOT NULL DEFAULT 1 (актуальная версия). Остальные поля допускают NULL.
+Состояния: prepared, embedded (временный вектор сохранён), active (Qdrant подтвердил запись).
+Индекс idx_mechanics_current(current,state). Источники — JSON путей к публичному коду,
+вектор — JSON 768 чисел, размерность и модель не смешиваются.
+`ai_mechanics_fts` — FTS5 unicode61: id UNINDEXED, text; только актуальные разделы,
+доступные лексическому поиску до завершения векторизации. Внешних ключей нет.
+Удалённые версии имеют current=0 до подтверждённого удаления точек Qdrant.
+
+Подготовка использует существующие ai_tasks.rag_state/rag_deadline_at и
+ai_rag_queries: queued/preparing/done/timeout; UTC ISO-дедлайн пять секунд,
+token/lease_until ограждают поздний результат. Триггер ai_mechanics_prepare
+срабатывает при INSERT mechanics/text_to_sql/data_analysis_sql после готовности справки.
+В payload_json.mechanics сохраняются query, fragments с ревизиями, error и duration_ms;
+анализ использует снимок родительского SQL. ai_rag_state хранит mechanics_* состояние,
+агрегаты, хеш манифеста и завершение первичного прохода.
+ai_rag_usage.purpose дополнительно допускает mechanics_index и mechanics_probe; tokens — токены,
+status reserved/done/error. Дневной бюджет общий с историей, сброс America/Los_Angeles.
+
 ### Банковские таблицы `bank_*`
 
 Сит-банк существует отдельно для каждого `chat_id`. Все банковские запросы
@@ -443,7 +467,7 @@ JSON включает `chat_id`, `run_date`, `credit_payments_milli`, `new_overd
 
 ### `cepen_daily_messages`
 
-Очередь ежедневных реплик цепня хосту. Время хранится в локальном времени сервера.
+Архив прежних ежедневных реплик. Новые задания здесь не создаются; последняя `sent_at` используется для перехода на расписание `cepen_letters`. Время хранится в локальном времени сервера.
 
 Ключ: `PRIMARY KEY (message_date, chat_id, user_id)`.
 
@@ -456,9 +480,25 @@ JSON включает `chat_id`, `run_date`, `credit_payments_milli`, `new_overd
 | `phrase` | TEXT | Зафиксированный шаблон реплики с `{nickname}`. |
 | `sent_at` | TEXT | Время успешной отправки или `NULL`. |
 
+### `cepen_letters`
+
+Повторяемая миграция в `cepen_messages.ensure_schema`, вызывается при инициализации БД. Одна текущая реплика на владельца в чате: `PRIMARY KEY(chat_id,user_id)`; оба INTEGER NOT NULL. Новые владельцы начинают отсчёт от запуска, существующие — от последней отправленной архивной реплики.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `due_at` | TEXT NOT NULL | ISO-время с часовым поясом Екатеринбурга, ближайшая попытка; у `sending` — начало следующего цикла. |
+| `state` | TEXT NOT NULL DEFAULT 'pending' | `pending`: нужна генерация; `ready`: сохранён текст; `sending`: отправка началась, повтор запрещён до нового цикла. |
+| `text`, `prompt` | TEXT | Зафиксированные ответ и контекст; NULL до генерации и после завершения цикла. |
+| `gift` | REAL NOT NULL DEFAULT 0 | Подарок в ситах до банковских удержаний, 0 или 0,50–2,00. |
+| `reward_applied` | INTEGER NOT NULL DEFAULT 0 | Однократное начисление через sit_ledger, атомарно с `sending`. |
+| `last_sent_at` | TEXT | Последняя подтверждённая доставка, ISO с часовым поясом. |
+| `error` | TEXT | Последняя ошибка/неопределённость доставки. |
+
+Связь с users по chat_id/user_id; внешние ключи не объявлены. Источник настроения — cepen_scratches за местную дату. Подарок имеет action_code `cepen_letter_gift`; обычные налоги/взыскания применяются. При неопределённой доставке подарок сохраняется, старый текст не отправляется повторно, следующий цикл начинается через 68–74 часа с учётом окна тишины.
+
 ### `cepen_scratches`
 
-Успешные чужие чесания цепня. Одна строка одновременно служит основанием для награды владельцу и аудитом суточных лимитов.
+Успешные чесания цепня другими участниками или самим владельцем. Одна строка одновременно служит основанием для награды владельцу и аудитом суточных лимитов. Совпадение owner_id и scratcher_id допустимо; общий предел пять от одного участника применяется и к владельцу.
 
 Ключ: `PRIMARY KEY (callback_query_id)`; повторная доставка одного Telegram callback не создаёт вторую награду.
 
@@ -955,6 +995,14 @@ Key: `id`; unique message attachment slot: `(chat_id, message_id, attachment_ind
 
 ## Быстрый выбор таблицы под запрос
 
+### Служебные очереди личных фотоисторий
+
+В существующую `ai_workers` добавлено `task_types_json TEXT NOT NULL DEFAULT '[]'`: пустой список — обычный worker (без фотоисторий); `["photo_story","photo_story_merge"]` — выделенный внешний обработчик фото. Старые регистрации и heartbeat совместимы; миграция повторяема. Долгие вызовы vision не удерживают разговорный worker. Поле task_types списка опционально в `/api/ai/workers/heartbeat`.
+
+`ai_photo_story_batches`: `id INTEGER PRIMARY KEY`; `chat_id`, `user_id`, `first_message_id` INTEGER NOT NULL; `group_key TEXT NOT NULL` (media_group_id либо single:message_id); `touched_at REAL NOT NULL` (Unix секунды последнего кадра); `status TEXT NOT NULL DEFAULT 'collecting'` (collecting, queued, done, failed, cancelled); `vision_task_id`, `merge_task_id`, `notice_message_id` INTEGER nullable (связи с ai_tasks и Telegram); `created_at TEXT NOT NULL` UTC ISO. Индекс `(status,touched_at)`. До трёх незавершённых подборок на пользователя; запущенная задача не изменяется новыми кадрами.
+
+`ai_photo_story_inputs`: `chat_id`, `message_id`, `batch_id` INTEGER NOT NULL; `file_id TEXT NOT NULL` (ID Telegram, не байты); `caption TEXT NOT NULL DEFAULT ''`. PRIMARY KEY `(chat_id,message_id)`; индекс `(batch_id,message_id)`. Связь batch_id → ai_photo_story_batches.id контролируется приложением, каскадных удалений нет. Таблицы создаются повторяемо. Изображения обрабатываются в памяти и не хранятся на диске. ai_tasks типов photo_story/photo_story_merge сохраняют анализ, batch_id и финальную историю. Это служебные данные, не источник игровой статистики.
+
 - "Кто больше всех писал/флудил/матерился/ставил реакции/получал реакции/кусал за период" - `daily_stats` + `users`.
 - "За всё время" по тем же метрикам - `total_stats` + `users`.
 - "Топ сообщений по реакциям" - `messages_reactions` + `users`, сортировать по `reactions_count`.
@@ -976,14 +1024,32 @@ Key: `id`; unique message attachment slot: `(chat_id, message_id, attachment_ind
 - "Сосаться/шпехаться" - `sosalsa_stats` + два JOIN к `users`.
 - "Укусы и части тела" - счетчики в `daily_stats`/`total_stats`, состояния в `user_body_parts` + `body_parts`.
 
+## Генерация изображений (служебные таблицы)
+
+- `ai_imagegen_batches`: id INTEGER PRIMARY KEY; chat_id, user_id INTEGER NOT NULL; group_key TEXT NOT NULL; first_message_id INTEGER NOT NULL (минимальный Telegram message_id); private INTEGER NOT NULL (0/1); addressed INTEGER NOT NULL DEFAULT 0; touched_at и created_at REAL NOT NULL (Unix-секунды); status TEXT NOT NULL DEFAULT collecting: collecting/confirm/ready/typed/done/cancelled. UNIQUE(chat_id,group_key), индекс idx_imagegen_batches(status,touched_at). confirm — ожидание автора, ready — подтверждены первые 4, typed — передано типизатору.
+- `ai_imagegen_inputs`: chat_id, message_id INTEGER NOT NULL, составной PRIMARY KEY; batch_id INTEGER NOT NULL (логическая связь batches.id без FK); file_id TEXT NOT NULL (Telegram); caption TEXT NOT NULL. Индекс idx_imagegen_inputs(batch_id,message_id). Порядок — message_id.
+- `ai_imagegen_jobs`: task_id INTEGER PRIMARY KEY (логическая связь ai_tasks.id без FK), state TEXT NOT NULL DEFAULT preparing: preparing/generating/result_ready/delivering/done/failed; prepared_prompt TEXT NULL, image BLOB NULL (временный результат), width/height INTEGER NULL (пиксели); updated_at REAL NOT NULL (Unix-секунды); notice_sent INTEGER NOT NULL DEFAULT 0. Результат удаляется после доставки/ошибки; неизвестный исход generating/delivering не повторяется после рестарта.
+- `ai_imagegen_usage`: id INTEGER PRIMARY KEY; day TEXT NOT NULL (дата UTC YYYY-MM-DD, сброс 05:00 Екатеринбурга); task_id INTEGER NOT NULL; amount REAL NOT NULL (Neurons, резерв или фактический расход); state TEXT NOT NULL: reserved/reported/unknown; created_at REAL NOT NULL (Unix-секунды), http_status INTEGER NULL. Индекс idx_imagegen_usage_day(day). Сумма включает неизвестный расход и резервы.
+- `ai_imagegen_days`: day TEXT PRIMARY KEY; blocked INTEGER NOT NULL DEFAULT 0 — подтверждённое исчерпание внешней суточной квоты Cloudflare; не блокирует HF. Новая дата не наследует блокировку.
+- `ai_tasks.task_type` дополнен imagegen. Существующие prompt/payload_json хранят исходный запрос и упорядоченные ссылки на фото; provider huggingface (Qwen-Image-2.1) или cloudflare (FLUX.2 Klein 4B), model — фактический генератор; response_message_id — доставленная фотография. Журнал ai_attempt_log.usage_json для Cloudflare содержит neurons/accounting/http_status, для HF — quota_before/quota_after и gpu_seconds_account_delta (разница общего расхода аккаунта внутри одного окна; параллельные вызовы других клиентов тоже могут влиять). HF-квота внешняя, не записывается в ai_imagegen_usage/days; новые таблицы не требуются. ai_model_calls — безопасный промпт/размеры/порядок без байтов фото и секретов. Новые таблицы исключены из пользовательского SQL. Создание повторяемо, старые данные не меняются.
+
+`ai_imagegen_batches.notice_message_id INTEGER NULL` — Telegram ID сообщения с кнопками, позволяет продолжить выдачу подтверждения после временного отказа. Колонка добавляется повторяемой миграцией; отсутствие значения означает, что подтверждение ещё не было успешно отправлено.
+
+`cepen_ai_avatars`: chat_id, user_id составной ключ; level и skin — текущий ключ кеша; path — путь локального серверного файла; enabled — 0/1; generated_at — UTC-время последнего результата. `cepen_ai_avatar_usage`: chat_id, user_id, day (местная дата Asia/Yekaterinburg) составной ключ и count — число принятых платных перегенераций за день (не автоматических). Платные перегенерации списывают 5 сит через общий ledger и используют только Cloudflare FLUX; таблицы не видны пользовательскому SQL.
+
+## Истории фотоальбомов дейликов
+`daily_photos.captured_at REAL NULL` — Unix-секунды съёмки EXIF. NULL означает отсутствие надёжного тега; порядок отправки используется как запасной, не как время съёмки. Сохраняется до конвертации; миграция повторяема.
+`daily_photo_story_state(key TEXT PRIMARY KEY,value REAL NOT NULL)` — activated_at (Unix-секунды первого включения), сохраняется между перезапусками.
+`daily_photo_stories`: daily_id INTEGER PRIMARY KEY (daily_events), chat_id INTEGER NOT NULL, due_at REAL NOT NULL (Unix-срок +24ч), status TEXT NOT NULL DEFAULT waiting_photos (waiting_photos/queued/done/failed/cancelled), notify_chat INTEGER DEFAULT 0; batch_id INTEGER (ai_photo_story_batches), photos_json TEXT DEFAULT [], analyses_json TEXT DEFAULT [], next_offset INTEGER DEFAULT 0; story_text TEXT nullable, response_message_id INTEGER nullable; created_at TEXT NOT NULL, finished_at TEXT nullable (UTC ISO), delivery_state TEXT DEFAULT silent (silent/pending/sending/sent/unknown). Индекс status/due_at. JSON хранит снимок ID, порядка и анализа, не изображения. Ссылки проверяются приложением; служебные таблицы запрещены пользовательскому SQL. Одна история на встречу, новые фото её не меняют. Итог сохраняется до Telegram, unknown не пересылается автоматически.
+
 ## Инкрементальные счётчики RAG
 
 ai_rag_counters: scope TEXT NOT NULL (all — все сообщения, initial — начальный снимок, chunks — фрагменты), chat_id INTEGER NOT NULL (0 для chunks), reason TEXT NOT NULL (причина исключения или состояние фрагмента), eligible INTEGER NOT NULL, indexed INTEGER NOT NULL, n INTEGER NOT NULL CHECK(n>=0) — количество записей. PRIMARY KEY(scope,chat_id,reason,eligible,indexed). Триггеры rag_count_messages_insert/delete/update на ai_rag_message_status и rag_count_chunks_insert/delete/update на ai_rag_chunks поддерживают гистограмму в общей транзакции. Повтор миграции не пересчитывает счётчики; counters_v1 в ai_rag_state отмечает миграцию, stats_rebuilt_at — UTC сверки. Нулевые корзины не отображаются. Полная сверка раз в неделю ночью.
 
 Индекс idx_rag_events_message на ai_rag_events(chat_id,message_id,id) ускоряет проверку событий за границей снимка. Ключи ai_rag_state: night_open (0/1), night_event_cutoff (максимальный id событий снимка), night_finished_day (местная дата завершения). Незавершённая граница сохраняется между ночами.
 
-
 Индексы очередей ai_tasks, ai_type_checks, ai_search_plans: idx_<table>_ready(status,retry_at,created_at) и idx_<table>_lease(status,lease_until). Проверка наличия готовой задачи читает SELECT 1 LIMIT 1; уведомления не являются источником состояния.
 
 Очереди ai_tasks/ai_type_checks/ai_search_plans: minute_retry INTEGER NOT NULL DEFAULT 0 — использованные повторы после минутного лимита; refusal_kind TEXT NULL — daily/minute/transport/permanent. transport_attempt сохраняет число отказов и переключений источника, retry_at — UTC ближайшей попытки. ai_provider_state.reason сохраняет структурированную причину ограничения модели.
 
+Индекс idx_rag_events_day на ai_rag_events(chat_id,day,id) ускоряет исключение дней с отложенными событиями. payload_json профильных задач содержит background (автоматические true, ручные false), саммери — background=not command_requested. Автоматические профили имеют priority=0, исторические фотоистории -1, текущие фотоистории 50; ручные профили и саммери RESPONSE_PRIORITY=200.

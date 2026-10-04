@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import db
+from schema_once import once as schema_once
 
 ROOT = Path(__file__).resolve().parent
 MEDIA_ROOT = ROOT / 'daily_photo_media'
@@ -28,6 +29,7 @@ def connection():
         conn.close()
 
 
+@schema_once(lambda: db.DB_FILE)
 def ensure_schema():
     MEDIA_ROOT.mkdir(exist_ok=True)
     with connection() as c:
@@ -68,6 +70,8 @@ def ensure_schema():
             WHERE daily_id=OLD.id AND chat_id=OLD.chat_id;
         END;
         ''')
+        columns={r[1] for r in c.execute('PRAGMA table_info(daily_photos)')}
+        if 'captured_at' not in columns:c.execute('ALTER TABLE daily_photos ADD COLUMN captured_at REAL')
 
 
 def configure_topic(chat_id, thread_id, user_id):

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import os
 import sys
 import unittest
@@ -19,12 +18,21 @@ def check_syntax() -> bool:
     failures = 0
     for path in files:
         try:
-            ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+            compile(path.read_text(encoding="utf-8-sig"), str(path), "exec")
         except (SyntaxError, UnicodeError) as exc:
             print(f"Syntax error: {path.relative_to(ROOT)}: {exc}", file=sys.stderr)
             failures += 1
     print(f"Syntax: {len(files) - failures}/{len(files)} files passed", flush=True)
     return failures == 0
+
+
+def check_mechanics() -> bool:
+    sys.path.insert(0,str(ROOT))
+    from mechanics_docs import validate
+    errors=validate()
+    for error in errors:print(error,file=sys.stderr)
+    print('Mechanics handbook: '+('FAILED' if errors else 'passed'),flush=True)
+    return not errors
 
 
 def check_tests(pattern: str = "test_*.py") -> bool:
@@ -50,7 +58,7 @@ def main() -> int:
         return 0 if check_syntax() else 1
     if args.tests:
         return 0 if check_tests(args.pattern) else 1
-    syntax_ok = check_syntax()
+    syntax_ok = check_syntax() and check_mechanics()
     tests_ok = check_tests(args.pattern) if syntax_ok else False
     return 0 if syntax_ok and tests_ok else 1
 

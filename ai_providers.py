@@ -5,7 +5,12 @@ import json
 import os
 import re
 import requests
+import ai_http
 import ai_audit
+import hashlib
+import threading
+from functools import lru_cache
+from collections import OrderedDict
 
 
 class ProviderUnavailable(Exception):
@@ -20,12 +25,37 @@ class PromptTooLarge(ValueError):
     pass
 
 
+@lru_cache(maxsize=1)
 def tokenizer():
     import tiktoken
     return tiktoken.get_encoding("o200k_harmony")
 
 
-def prepare_prompt(task, limit=6000):
+_prompt_cache=OrderedDict()
+_prompt_lock=threading.Lock()
+
+
+def prepare_prompt(task,limit=6000):
+    from schema_once import database_identity
+    from ai_tasks import DB_FILE
+    key=(database_identity(DB_FILE),hashlib.sha256((task['prompt']+str(task.get('task_type'))+str(task.get('model'))+str(task.get('system_instruction'))).encode()).hexdigest(),limit,'cpu-v1')
+    if task.get('task_type')=='data_analysis_response':return _prepare_prompt(task,limit)
+    with _prompt_lock:
+        if key in _prompt_cache:
+            _prompt_cache.move_to_end(key);return _prompt_cache[key]
+    result=_prepare_prompt(task,limit)
+    with _prompt_lock:
+        _prompt_cache[key]=result
+        while len(_prompt_cache)>128:_prompt_cache.popitem(last=False)
+    return result
+
+
+@lru_cache(maxsize=128)
+def token_count(text):
+    return len(tokenizer().encode(text,disallowed_special=()))
+
+
+def _prepare_prompt(task, limit=6000):
     enc = tokenizer()
     prompt = task["prompt"]
     from mechanics import strip_last
@@ -166,7 +196,7 @@ def call_groq(task, timeout, model=None):
     if not key:raise ProviderUnavailable('External API: Groq key unavailable',provider_cooldown=False)
     prompt=prepare_prompt(task)
     system=task.get('system_instruction') or ''
-    count=len(tokenizer().encode(prompt+system,disallowed_special=()))+64
+    count=token_count(prompt+system)+64
     messages=([{'role':'system','content':system}] if system else [])+[{'role':'user','content':prompt}]
     completion_limit=1536
     reservation=reserve(model,count,completion_limit)
@@ -202,7 +232,7 @@ def call_groq(task, timeout, model=None):
 def google_request(model, method, payload, key, timeout, tool=None):
     from ai_runtime import cool_model
     try:
-        post = requests.post if method == 'countTokens' else lambda url, **kw: ai_audit.post(url, provider='google', model=model, **kw)
+        post = ai_http.post if method == 'countTokens' else lambda url, **kw: ai_audit.post(url, provider='google', model=model, **kw)
         r=post('https://generativelanguage.googleapis.com/v1beta/models/'+model+':'+method,
                         headers={'x-goog-api-key':key},json=payload,timeout=(5,timeout))
     except requests.RequestException:

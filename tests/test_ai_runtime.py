@@ -3,6 +3,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +13,19 @@ import ai_runtime as rt
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_background_profile_waits_for_night_and_rag(self):
+        self.task(kind='profile_update')
+        with self.connection() as conn:conn.execute("UPDATE ai_tasks SET payload_json=?",(json.dumps({'background':True}),))
+        with patch.object(rt,'now',return_value=datetime(2026,10,5,2,0)):
+            rt.heartbeat('pc','local',list(rt.TABLES))
+            self.assertIsNone(rt.claim('tasks','pc'))
+        with patch.object(rt,'now',return_value=datetime(2026,10,4,23,0)):
+            rt.heartbeat('pc','local',list(rt.TABLES))
+            with self.connection() as conn:conn.execute("INSERT OR REPLACE INTO ai_rag_state VALUES('night_open','1')")
+            self.assertIsNone(rt.claim('tasks','pc'))
+            with self.connection() as conn:conn.execute("UPDATE ai_rag_state SET value='0' WHERE key='night_open'")
+            self.assertIsNotNone(rt.claim('tasks','pc'))
+
     def test_three_direct_requests_are_independent(self):
         for mid in (101,102,103):
             self.assertIsNotNone(ai_tasks.create_type_check_task(chat_id=-42,user_id=1,request_message_id=mid,message_text='Бот, привет',trigger_reason='mention'))
@@ -334,7 +348,7 @@ class RuntimeTests(unittest.TestCase):
         limited=Mock(ok=False,status_code=429,headers={'retry-after':'60'})
         counted=Mock(ok=True);counted.json.return_value={'totalTokens':10}
         success=Mock(ok=True);success.json.return_value={'candidates':[{'content':{'parts':[{'text':'answer'}]},'finishReason':'STOP'}]}
-        with patch.dict(os.environ,{'GROQ_API_KEY':'fake-key','GEMINI_API_KEY':'fake-key'}),patch('ai_providers.requests.post',side_effect=[limited,counted,success]) as post:
+        with patch.dict(os.environ,{'GROQ_API_KEY':'fake-key','GEMINI_API_KEY':'fake-key'}),patch('ai_http.post',side_effect=[limited,counted,success]) as post:
             output,meta=call_external({'prompt':'Synthetic','task_type':'text_to_sql'},45)
         self.assertEqual(output,'answer');self.assertEqual(meta['model'],rt.MODEL_GOOGLE_PRIMARY)
         self.assertFalse(rt.model_ready(rt.MODEL_HEAVY));self.assertEqual(post.call_count,3)
@@ -354,7 +368,7 @@ class RuntimeTests(unittest.TestCase):
         success=Mock(ok=True);success.json.return_value={
             'candidates':[{'finishReason':'STOP','content':{'parts':[{'thought':True,'text':'private reasoning'},{'text':'final answer'}]}}],
             'usageMetadata':{'promptTokenCount':12,'candidatesTokenCount':5,'thoughtsTokenCount':7}}
-        with patch.dict(os.environ,{'GEMINI_API_KEY':'fake'}),patch('ai_providers.requests.post',side_effect=[counted,success]):
+        with patch.dict(os.environ,{'GEMINI_API_KEY':'fake'}),patch('ai_http.post',side_effect=[counted,success]):
             output,meta=call_google({'prompt':'Synthetic','task_type':'response'},45,rt.MODEL_GOOGLE_LAST)
         self.assertEqual(output,'final answer');self.assertEqual(meta['usage']['completion_tokens'],12)
         self.assertIsNotNone(rt.reserve(rt.MODEL_GOOGLE_LAST,15900,100000))
@@ -393,7 +407,7 @@ class RuntimeTests(unittest.TestCase):
         from unittest.mock import Mock
         counted=Mock(ok=True);counted.json.return_value={'totalTokens':10}
         incomplete=Mock(ok=True);incomplete.json.return_value={'candidates':[{'finishReason':'MAX_TOKENS','content':{'parts':[{'text':'partial'}]}}]}
-        with patch.dict(os.environ,{'GEMINI_API_KEY':'fake'}),patch('ai_providers.requests.post',side_effect=[counted,incomplete]):
+        with patch.dict(os.environ,{'GEMINI_API_KEY':'fake'}),patch('ai_http.post',side_effect=[counted,incomplete]):
             with self.assertRaises(ProviderUnavailable):call_google({'prompt':'Synthetic','task_type':'response'},45,rt.MODEL_GOOGLE_PRIMARY)
         self.assertFalse(rt.model_ready(rt.MODEL_GOOGLE_PRIMARY))
 
@@ -402,7 +416,7 @@ class RuntimeTests(unittest.TestCase):
         from unittest.mock import Mock
         limited=Mock(ok=False,status_code=429,headers={})
         limited.json.return_value={'error':{'message':'fake-key secret prompt','details':[{'retryDelay':'61.2s'}]}}
-        with patch.dict(os.environ,{'GEMINI_API_KEY':'fake-key'}),patch('ai_providers.requests.post',return_value=limited):
+        with patch.dict(os.environ,{'GEMINI_API_KEY':'fake-key'}),patch('ai_http.post',return_value=limited):
             with self.assertRaises(ProviderUnavailable) as result:call_google({'prompt':'Synthetic','task_type':'response'},45,rt.MODEL_GOOGLE_PRIMARY)
         self.assertEqual(result.exception.retry_after,62)
         self.assertNotIn('fake-key',str(result.exception));self.assertFalse(rt.model_ready(rt.MODEL_GOOGLE_PRIMARY))
@@ -552,7 +566,9 @@ class RuntimeTests(unittest.TestCase):
         self.task(kind='chat_summary');task=rt.claim('tasks','pc')
         with self.api() as (client,server,send):
             self.assertEqual(self.post_result(client,task,'Обсуждали синтетические данные.').json()['status'],'done')
-            self.task(kind='profile_update');task=rt.claim('tasks','pc')
+            self.task(kind='profile_update')
+            with self.connection() as conn:conn.execute("UPDATE ai_tasks SET payload_json=? WHERE task_type='profile_update'",(json.dumps({'background':False}),))
+            task=rt.claim('tasks','pc')
             profile={key:[] for key in ai_tasks.PROFILE_ARRAY_LIMITS}
             profile.update(display_name='Synthetic',communication_style='Краткий',confidence='low',short_summary='Мало данных.')
             result=self.post_result(client,task,json.dumps(profile,ensure_ascii=False))

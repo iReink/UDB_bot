@@ -1,0 +1,19 @@
+[Unit]
+Description=UDB historical chat memory
+After=network-online.target udb-web.service
+Wants=network-online.target
+
+[Service]
+User=root
+Nice=15
+IOSchedulingClass=idle
+WorkingDirectory=/root/UDB_bot
+EnvironmentFile=/root/UDB_bot/.env.rag
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/UDB_bot/venv/bin/python /root/UDB_bot/rag_service.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=35
+
+[Install]
+WantedBy=multi-user.target

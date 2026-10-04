@@ -113,6 +113,10 @@ dp.update.outer_middleware(SlowUpdateLoggingMiddleware())
 dp.message.outer_middleware(CepenMessageMiddleware())
 import photo_bot
 import photo_albums
+import photo_story_bot
+import imagegen_bot
+imagegen_bot.register(dp)
+photo_story_bot.register(dp)
 photo_bot.register(dp)
 
 
@@ -153,6 +157,7 @@ from daily import register_daily_handlers, daily_reminder_loop
 register_daily_handlers(dp)
 
 from settings import get_ai_response_chance_percent, register_settings_handlers, ADMIN_IDS
+from ai_runtime import enabled as ai_enabled
 register_settings_handlers(dp)
 
 import mujlo
@@ -167,6 +172,8 @@ dick.register_dick_handlers(dp)
 
 import dashboard
 import chat_summary
+import summary_bot
+summary_bot.register_handlers(dp)
 import bank_bot
 dashboard.register_dashboard_handlers(dp)
 bank_bot.register_handlers(dp)
@@ -182,7 +189,6 @@ from ai_tasks import (
     create_text_to_sql_task,
     create_type_check_task,
     get_response_cooldown_left,
-    get_text_to_sql_cooldown,
     has_pending_type_check,
     has_pending_response_task,
 )
@@ -644,6 +650,9 @@ async def web_info_command(message: types.Message):
 
 @dp.message(Command("db"))
 async def db_text_to_sql_command(message: types.Message, command: CommandObject):
+    if not ai_enabled(message.chat.id):
+        await message.reply("ИИ в этом чате отключён. Источник можно выбрать в /settings.")
+        return
     if not message.from_user:
         await message.reply("Не удалось определить пользователя.")
         return
@@ -654,14 +663,6 @@ async def db_text_to_sql_command(message: types.Message, command: CommandObject)
         return
 
     chat_id = int(message.chat.id)
-    cooldown_left = get_text_to_sql_cooldown(chat_id)
-    if cooldown_left > 0:
-        minutes = cooldown_left // 60
-        seconds = cooldown_left % 60
-        wait_text = f"{minutes} мин {seconds} сек" if minutes else f"{seconds} сек"
-        await message.reply(f"Запрос к базе можно отправлять раз в 2 минуты. Попробуй ещё через {wait_text}.")
-        return
-
     add_or_update_user(
         user_id=message.from_user.id,
         chat_id=chat_id,
@@ -719,7 +720,7 @@ async def profile_update_command(message: types.Message):
 async def profile_update_scheduler_task() -> None:
     while True:
         now = datetime.now()
-        next_run = now.replace(hour=1, minute=0, second=0, microsecond=0)
+        next_run = now.replace(hour=4, minute=0, second=0, microsecond=0)
         if next_run <= now:
             next_run += timedelta(days=1)
         await asyncio.sleep(max(1, (next_run - now).total_seconds()))
@@ -1816,7 +1817,7 @@ def _is_explicit_bot_prefix(text: str) -> bool:
 
 
 def _get_ai_response_trigger(message: types.Message) -> str | None:
-    text = message.text or ""
+    text = message.text or message.caption or ""
     lowered = text.lower()
     username = BOT_USERNAME_RUNTIME.lower().lstrip("@")
     if _is_reply_to_this_bot(message):
@@ -1829,33 +1830,31 @@ def _get_ai_response_trigger(message: types.Message) -> str | None:
 
 
 async def maybe_create_ai_response_task(message: types.Message) -> None:
-    if not message.text or not message.from_user:
+    if not ai_enabled(message.chat.id):
+        return
+    text = message.text or message.caption or ''
+    if not text or not message.from_user:
         return
     if message.from_user.is_bot:
         return
+    if getattr(message,'photo',None):
+        return  # Album captions are typed once after ImageIntake finishes collecting.
     if message.chat.id >= 0:
-        return
-    if message.text.startswith("/"):
-        return
-    if has_pending_response_task(int(message.chat.id)):
-        return
-    if has_pending_type_check(chat_id=int(message.chat.id)):
-        return
-
-    trigger_reason = _get_ai_response_trigger(message)
-    if trigger_reason:
-        cooldown = get_response_cooldown_left(
-            int(message.chat.id),
-            cooldown_seconds=RESPONSE_DIRECT_COOLDOWN_SECONDS,
-        )
-        if cooldown > 0:
+        from imagegen import creative
+        if not creative(text):
             return
+    if text.startswith("/"):
+        return
+    trigger_reason = _get_ai_response_trigger(message)
+    if message.chat.id >= 0:
+        trigger_reason = 'private_imagegen'
+    if trigger_reason:
         task_id = await asyncio.to_thread(
             create_type_check_task,
             chat_id=int(message.chat.id),
             user_id=int(message.from_user.id),
             request_message_id=int(message.message_id),
-            message_text=message.text,
+            message_text=text,
             trigger_reason=trigger_reason,
         )
         if task_id:
@@ -1866,8 +1865,15 @@ async def maybe_create_ai_response_task(message: types.Message) -> None:
                 message.message_id,
                 trigger_reason,
             )
+        else:
+            from ai_tasks import get_connection as ai_connection,direct_request_count
+            def is_busy():
+                with ai_connection() as conn:return direct_request_count(conn,int(message.chat.id),int(message.from_user.id))>=3
+            if await asyncio.to_thread(is_busy):await message.reply('У тебя уже три запроса в работе в этом чате. Дождись ответа на один из них.')
         return
     else:
+        if has_pending_response_task(int(message.chat.id)) or has_pending_type_check(chat_id=int(message.chat.id)):
+            return
         chance = get_ai_response_chance_percent(int(message.chat.id))
         if chance <= 0:
             return
@@ -2005,7 +2011,7 @@ async def handle_message(message: types.Message):
                 message.message_id,
             )
 
-    if message.text:
+    if message.text or message.caption:
         await maybe_create_ai_response_task(message)
 
     await handle_mujlo_message(message)
@@ -2687,6 +2693,8 @@ async def main():
     await asyncio.to_thread(ensure_web_chat_media_schema)
     await asyncio.to_thread(photo_albums.ensure_schema)
     asyncio.create_task(photo_bot.worker(bot))
+    asyncio.create_task(photo_story_bot.worker(bot))
+    asyncio.create_task(imagegen_bot.worker(bot))
 
     await group.initialize_group_runtime(bot, reset_state=True)
     # Запускаем фоновые задачи

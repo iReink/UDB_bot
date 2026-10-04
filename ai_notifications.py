@@ -95,7 +95,10 @@ class Coordinator:
     async def _fallback(self):
         import ai_runtime
         while True:
-            for queue in await asyncio.to_thread(ai_runtime.ready_queues):await self.wake(queue)
+            try:
+                for queue in await asyncio.to_thread(ai_runtime.ready_queues):await self.wake(queue)
+            except sqlite3.OperationalError:
+                pass
             await asyncio.sleep(1)
 
     async def close(self):

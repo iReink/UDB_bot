@@ -7,6 +7,7 @@ from datetime import date, timedelta, datetime
 import os
 from pathlib import Path
 from sits import to_sits
+from schema_once import once as schema_once
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "stats.db")
@@ -24,6 +25,7 @@ def get_connection():
     return conn
 
 
+@schema_once(lambda: DB_FILE)
 def ensure_web_chat_media_schema() -> None:
     os.makedirs(WEB_CHAT_MEDIA_DIR, exist_ok=True)
     with closing(get_connection()) as conn:
@@ -183,6 +185,8 @@ def initialize_db():
                 PRIMARY KEY (message_date, chat_id, user_id)
             )
         """)
+        from cepen_messages import ensure_schema as ensure_cepen_letters
+        ensure_cepen_letters(conn)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS cepen_scratches (
                 callback_query_id TEXT PRIMARY KEY,

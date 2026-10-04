@@ -87,6 +87,7 @@ def ensure_schema(conn):
            chunk_id TEXT,PRIMARY KEY(chat_id,day,generation,chunk_id))''',
         '''CREATE TABLE IF NOT EXISTS ai_rag_events(id INTEGER PRIMARY KEY,chat_id INTEGER,message_id INTEGER,
            day TEXT,kind TEXT NOT NULL)''',
+        'CREATE INDEX IF NOT EXISTS idx_rag_events_day ON ai_rag_events(chat_id,day,id)',
         'CREATE INDEX IF NOT EXISTS idx_rag_events_message ON ai_rag_events(chat_id,message_id,id)',
     ]
     for sql in statements:

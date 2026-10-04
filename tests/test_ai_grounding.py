@@ -97,7 +97,7 @@ class GroundingTests(unittest.TestCase):
     def test_google_payload_and_unicode_citation(self):
         task=self.claim();text='Музей';candidate={'finishReason':'STOP','content':{'parts':[{'text':text}]},'groundingMetadata':{'groundingChunks':[{'maps':{'uri':'https://maps.google.com/maps?cid=123','title':'Museum'}}],'groundingSupports':[{'segment':{'endIndex':len(text.encode()),'text':text},'groundingChunkIndices':[0]}]}}
         response=Mock(ok=True,status_code=200);response.json.side_effect=[{'totalTokens':20},{'candidates':[candidate],'usageMetadata':{'promptTokenCount':20}},{'candidates':[candidate],'usageMetadata':{'promptTokenCount':20}}]
-        with patch('requests.post',return_value=response) as post:
+        with patch('ai_http.post',return_value=response) as post:
             output,meta=call_google(task,30,g.MAPS_MODELS[0],tool='maps')
         self.assertEqual(json.loads(output)['text'],'Музей [1]')
         self.assertEqual(post.call_args.kwargs['json']['tools'],[{'googleMaps':{}}])
@@ -106,7 +106,7 @@ class GroundingTests(unittest.TestCase):
     def test_missing_sources_never_becomes_grounded_answer(self):
         task=self.claim();response=Mock(ok=True,status_code=200)
         response.json.side_effect=[{'totalTokens':20},{'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':'Unverified address'}]}}]},{'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':'Unverified address'}]}}]}]
-        with patch('requests.post',return_value=response):
+        with patch('ai_http.post',return_value=response):
             with self.assertRaises(ProviderUnavailable):call_google(task,30,g.MAPS_MODELS[0],tool='maps')
 
     def test_gemma_search_uses_supported_thinking_level_and_requires_sources(self):
@@ -114,7 +114,7 @@ class GroundingTests(unittest.TestCase):
         candidate={'finishReason':'STOP','content':{'parts':[{'text':'Новость'}]},'groundingMetadata':{'groundingChunks':[{'web':{'uri':'https://example.com/news','title':'News'}}]}}
         response=Mock(ok=True,status_code=200)
         response.json.side_effect=[{'totalTokens':20},{'candidates':[candidate],'usageMetadata':{'promptTokenCount':20}},{'candidates':[candidate],'usageMetadata':{'promptTokenCount':20}}]
-        with patch('requests.post',return_value=response) as post:
+        with patch('ai_http.post',return_value=response) as post:
             output,meta=call_google(task,30,'gemma-4-31b-it',tool='search')
         self.assertEqual(json.loads(output)['status'],'grounded')
         self.assertEqual(post.call_args.kwargs['json']['generationConfig']['thinkingConfig'],{'thinkingLevel':'minimal'})
@@ -141,7 +141,7 @@ class GroundingTests(unittest.TestCase):
         self.assertIsNone(rt.claim('tasks','pc'));self.assertEqual(rt.claim('tasks','api')['task_type'],'maps_grounding')
         rt.set_mode(-42,'local')
         from ai_providers import call_local
-        with patch('requests.post') as post:
+        with patch('ai_http.post') as post:
             output,_=call_local({'task_type':'maps_grounding'},30)
             self.assertEqual(json.loads(output)['status'],'fallback');post.assert_not_called()
 
