@@ -62,7 +62,7 @@ class Worker:
             self.task = task
         data = {'worker_id': self.worker_id, 'lease_token': task['lease_token']}
         kind = task['task_type']
-        timeout = 15 if kind == 'type_check' else 300 if kind in ('profile_update', 'chat_summary') else 120 if kind in ('photo_story','photo_story_merge') else 45
+        timeout = (15 if self.provider == 'local' else 45) if kind == 'type_check' else 300 if kind in ('profile_update', 'chat_summary') else 120 if kind in ('photo_story','photo_story_merge') else 45
         ai_audit.begin()
         try:
             output, metadata = (call_local if self.provider == 'local' else call_external)(task, timeout)

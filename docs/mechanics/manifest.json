@@ -14,7 +14,7 @@
         "поиск"
       ],
       "path": "docs/mechanics/ai.md",
-      "hash": "bbf07ba32cab95fa895e21a9d0bf719913dea36558370c6391d8ca9a7685bf44",
+      "hash": "58bc8c3d280e8c59479636c6d164b53c7ce3bf4598324b85bde582b87d62279c",
       "dependencies": {
         "ai_tasks.py": "201f58be3b3bed131fc50e9675d69e9157bc83410700bbb380674ced11ce5344",
         "ai_runtime.py": "ee7e0725feb06fd6c92c3054ca84f1d478564c196c6ba89c1890d432c96cc912",
@@ -40,7 +40,7 @@
         "photo_story.py": "42e845f30fbb99056ec832cb4b3dc3b577f3b76c0a8ae7c18997686309ac35cd",
         "photo_story_bot.py": "4a2a58862c37ba90afc846e31ba76eb3efc3397f3a0ed62a71fe4376ecd9753f",
         "ai_api_worker.py": "59da18fed156faf82fecd42bccb7442c018e2968ca30f65e3f6603d34b785501",
-        "ai_worker_client.py": "e619382eaa4689cf14d1e28654ea448adab77f573ee1f593c2a8e036a58e0075",
+        "ai_worker_client.py": "9dbb7715cdc671f4c50ec261c601b3cd956708ff122f886542985b9091a17e52",
         "ai_audit.py": "44b38a7d35c1188b045d3efa045bf433aa98c1fbcb46f53155dc938ed4c04e14",
         "main.py": "3c2393e3a6c3467900a6e4f9789a40f788bb73171f85a3917174b40866c568ab",
         "web/server.py": "d3fc1f8b39e7686d9248a99d99a8a9deb1fb0e95b3523ca3d6db9e2678079269",
@@ -241,7 +241,7 @@
       "dependencies": {
         "web/server.py": "d3fc1f8b39e7686d9248a99d99a8a9deb1fb0e95b3523ca3d6db9e2678079269",
         "db.py": "1de2f0336e7cce29f8cf733490c585e6226a36820cde66659346e23ee346b2c3",
-        "ai_worker_client.py": "e619382eaa4689cf14d1e28654ea448adab77f573ee1f593c2a8e036a58e0075",
+        "ai_worker_client.py": "9dbb7715cdc671f4c50ec261c601b3cd956708ff122f886542985b9091a17e52",
         "ai_worker.py": "f1a194a60ab08311b2e598cfe90c6f27b21b89df137463e3e024b66eaffd877d",
         "ai_classifier_worker.py": "d985201103edf0df9d7907defa1a79cb428c9deb5a68e46f5ecd1b356497257d",
         "ai_api_worker.py": "59da18fed156faf82fecd42bccb7442c018e2968ca30f65e3f6603d34b785501",

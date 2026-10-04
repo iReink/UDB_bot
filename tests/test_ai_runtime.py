@@ -13,6 +13,15 @@ import ai_runtime as rt
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_external_classification_allows_slower_provider_response(self):
+        from ai_worker_client import Worker
+        task={'id':1,'queue':'type-checks','task_type':'type_check','lease_token':'test-token'}
+        for provider,seconds,call in (('groq',45,'call_external'),('local',15,'call_local')):
+            worker=Worker(provider,['type-checks'])
+            with patch('ai_worker_client.'+call,return_value=('chat',{})) as generate,patch.object(worker,'request',return_value={'status':'completed'}):
+                worker.process(task)
+                generate.assert_called_once_with(task,seconds)
+
     def test_unavailable_classification_and_search_without_payload(self):
         rt.set_mode(-42,'api')
         for queue in ('type-checks','search-plans'):
