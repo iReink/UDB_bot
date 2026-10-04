@@ -292,7 +292,7 @@ def defer(queue, task_id, worker_id, token, reason, retry_seconds=None, provider
         allowed = providers(mode(row["chat_id"], conn))
         if queue=='tasks' and row['task_type'] in ('photo_story','photo_story_merge'):
             allowed=('groq',) if mode(row['chat_id'],conn)!='off' else ()
-        payload=json.loads(row['payload_json'] or '{}')
+        payload=json.loads(dict(row).get('payload_json') or '{}')
         background=queue=='tasks' and (row['task_type']=='chat_summary' and payload.get('background',True) or row['task_type']=='profile_update' and payload.get('background',True) or row['task_type'] in ('photo_story','photo_story_merge') and payload.get('daily_id') and not payload.get('notify_chat'))
         exhausted=refusal_kind=='permanent' or not background and (refusal_kind=='daily' or refusal_kind=='minute' and row['minute_retry']>=1 or refusal_kind=='transport' and row['transport_attempt']>=2)
         alternative = next((p for p in allowed if p != row["provider"]), None)

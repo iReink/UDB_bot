@@ -4139,10 +4139,12 @@ def _guard_ai_result(queue):
             request, data = kwargs["request"], kwargs["data"]
             _require_ai_worker(request)
             terminal_failure=False
+            accepted_here=False
             try:
                 previous = ai_runtime.accept_result(queue, actual_id, data.worker_id, data.lease_token)
                 if previous is not None:
                     return JSONResponse(previous)
+                accepted_here=True
                 if data.error_kind == "unavailable" or (data.error_kind == "too_large" and ai_runtime.mode(_get_ai_chat(queue, actual_id)) in ("api_local", "local_api")):
                     deferred=ai_runtime.defer(queue, actual_id, data.worker_id, data.lease_token, data.error,
                                      retry_seconds=data.metadata.get('retry_after'),
@@ -4156,6 +4158,12 @@ def _guard_ai_result(queue):
                     terminal_failure=True
             except ValueError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except Exception:
+                # No delivery/handler has begun: allow the same result to retry.
+                if accepted_here:
+                    with closing(ai_runtime.connect()) as conn,conn:
+                        conn.execute("DELETE FROM ai_receipts WHERE token=? AND response_json IS NULL",(data.lease_token,))
+                raise
             try:
                 args = dict(kwargs)
                 if task_id is not None:

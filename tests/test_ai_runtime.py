@@ -13,6 +13,27 @@ import ai_runtime as rt
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_unavailable_classification_and_search_without_payload(self):
+        rt.set_mode(-42,'api')
+        for queue in ('type-checks','search-plans'):
+            self.task(queue=queue)
+            task=rt.claim(queue,'vps')
+            with self.api() as (client,server,send):
+                result=self.post_result(client,task,'',error='minute quota',error_kind='unavailable',metadata={'refusal_kind':'minute','provider_cooldown':False,'retry_after':60})
+                self.assertEqual(result.json()['status'],'waiting')
+                send.assert_not_called()
+
+    def test_failure_before_delivery_does_not_strand_receipt(self):
+        rt.set_mode(-42,'api');self.task(queue='type-checks');task=rt.claim('type-checks','vps')
+        with self.api() as (client,server,send):
+            with patch.object(rt,'defer',side_effect=sqlite3.OperationalError('temporary lock')):
+                with self.assertRaises(sqlite3.OperationalError):
+                    self.post_result(client,task,'',error='quota',error_kind='unavailable')
+            with self.connection() as conn:
+                self.assertIsNone(conn.execute('SELECT 1 FROM ai_receipts WHERE token=?',(task['lease_token'],)).fetchone())
+            result=self.post_result(client,task,'',error='quota',error_kind='unavailable',metadata={'refusal_kind':'minute','provider_cooldown':False})
+            self.assertEqual(result.json()['status'],'waiting');send.assert_not_called()
+
     def test_combined_worker_claim_prioritizes_direct_classification(self):
         self.task(kind='chat_summary')
         self.task(queue='type-checks')
