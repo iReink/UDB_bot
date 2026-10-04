@@ -975,3 +975,10 @@ Key: `id`; unique message attachment slot: `(chat_id, message_id, attachment_ind
 - "Idle-постройки" - `idle_player_buildings` + `idle_building_levels` + `users`.
 - "Сосаться/шпехаться" - `sosalsa_stats` + два JOIN к `users`.
 - "Укусы и части тела" - счетчики в `daily_stats`/`total_stats`, состояния в `user_body_parts` + `body_parts`.
+
+## Инкрементальные счётчики RAG
+
+ai_rag_counters: scope TEXT NOT NULL (all — все сообщения, initial — начальный снимок, chunks — фрагменты), chat_id INTEGER NOT NULL (0 для chunks), reason TEXT NOT NULL (причина исключения или состояние фрагмента), eligible INTEGER NOT NULL, indexed INTEGER NOT NULL, n INTEGER NOT NULL CHECK(n>=0) — количество записей. PRIMARY KEY(scope,chat_id,reason,eligible,indexed). Триггеры rag_count_messages_insert/delete/update на ai_rag_message_status и rag_count_chunks_insert/delete/update на ai_rag_chunks поддерживают гистограмму в общей транзакции. Повтор миграции не пересчитывает счётчики; counters_v1 в ai_rag_state отмечает миграцию, stats_rebuilt_at — UTC сверки. Нулевые корзины не отображаются. Полная сверка раз в неделю ночью.
+
+Индекс idx_rag_events_message на ai_rag_events(chat_id,message_id,id) ускоряет проверку событий за границей снимка. Ключи ai_rag_state: night_open (0/1), night_event_cutoff (максимальный id событий снимка), night_finished_day (местная дата завершения). Незавершённая граница сохраняется между ночами.
+
