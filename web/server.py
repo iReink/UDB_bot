@@ -4212,6 +4212,8 @@ def _get_ai_chat(queue, task_id):
 async def _wait_ai_task(request, queues, wait_seconds):
     from ai_notifications import coordinator
     _require_ai_worker(request)
+    # New direct requests must not wait behind automatic tasks in another queue.
+    queues=sorted(queues,key=lambda queue: {'type-checks':0,'search-plans':1,'tasks':2}[queue])
     end=asyncio.get_running_loop().time()+wait_seconds
     while True:
         versions=coordinator.versions.copy()

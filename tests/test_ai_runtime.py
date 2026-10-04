@@ -13,6 +13,14 @@ import ai_runtime as rt
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_combined_worker_claim_prioritizes_direct_classification(self):
+        self.task(kind='chat_summary')
+        self.task(queue='type-checks')
+        with self.api() as (client,server,send):
+            response=client.get('/api/ai/workers/next',params={'worker_id':'pc','queues':'tasks,type-checks','wait_seconds':0},headers={'Authorization':'Bearer test-secret'})
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.json()['task']['queue'],'type-checks')
+
     def test_background_profile_waits_for_night_and_rag(self):
         self.task(kind='profile_update')
         with self.connection() as conn:conn.execute("UPDATE ai_tasks SET payload_json=?",(json.dumps({'background':True}),))
