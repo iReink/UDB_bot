@@ -175,6 +175,23 @@ def ready_queues():
     return result
 
 
+def rag_blocks_night_background(conn, local):
+    """An unfinished snapshot blocks followers only while RAG can still work tonight."""
+    state=dict(conn.execute("SELECT key,value FROM ai_rag_state WHERE key IN ('night_open','service_state','next_retry_at')"))
+    if state.get('night_open')!='1':
+        return False
+    if state.get('service_state')=='waiting':
+        try:
+            retry=datetime.fromisoformat(state.get('next_retry_at',''))
+            if retry.tzinfo is None:retry=retry.replace(tzinfo=timezone.utc)
+            end=local.replace(hour=7,minute=0,second=0,microsecond=0)
+            if retry>=end:
+                return False
+        except (ValueError,TypeError):
+            pass  # Incomplete state cannot prove that indexing is safely deferred.
+    return True
+
+
 def claim(queue, worker_id):
     table = TABLES[queue]
     with closing(connect()) as conn:
@@ -194,7 +211,7 @@ def claim(queue, worker_id):
         if queue=="tasks":
             capability=" AND task_type IN ('photo_story','photo_story_merge')" if json.loads(worker["task_types_json"]) else " AND task_type NOT IN ('photo_story','photo_story_merge','imagegen') AND coalesce(rag_state,'')<>'queued'"
         rows = conn.execute(f"SELECT * FROM {table} WHERE ((status='pending' AND (retry_at IS NULL OR retry_at<=?)) OR (status='processing' AND (lease_until IS NULL OR lease_until<=?))) AND coalesce((SELECT value FROM settings WHERE settings.chat_id={table}.chat_id AND name='ai_source'),'local') IN ({','.join('?' for _ in route_modes)}){capability} ORDER BY {order} LIMIT 100", (stamp(), stamp(),*route_modes)).fetchall()
-        availability={};modes={}
+        availability={};modes={};rag_blocked=None
         def can(provider,kind):
             key=(provider,kind)
             if key not in availability:availability[key]=available(conn,provider,queue,kind)
@@ -209,7 +226,8 @@ def claim(queue, worker_id):
                 if nightly:
                     local=now().replace(tzinfo=timezone.utc).astimezone(ZoneInfo('Asia/Yekaterinburg'))
                     if not 4<=local.hour<7:continue
-                    if conn.execute("SELECT value FROM ai_rag_state WHERE key='night_open'").fetchone() and conn.execute("SELECT value FROM ai_rag_state WHERE key='night_open'").fetchone()[0]=='1':continue
+                    if rag_blocked is None:rag_blocked=rag_blocks_night_background(conn,local)
+                    if rag_blocked:continue
                     if row['task_type']!='profile_update' and conn.execute("SELECT 1 FROM ai_tasks WHERE task_type='profile_update' AND status IN ('pending','processing') LIMIT 1").fetchone():continue
             if queue=='tasks' and row['task_type']=='imagegen':
                 continue  # Owned by the independent VPS image loop, never by PC workers.

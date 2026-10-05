@@ -75,6 +75,33 @@ class RuntimeTests(unittest.TestCase):
             with self.connection() as conn:conn.execute("UPDATE ai_rag_state SET value='0' WHERE key='night_open'")
             self.assertIsNotNone(rt.claim('tasks','pc'))
 
+    def test_background_profile_can_follow_rag_daily_quota_wait(self):
+        ident=self.task(kind='profile_update')
+        with self.connection() as conn:
+            conn.executemany("INSERT OR REPLACE INTO ai_rag_state VALUES(?,?)",[
+                ('night_open','1'),('service_state','waiting'),('next_retry_at','2026-10-05T07:00:00')])
+        with patch.object(rt,'now',return_value=datetime(2026,10,4,23,40)):
+            rt.heartbeat('pc','local',list(rt.TABLES))
+            self.assertEqual(rt.claim('tasks','pc')['id'],ident)
+        with self.connection() as conn:
+            self.assertEqual(conn.execute("SELECT value FROM ai_rag_state WHERE key='night_open'").fetchone()[0],'1')
+
+    def test_background_profile_preserves_active_and_short_wait_rag_priority(self):
+        self.task(kind='profile_update')
+        for state,retry in [('night','2026-10-05T07:00:00'),('waiting','2026-10-05T00:00:00'),('waiting','invalid'),('waiting','')]:
+            with self.subTest(state=state,retry=retry):
+                with self.connection() as conn:
+                    conn.executemany("INSERT OR REPLACE INTO ai_rag_state VALUES(?,?)",[
+                        ('night_open','1'),('service_state',state),('next_retry_at',retry)])
+                with patch.object(rt,'now',return_value=datetime(2026,10,4,23,40)):
+                    rt.heartbeat('pc','local',list(rt.TABLES))
+                    self.assertIsNone(rt.claim('tasks','pc'))
+        with self.connection() as conn:
+            conn.execute("UPDATE ai_rag_state SET value='2026-10-05T02:00:00+00:00' WHERE key='next_retry_at'")
+        with patch.object(rt,'now',return_value=datetime(2026,10,4,23,40)):
+            rt.heartbeat('pc','local',list(rt.TABLES))
+            self.assertIsNotNone(rt.claim('tasks','pc'))
+
     def test_direct_requests_are_not_limited_by_unfinished_work(self):
         for mid in (101,102,103,104,105,106):
             self.assertIsNotNone(ai_tasks.create_type_check_task(chat_id=-42,user_id=1,request_message_id=mid,message_text='Бот, привет',trigger_reason='mention'))
