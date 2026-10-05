@@ -645,7 +645,6 @@ SQL прошлой попытки:
 """
 
 
-@with_creator_policy
 def build_type_check_prompt(*, message_text: str, trigger_reason: str) -> str:
     clean_text = message_text.replace("\r", " ").strip()
     from mechanics_docs import catalog

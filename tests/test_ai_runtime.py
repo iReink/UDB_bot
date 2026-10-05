@@ -13,6 +13,17 @@ import ai_runtime as rt
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_legacy_classification_prompt_is_stripped_on_claim(self):
+        with patch.dict(os.environ,{'AI_CREATOR_USER_ID':'123456'}):
+            rt.set_mode(-42,'api')
+            original=ai_tasks.build_type_check_prompt(message_text='Бот, привет',trigger_reason='mention')
+            ident=self.task(queue='type-checks')
+            with self.connection() as conn:
+                conn.execute('UPDATE ai_type_checks SET prompt=? WHERE id=?',(ai_tasks.apply_creator_policy(original),ident));conn.commit()
+            task=rt.claim('type-checks','vps')
+            self.assertEqual(task['prompt'],original)
+            self.assertEqual(task['system_instruction'],'')
+
     def test_external_classification_allows_slower_provider_response(self):
         from ai_worker_client import Worker
         task={'id':1,'queue':'type-checks','task_type':'type_check','lease_token':'test-token'}

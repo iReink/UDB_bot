@@ -14,10 +14,10 @@
         "поиск"
       ],
       "path": "docs/mechanics/ai.md",
-      "hash": "58bc8c3d280e8c59479636c6d164b53c7ce3bf4598324b85bde582b87d62279c",
+      "hash": "bb0eb8da566490b8dc626aff6ba9e4dc83df959b9061ba6dd3061e226e6438b5",
       "dependencies": {
-        "ai_tasks.py": "201f58be3b3bed131fc50e9675d69e9157bc83410700bbb380674ced11ce5344",
-        "ai_runtime.py": "ee7e0725feb06fd6c92c3054ca84f1d478564c196c6ba89c1890d432c96cc912",
+        "ai_tasks.py": "898a00de8ba98a710f8c5388e47c4c259789a33b3c4696333aa7c9f1131d2dfd",
+        "ai_runtime.py": "6a83002692a8a6d7d1ac6f7ada79dde6241d6581e000ce2864170699d1cd38e6",
         "ai_http.py": "3e06c73c493ac292b287ca19c91f9171c29d1ce6eae21b05dfccac10c2c22531",
         "ai_notifications.py": "124ed57444f048f0b23a1f91212627aa257197c2ea53f9a4cd4366313d93802a",
         "ai_providers.py": "0917afaf7fea10890ccd1af15fc96dd99040e5a42d3f0813f98c932c39fe3b1f",
@@ -218,8 +218,8 @@
         "imagegen.py": "b0b047ad5822b08cd88de865daee6e9ca446dc739af53202d9368da1c149d81c",
         "imagegen_hf.py": "7733975fcb0682c52dd735f54fd85e6d78376b479e59fdd88f6106837ee2db91",
         "imagegen_bot.py": "a2b8f921046d39d5964c08a3fdef1d7616ffcaf4f2659adb76a5299be9cd48e3",
-        "ai_tasks.py": "201f58be3b3bed131fc50e9675d69e9157bc83410700bbb380674ced11ce5344",
-        "ai_runtime.py": "ee7e0725feb06fd6c92c3054ca84f1d478564c196c6ba89c1890d432c96cc912",
+        "ai_tasks.py": "898a00de8ba98a710f8c5388e47c4c259789a33b3c4696333aa7c9f1131d2dfd",
+        "ai_runtime.py": "6a83002692a8a6d7d1ac6f7ada79dde6241d6581e000ce2864170699d1cd38e6",
         "ai_providers.py": "0917afaf7fea10890ccd1af15fc96dd99040e5a42d3f0813f98c932c39fe3b1f",
         "main.py": "3c2393e3a6c3467900a6e4f9789a40f788bb73171f85a3917174b40866c568ab",
         "web/server.py": "d3fc1f8b39e7686d9248a99d99a8a9deb1fb0e95b3523ca3d6db9e2678079269"

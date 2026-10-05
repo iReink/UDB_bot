@@ -32,7 +32,7 @@ class CreatorPolicyTests(unittest.TestCase):
                     columns_json='["value"]', rows_json='[{"value":3}]', preview_text='3',
                     truncated=0, user_query='Explain')
 
-    def test_all_eight_builders_and_retry_keep_policy_and_contracts(self):
+    def test_builders_keep_policy_except_classification(self):
         prompts = [
             tasks.build_type_check_prompt(message_text='Question', trigger_reason='mention'),
             tasks.build_search_plan_prompt(message_text='Question', trigger_reason='mention', previous_error='retry'),
@@ -47,7 +47,9 @@ class CreatorPolicyTests(unittest.TestCase):
             tasks.build_chat_summary_prompt(chat_id=-42, window_start='2026-10-02T10:00:00',
                 window_end='2026-10-02T12:00:00', messages=[]),
         ]
-        for prompt in prompts:
+        self.assertNotIn(tasks.CREATOR_POLICY_MARKER, prompts[0])
+        self.assertNotIn(tasks.CREATOR_INSTRUCTION, prompts[0])
+        for prompt in prompts[1:]:
             self.assertTrue(prompt.startswith(tasks.CREATOR_POLICY_MARKER))
             self.assertIn(tasks.CREATOR_INSTRUCTION, prompt)
             self.assertIn('123456', prompt)

@@ -255,13 +255,13 @@ def claim(queue, worker_id):
             task["queue"] = queue
             from ai_tasks import apply_creator_policy, creator_system_instruction
             requester = task["user_id"] if task['task_type'] in ('response', 'mechanics', 'photo_story','photo_story_merge', 'data_analysis_response','web_grounding','maps_grounding','maps_translation') else None
-            if task['task_type'] in ('photo_story','photo_story_merge'):
+            if task['task_type'] in ('type_check','photo_story','photo_story_merge'):
                 from ai_tasks import CREATOR_POLICY_MARKER,CREATOR_REPLY_GUARD
                 if task['prompt'].startswith(CREATOR_POLICY_MARKER):task['prompt']=task['prompt'].split('\n\n',1)[-1]
                 task['prompt']=task['prompt'].removesuffix('\n\n'+CREATOR_REPLY_GUARD)
             elif task['task_type'] not in ('maps_grounding','grounding_notice'):
                 task["prompt"] = apply_creator_policy(task["prompt"], requester_user_id=requester)
-            task['system_instruction'] = '' if task['task_type'] in ('photo_story','photo_story_merge') else creator_system_instruction(task['user_id'], 'response' if task['task_type']=='mechanics' else task['task_type'])
+            task['system_instruction'] = '' if task['task_type'] in ('type_check','photo_story','photo_story_merge') else creator_system_instruction(task['user_id'], 'response' if task['task_type']=='mechanics' else task['task_type'])
             conn.commit()
             return task
         conn.commit()
