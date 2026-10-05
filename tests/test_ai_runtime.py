@@ -86,6 +86,7 @@ class RuntimeTests(unittest.TestCase):
         with self.connection() as conn:
             self.assertEqual(conn.execute("SELECT value FROM ai_rag_state WHERE key='night_open'").fetchone()[0],'1')
 
+
     def test_background_profile_preserves_active_and_short_wait_rag_priority(self):
         self.task(kind='profile_update')
         for state,retry in [('night','2026-10-05T07:00:00'),('waiting','2026-10-05T00:00:00'),('waiting','invalid'),('waiting','')]:
