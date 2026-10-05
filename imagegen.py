@@ -90,9 +90,6 @@ def collect(message, bot_username=''):
         if old and (old['status'] != 'collecting' or old['user_id'] != message.from_user.id):
             return
         if not old:
-            pending=conn.execute("SELECT count(*) FROM ai_imagegen_batches WHERE user_id=? AND status IN ('collecting','confirm','typed')",(message.from_user.id,)).fetchone()[0]
-            if pending>=3:
-                return 'busy'
             bid=conn.execute('''INSERT INTO ai_imagegen_batches(chat_id,user_id,group_key,first_message_id,
                 private,touched_at,created_at) VALUES(?,?,?,?,?,?,?)''',
                 (message.chat.id,message.from_user.id,key,message.message_id,int(message.chat.type=='private'),time.time(),time.time())).lastrowid

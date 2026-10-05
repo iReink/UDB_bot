@@ -19,9 +19,7 @@ class ImageIntake(BaseMiddleware):
     async def __call__(self,handler,event,data):
         if event.photo:
             try:
-                result=await asyncio.to_thread(store.collect,event,bot_username)
-                if result=='busy':
-                    await event.answer('Уже ожидают три подборки. Дождитесь ответа перед новой.',parse_mode=None)
+                await asyncio.to_thread(store.collect,event,bot_username)
             except Exception:
                 log.exception('Image intake failed')
         return await handler(event,data)
@@ -202,6 +200,7 @@ async def run_task(bot,task):
 
 
 def claim_image_task():
+    from ai_runtime import stamp
     with closing(store.connect()) as conn:
         if not conn.execute("SELECT 1 FROM ai_tasks WHERE task_type='imagegen' AND status='pending' AND (retry_at IS NULL OR retry_at<=?) LIMIT 1",(stamp(),)).fetchone():return None
     with closing(store.connect()) as conn,conn:

@@ -709,13 +709,6 @@ def has_pending_type_check(*, chat_id: int, request_message_id: int | None = Non
         return cur.fetchone() is not None
 
 
-def direct_request_count(conn,chat_id,user_id,exclude_message=0):
-    return conn.execute("""SELECT count(*) FROM (
-      SELECT request_message_id FROM ai_type_checks WHERE chat_id=? AND user_id=? AND status IN ('pending','processing') AND request_message_id<>? 
-      UNION SELECT request_message_id FROM ai_tasks WHERE chat_id=? AND user_id=? AND status IN ('pending','processing') AND request_message_id<>? AND task_type NOT IN ('profile_update','chat_summary')
-      UNION SELECT request_message_id FROM ai_search_plans WHERE chat_id=? AND user_id=? AND status IN ('pending','processing') AND request_message_id<>?)""",(chat_id,user_id,exclude_message)*3).fetchone()[0]
-
-
 def create_type_check_task(
     *,
     chat_id: int,
@@ -735,8 +728,6 @@ def create_type_check_task(
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("BEGIN IMMEDIATE")
-        if trigger_reason!='random' and direct_request_count(conn,chat_id,user_id,request_message_id)>=3:
-            return None
         cur.execute(
             """
             SELECT 1
@@ -2537,7 +2528,6 @@ def create_response_task(
     with closing(get_connection()) as conn:
         cur = conn.cursor()
         cur.execute("BEGIN IMMEDIATE")
-        if trigger_reason!='random' and direct_request_count(conn,chat_id,requester_user_id,request_message_id)>=3:return None
         cur.execute(
             """
             SELECT 1

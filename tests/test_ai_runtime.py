@@ -75,11 +75,10 @@ class RuntimeTests(unittest.TestCase):
             with self.connection() as conn:conn.execute("UPDATE ai_rag_state SET value='0' WHERE key='night_open'")
             self.assertIsNotNone(rt.claim('tasks','pc'))
 
-    def test_three_direct_requests_are_independent(self):
-        for mid in (101,102,103):
+    def test_direct_requests_are_not_limited_by_unfinished_work(self):
+        for mid in (101,102,103,104,105,106):
             self.assertIsNotNone(ai_tasks.create_type_check_task(chat_id=-42,user_id=1,request_message_id=mid,message_text='Бот, привет',trigger_reason='mention'))
-        self.assertIsNone(ai_tasks.create_type_check_task(chat_id=-42,user_id=1,request_message_id=104,message_text='Бот, привет',trigger_reason='mention'))
-        self.assertIsNotNone(ai_tasks.create_type_check_task(chat_id=-42,user_id=2,request_message_id=105,message_text='Бот, привет',trigger_reason='mention'))
+        self.assertIsNotNone(ai_tasks.create_type_check_task(chat_id=-42,user_id=2,request_message_id=107,message_text='Бот, привет',trigger_reason='mention'))
 
     def test_refusal_kinds_distinguish_minute_and_daily(self):
         from ai_providers import refusal_kind

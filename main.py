@@ -1865,11 +1865,6 @@ async def maybe_create_ai_response_task(message: types.Message) -> None:
                 message.message_id,
                 trigger_reason,
             )
-        else:
-            from ai_tasks import get_connection as ai_connection,direct_request_count
-            def is_busy():
-                with ai_connection() as conn:return direct_request_count(conn,int(message.chat.id),int(message.from_user.id))>=3
-            if await asyncio.to_thread(is_busy):await message.reply('У тебя уже три запроса в работе в этом чате. Дождись ответа на один из них.')
         return
     else:
         if has_pending_response_task(int(message.chat.id)) or has_pending_type_check(chat_id=int(message.chat.id)):

@@ -174,7 +174,7 @@ class GroundingTests(unittest.TestCase):
             self.assertIsNotNone(tasks.create_response_task(**search))
             self.assertIsNone(tasks.create_response_task(**search))
             self.assertIsNotNone(tasks.create_response_task(**dict(base,request_message_id=3)))
-            self.assertIsNone(tasks.create_response_task(**dict(base,request_message_id=4)))
+            self.assertIsNotNone(tasks.create_response_task(**dict(base,request_message_id=4)))
 
     def test_unsafe_urls_rejected_and_markup_escaped(self):
         for url in ('javascript:alert(1)','https://user:pass@example.test','http://example.test','https://example.test/\n'):

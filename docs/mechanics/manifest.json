@@ -14,9 +14,9 @@
         "поиск"
       ],
       "path": "docs/mechanics/ai.md",
-      "hash": "bb0eb8da566490b8dc626aff6ba9e4dc83df959b9061ba6dd3061e226e6438b5",
+      "hash": "4b642a4bc795ce69e3396afd8a88abf6eaec5621306b02e47bfa5538a6b0429b",
       "dependencies": {
-        "ai_tasks.py": "898a00de8ba98a710f8c5388e47c4c259789a33b3c4696333aa7c9f1131d2dfd",
+        "ai_tasks.py": "fd2360c88429990070617245c89d3b1e8a6dc30893ed130719ceb0cd50da0e37",
         "ai_runtime.py": "6a83002692a8a6d7d1ac6f7ada79dde6241d6581e000ce2864170699d1cd38e6",
         "ai_http.py": "3e06c73c493ac292b287ca19c91f9171c29d1ce6eae21b05dfccac10c2c22531",
         "ai_notifications.py": "124ed57444f048f0b23a1f91212627aa257197c2ea53f9a4cd4366313d93802a",
@@ -42,7 +42,7 @@
         "ai_api_worker.py": "59da18fed156faf82fecd42bccb7442c018e2968ca30f65e3f6603d34b785501",
         "ai_worker_client.py": "9dbb7715cdc671f4c50ec261c601b3cd956708ff122f886542985b9091a17e52",
         "ai_audit.py": "44b38a7d35c1188b045d3efa045bf433aa98c1fbcb46f53155dc938ed4c04e14",
-        "main.py": "3c2393e3a6c3467900a6e4f9789a40f788bb73171f85a3917174b40866c568ab",
+        "main.py": "88b9732126096de8ee370bf7f005595fc3c19653137a59338e93556fb586962d",
         "web/server.py": "d3fc1f8b39e7686d9248a99d99a8a9deb1fb0e95b3523ca3d6db9e2678079269",
         "daily_photo_story.py": "8e35c4dedf33859356b6462ae142075b3c514f4ecff08664dea0222539508bd2",
         "photo_convert.py": "b1d4bf0c7753aa63dea36ec810ec75a4f49ded56082fbc025edbcc6c1b1fbfb6",
@@ -152,7 +152,7 @@
       "dependencies": {
         "db.py": "1de2f0336e7cce29f8cf733490c585e6226a36820cde66659346e23ee346b2c3",
         "sits.py": "d15a22b318c726f62d257dee01edb5c0047205333d732b295011fb34ef6d9e7f",
-        "main.py": "3c2393e3a6c3467900a6e4f9789a40f788bb73171f85a3917174b40866c568ab",
+        "main.py": "88b9732126096de8ee370bf7f005595fc3c19653137a59338e93556fb586962d",
         "STATS_DB_SCHEMA.md": "d6351f8fd073ef8456ea47ffbca42e2f999c97ef40d2c6813393ae8a72c4664b"
       }
     },
@@ -215,13 +215,13 @@
       "path": "docs/mechanics/imagegen.md",
       "hash": "add13b7415ab43ccc929dbed7f1a6328b0a1b7c1734f59f6661e2d3144de6b53",
       "dependencies": {
-        "imagegen.py": "b0b047ad5822b08cd88de865daee6e9ca446dc739af53202d9368da1c149d81c",
-        "imagegen_hf.py": "7733975fcb0682c52dd735f54fd85e6d78376b479e59fdd88f6106837ee2db91",
-        "imagegen_bot.py": "a2b8f921046d39d5964c08a3fdef1d7616ffcaf4f2659adb76a5299be9cd48e3",
-        "ai_tasks.py": "898a00de8ba98a710f8c5388e47c4c259789a33b3c4696333aa7c9f1131d2dfd",
+        "imagegen.py": "bea9ad06399c037feef48e34cf8f9319a14dff6cebbe03940481636df0e39492",
+        "imagegen_hf.py": "7da396a1f08c63f8bd23cf7ef83b6f12a5039fed1c7a54b31ea3742a3118bf65",
+        "imagegen_bot.py": "63193b4aa329c7330914d1498c1ec93267c3bd51a9a955ad6af24da27a65c0cc",
+        "ai_tasks.py": "fd2360c88429990070617245c89d3b1e8a6dc30893ed130719ceb0cd50da0e37",
         "ai_runtime.py": "6a83002692a8a6d7d1ac6f7ada79dde6241d6581e000ce2864170699d1cd38e6",
         "ai_providers.py": "0917afaf7fea10890ccd1af15fc96dd99040e5a42d3f0813f98c932c39fe3b1f",
-        "main.py": "3c2393e3a6c3467900a6e4f9789a40f788bb73171f85a3917174b40866c568ab",
+        "main.py": "88b9732126096de8ee370bf7f005595fc3c19653137a59338e93556fb586962d",
         "web/server.py": "d3fc1f8b39e7686d9248a99d99a8a9deb1fb0e95b3523ca3d6db9e2678079269"
       }
     },
@@ -272,7 +272,7 @@
       "path": "docs/mechanics/participation.md",
       "hash": "723f7232e935fe3e25f82446b06792fa457051e514a9eb568fb51ab42483e7ec",
       "dependencies": {
-        "main.py": "3c2393e3a6c3467900a6e4f9789a40f788bb73171f85a3917174b40866c568ab",
+        "main.py": "88b9732126096de8ee370bf7f005595fc3c19653137a59338e93556fb586962d",
         "help.py": "c70a35b5ae87590d32d9ca148e51a1b260333b94bf5cf27c703acf975598ae0b",
         "nick_input.py": "17efb096ec36bb52a391741ff195b8677d08219a4b0d479064a064ef6737959e",
         "sex_input.py": "017f625f48115950d42d202dbdc6cc76a18514a99ab0ad6894fa39d47cb94315",
@@ -293,7 +293,7 @@
       "path": "docs/mechanics/shop.md",
       "hash": "142a7fa9c467fbb8e99f050a8adcafd51d98f6a07a0775f2e8ccfcf15fc9ad53",
       "dependencies": {
-        "main.py": "3c2393e3a6c3467900a6e4f9789a40f788bb73171f85a3917174b40866c568ab",
+        "main.py": "88b9732126096de8ee370bf7f005595fc3c19653137a59338e93556fb586962d",
         "mujlo.py": "c3ce91e8c26f040924e66e608fafc91dbefb6ed5a01e5ef23ee94ac1d5d86094",
         "sits.py": "d15a22b318c726f62d257dee01edb5c0047205333d732b295011fb34ef6d9e7f"
       }
@@ -313,7 +313,7 @@
       "path": "docs/mechanics/statistics.md",
       "hash": "59f77c1006dc992a3d270dfe7f8be586223660a05ba6789dd48820c43fce8a28",
       "dependencies": {
-        "main.py": "3c2393e3a6c3467900a6e4f9789a40f788bb73171f85a3917174b40866c568ab",
+        "main.py": "88b9732126096de8ee370bf7f005595fc3c19653137a59338e93556fb586962d",
         "chat_stat.py": "764fd27b3b5558afd44b513be7dad8b6c27bc365be56f0b5742446ae37eb22bd",
         "weekly_awards.py": "270d2996f1f51e197a0c0739211d3d7057fdc0a640988e24a22c098767c3bb7f",
         "profanity.py": "142948e4decdfa030f8854bdc786e90aa20ae3fbd539ca53864be17269355b55",

@@ -3,6 +3,7 @@ from concurrent.futures import TimeoutError
 from contextlib import closing
 from datetime import datetime, timezone
 import os
+import logging
 from pathlib import Path
 import tempfile
 import time
@@ -133,15 +134,18 @@ def generate(task, prompt, images, size, on_attempt=None):
                 after = quota(key)
             except Exception:
                 pass
-        usage = {'quota_before':before, 'quota_after':after}
-        if before is not None and after is not None and same_quota_window(before,after):
-            # Shared account delta; other clients can contribute, so never call it exact billing.
-            usage['gpu_seconds_account_delta'] = max(0, float(before['current'])-float(after['current']))
-        context = {'prompt':prompt, 'width':size[0], 'height':size[1],
-                   'references':[{'index':n, 'bytes':len(raw)} for n,raw in enumerate(images)]}
-        record_attempt('tasks', task['id'], 'imagegen-hf-'+uuid.uuid4().hex,
-            {'provider':'huggingface', 'model':MODEL, 'usage':usage,
-             'calls':[{'provider':'huggingface', 'model':MODEL, 'context':context,
-                       'at':datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
-                       'status':'received' if outcome=='received' else 'error', 'error':reason, 'response':usage}] if started else []},
-            outcome if started else 'skipped:'+reason)
+        try:
+            usage = {'quota_before':before, 'quota_after':after}
+            if before is not None and after is not None and same_quota_window(before,after):
+                # Shared account delta; other clients can contribute, so never call it exact billing.
+                usage['gpu_seconds_account_delta'] = max(0, float(before['current'])-float(after['current']))
+            context = {'prompt':prompt, 'width':size[0], 'height':size[1],
+                       'references':[{'index':n, 'bytes':len(raw)} for n,raw in enumerate(images)]}
+            record_attempt('tasks', task['id'], 'imagegen-hf-'+uuid.uuid4().hex,
+                {'provider':'huggingface', 'model':MODEL, 'usage':usage,
+                 'calls':[{'provider':'huggingface', 'model':MODEL, 'context':context,
+                           'at':datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                           'status':'received' if outcome=='received' else 'error', 'error':reason, 'response':usage}] if started else []},
+                outcome if started else 'skipped:'+reason)
+        except Exception as exc:
+            logging.getLogger(__name__).warning('HF audit failed: task=%s error=%s',task['id'],type(exc).__name__)
