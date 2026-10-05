@@ -152,3 +152,5 @@ CPU: автоматические профили планируются в 04:00
 Imagegen: claim_image_task использует локальный импорт ai_runtime.stamp. Проверять не только generate, но и выборку пустой/отложенной/готовой очереди; регрессии tests/test_imagegen_queue.py.
 
 Диалог ИИ: проверять сохранение только response, идемпотентность, собственные роли, изоляцию чатов, цитаты и file_id reply-фото. При публикации обновить ai_conversation/tasks, main, imagegen_bot и web/server; перезапустить бот и веб.
+
+Imagegen reply+вложение: `ai_conversation.reply_image` сохраняет обе роли; `ai_imagegen_batches.reply_photos_json` хранит исходные ссылки отдельно от текущих Telegram сообщений. Общий `imagegen.photos` определяет порядок и подтверждение четырёх кадров. `imagegen_bot.prepare` делает один проход текстовых моделей, при отказе использует исходный запрос; загрузка фото имеет два сохранённых повтора. Спецификация `docs/specs/imagegen-preparation-fallback.md`, тесты `test_imagegen_preparation.py` и `test_ai_conversation.py`. Публиковать imagegen, imagegen_bot, ai_conversation и справочник; миграция схемы при старте, перезапустить бот и веб.

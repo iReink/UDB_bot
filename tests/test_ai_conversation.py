@@ -49,3 +49,36 @@ class ConversationTests(unittest.TestCase):
         with closing(tasks.get_connection()) as c:
             payload=json.loads(c.execute('SELECT payload_json FROM ai_tasks WHERE id=?',(ident,)).fetchone()[0])
         self.assertEqual(payload['photos'][0]['file_id'],'reference')
+
+    def test_reply_and_new_album_keep_order_and_confirmation(self):
+        import json,imagegen
+        message=self.message();message.text=None;message.caption='Добавь девушку в этот кадр'
+        message.media_group_id='album';message.photo=[Obj(file_id='new-photo')]
+        imagegen.collect(conversation.reply_image(message,999),'bot')
+        imagegen.collect(conversation.reply_image(message,999),'bot')
+        with closing(tasks.get_connection()) as c:
+            batch=dict(c.execute('SELECT * FROM ai_imagegen_batches').fetchone())
+            self.assertEqual([p['file_id'] for p in imagegen.photos(c,batch['id'])],['reference','new-photo'])
+        for n in (14,13,12):
+            message.message_id=n;message.photo=[Obj(file_id=f'new-{n}')]
+            imagegen.collect(conversation.reply_image(message,999),'bot')
+        with closing(tasks.get_connection()) as c:
+            refs=imagegen.photos(c,batch['id'])
+        self.assertEqual(len(refs),5)
+        import asyncio,imagegen_bot
+        from unittest.mock import AsyncMock
+        bot=Obj(send_message=AsyncMock(return_value=Obj(message_id=777)))
+        with closing(tasks.get_connection()) as c,c:c.execute('UPDATE ai_imagegen_batches SET touched_at=0')
+        with patch.object(imagegen_bot.asyncio,'sleep',side_effect=asyncio.CancelledError),patch.object(imagegen,'queue_type') as typed:
+            with self.assertRaises(asyncio.CancelledError):asyncio.run(imagegen_bot.collect_loop(bot))
+            typed.assert_not_called()
+        bot.send_message.assert_awaited_once()
+        imagegen.choose(batch['id'],1,-42,True)
+        self.assertEqual([p['message_id'] for p in refs],[10,11,12,13,14])
+        # A restart/migration keeps the same reference, without duplicating it.
+        tasks.ensure_ai_tables()
+        with closing(tasks.get_connection()) as c,c:c.execute("UPDATE ai_imagegen_batches SET status='typed'")
+        ident=imagegen.create_task(chat_id=-42,user_id=1,request_message_id=11,user_query=message.caption)
+        with closing(tasks.get_connection()) as c:
+            payload=json.loads(c.execute('SELECT payload_json FROM ai_tasks WHERE id=?',(ident,)).fetchone()[0])
+        self.assertEqual([p['file_id'] for p in payload['photos']],['reference','new-photo','new-12','new-13'])

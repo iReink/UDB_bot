@@ -25,15 +25,16 @@ def request_text(message, bot_id=None):
 
 
 def reply_image(message,bot_id=None):
-    if getattr(message,'photo',None):return None
     reply=getattr(message,'reply_to_message',None)
     if not reply or not getattr(reply,'photo',None):return None
     if getattr(getattr(reply,'chat',None),'id',message.chat.id)!=message.chat.id:return None
     text=getattr(message,'text',None) or getattr(message,'caption',None) or ''
     if not text or text.startswith('/'):return None
-    return SimpleNamespace(photo=reply.photo,from_user=message.from_user,chat=message.chat,
-        message_id=message.message_id,media_group_id=None,reply_to_message=reply,
-        caption=request_text(message,bot_id),is_reply_image=True)
+    return SimpleNamespace(photo=message.photo or reply.photo,from_user=message.from_user,chat=message.chat,
+        message_id=message.message_id,media_group_id=getattr(message,'media_group_id',None),reply_to_message=reply,
+        caption=request_text(message,bot_id),is_reply_image=True,
+        reply_photos=[dict(message_id=reply.message_id,file_id=reply.photo[-1].file_id,caption='',source='reply')]
+                     if message.photo else [])
 
 
 def save_reply(task_id, chat_id, result, fallback_text):

@@ -16,7 +16,7 @@
       "path": "docs/mechanics/ai.md",
       "hash": "c392694937989653f52474c91da68663691e0f8c08d620e0e8a220c221bc7cdf",
       "dependencies": {
-        "ai_conversation.py": "658f23971e92d5649393eb77873d12c170d42910ee40658ea8c4cd8e163b270c",
+        "ai_conversation.py": "d55051d591ce831971a09fc41abe8d2b949e04096e75bc689e95ac947a2f8756",
         "ai_tasks.py": "619b5da58a5021a8f9edf808973af112d66b019ff67066e2cd9532ad8acbe926",
         "ai_runtime.py": "6a83002692a8a6d7d1ac6f7ada79dde6241d6581e000ce2864170699d1cd38e6",
         "ai_http.py": "3e06c73c493ac292b287ca19c91f9171c29d1ce6eae21b05dfccac10c2c22531",
@@ -154,7 +154,7 @@
         "db.py": "1de2f0336e7cce29f8cf733490c585e6226a36820cde66659346e23ee346b2c3",
         "sits.py": "d15a22b318c726f62d257dee01edb5c0047205333d732b295011fb34ef6d9e7f",
         "main.py": "82a51c8a9ad7cdf24e7120f1a37979fa35ace0e042664a1736d3f4a33d17079f",
-        "STATS_DB_SCHEMA.md": "39e71c0e0b82389639834e7c3164626ca9139e5bdba1634fc60aae90bda0ab7e"
+        "STATS_DB_SCHEMA.md": "bb8d555ef6837a5393e311fee9d128dd5939c2796a3a9305fca14741d75fda85"
       }
     },
     {
@@ -214,11 +214,12 @@
         "Neurons"
       ],
       "path": "docs/mechanics/imagegen.md",
-      "hash": "add13b7415ab43ccc929dbed7f1a6328b0a1b7c1734f59f6661e2d3144de6b53",
+      "hash": "070e3f12fd307ccad76d0403401e0dc59b28b771c234a46fa2d4a4705675f8aa",
       "dependencies": {
-        "imagegen.py": "123ba850671335beb95d0ccfa977a70594ba51cdc3fbc4ad26d7ee84f9eb7414",
+        "ai_conversation.py": "d55051d591ce831971a09fc41abe8d2b949e04096e75bc689e95ac947a2f8756",
+        "imagegen.py": "af5f9fb149f1e8379408f10b078a10eea1011579ad3d0393bdbff1cdd5cac7f5",
         "imagegen_hf.py": "7da396a1f08c63f8bd23cf7ef83b6f12a5039fed1c7a54b31ea3742a3118bf65",
-        "imagegen_bot.py": "061ff465b7634198ded535dc799add7b36812883d5b4e59f977c4d97aa8f4e73",
+        "imagegen_bot.py": "b5de341b974e1e3db411c222e13d8ad74922868c8effda3ec5393d2e19875f95",
         "ai_tasks.py": "619b5da58a5021a8f9edf808973af112d66b019ff67066e2cd9532ad8acbe926",
         "ai_runtime.py": "6a83002692a8a6d7d1ac6f7ada79dde6241d6581e000ce2864170699d1cd38e6",
         "ai_providers.py": "0917afaf7fea10890ccd1af15fc96dd99040e5a42d3f0813f98c932c39fe3b1f",

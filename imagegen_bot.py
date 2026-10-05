@@ -121,24 +121,34 @@ def finish(task_id,state,text):
 
 def prepare(task):
     import ai_audit
-    from ai_providers import call_external
+    from ai_providers import call_external,ProviderUnavailable,PromptTooLarge
     from photo_story import image_parts
     inputs=json.loads(task['payload_json']).get('photos',[])
     parts=image_parts(inputs,task['chat_id']) if inputs else []
-    rewrite=dict(task,task_type='imagegen_prepare',prompt=store.REWRITE+task['prompt'],payload={'photos':inputs},
+    original=store.reference_context(inputs)+task['prompt']
+    rewrite=dict(task,task_type='imagegen_prepare',prompt=store.REWRITE+original,payload={'photos':inputs},
                  _image_parts=parts,system_instruction='')
     ai_audit.begin()
     try:
-        prompt,meta=call_external(rewrite,90)
+        try:
+            prompt,meta=call_external(rewrite,20)
+            prompt=prompt.strip()
+            if not 1<=len(prompt)<=1800:
+                prompt=original
+                log.warning('Image prompt preparation invalid; using original: task=%s',task['id'])
+        except (ProviderUnavailable,PromptTooLarge) as exc:
+            prompt=original
+            log.warning('Image prompt preparation unavailable; using original: task=%s reason=%s',
+                        task['id'],type(exc).__name__)
     finally:
         calls=ai_audit.take()
         from ai_runtime import record_attempt
         import uuid
-        record_attempt('tasks',task['id'],uuid.uuid4().hex,{'provider':'google','model':calls[-1]['model'] if calls else '',
-            'calls':calls},'prompt_preparation')
-    prompt=prompt.strip()
-    if not 1<=len(prompt)<=1800:
-        raise RuntimeError('Не удалось подготовить короткий промпт. Уточните запрос')
+        try:
+            record_attempt('tasks',task['id'],uuid.uuid4().hex,{'provider':'google','model':calls[-1]['model'] if calls else '',
+                'calls':calls},'prompt_preparation')
+        except Exception:
+            log.warning('Image preparation audit failed: task=%s',task['id'],exc_info=True)
     images,size=store.reference_images(parts)
     with closing(store.connect()) as conn, conn:
         conn.execute('UPDATE ai_imagegen_jobs SET prepared_prompt=?,width=?,height=?,updated_at=? WHERE task_id=?',
@@ -191,9 +201,18 @@ async def run_task(bot,task):
         finish(task['id'],'done','Изображение отправлено')
         with closing(store.connect()) as conn, conn:
             conn.execute('UPDATE ai_tasks SET response_message_id=? WHERE id=?',(sent.message_id,task['id']))
-    except ProviderUnavailable as exc:
+    except ProviderUnavailable:
+        # Only photo download can reach here; rewriting failures already use the original prompt.
         with closing(store.connect()) as conn, conn:
-            conn.execute("UPDATE ai_tasks SET status='pending',retry_at=?,error_text=? WHERE id=?",(stamp(max(30,int(exc.retry_after))),'Подготовка изображения ожидает доступную модель',task['id']))
+            attempt=conn.execute('SELECT transport_attempt FROM ai_tasks WHERE id=?',(task['id'],)).fetchone()[0] or 0
+            if attempt<2:
+                conn.execute("UPDATE ai_tasks SET status='pending',retry_at=?,transport_attempt=coalesce(transport_attempt,0)+1,error_text=? WHERE id=?",
+                    (stamp((10,30)[attempt]),'Не удалось загрузить фотографии; повторяю загрузку',task['id']))
+                return
+        text='Не удалось загрузить фотографии после трёх попыток. Отправьте запрос заново.'
+        finish(task['id'],'failed',text)
+        await bot.send_message(task['chat_id'],text,reply_to_message_id=task['request_message_id'],
+                               allow_sending_without_reply=True,parse_mode=None)
     except Exception as exc:
         # Request-library exceptions may contain a credential-bearing Telegram URL.
         safe=str(exc) if isinstance(exc,(RuntimeError,ValueError)) else 'Не удалось подготовить изображение. Попробуйте позже'

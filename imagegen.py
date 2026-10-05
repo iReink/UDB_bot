@@ -39,6 +39,7 @@ def ensure_schema(conn):
       group_key TEXT NOT NULL, first_message_id INTEGER NOT NULL, private INTEGER NOT NULL,
       addressed INTEGER NOT NULL DEFAULT 0, touched_at REAL NOT NULL,
       status TEXT NOT NULL DEFAULT 'collecting', created_at REAL NOT NULL, notice_message_id INTEGER,
+      reply_photos_json TEXT NOT NULL DEFAULT '[]',
       UNIQUE(chat_id,group_key));
     CREATE TABLE IF NOT EXISTS ai_imagegen_inputs(
       chat_id INTEGER NOT NULL,message_id INTEGER NOT NULL,batch_id INTEGER NOT NULL,
@@ -57,7 +58,8 @@ def ensure_schema(conn):
     CREATE TABLE IF NOT EXISTS ai_imagegen_days(day TEXT PRIMARY KEY,blocked INTEGER NOT NULL DEFAULT 0);
     ''')
     for table,name,declaration in (('ai_imagegen_jobs','notice_sent','INTEGER NOT NULL DEFAULT 0'),
-                                    ('ai_imagegen_batches','notice_message_id','INTEGER')):
+                                    ('ai_imagegen_batches','notice_message_id','INTEGER'),
+                                    ('ai_imagegen_batches','reply_photos_json',"TEXT NOT NULL DEFAULT '[]'")):
         if name not in {r[1] for r in conn.execute('PRAGMA table_info('+table+')')}:
             conn.execute('ALTER TABLE '+table+' ADD COLUMN '+name+' '+declaration)
 
@@ -98,12 +100,29 @@ def collect(message, bot_username=''):
         inserted=conn.execute('INSERT OR IGNORE INTO ai_imagegen_inputs VALUES(?,?,?,?,?)',
              (message.chat.id,message.message_id,bid,message.photo[-1].file_id,(message.caption or '')[:4000])).rowcount
         if inserted:
+            references=getattr(message,'reply_photos',[])
+            if references:
+                existing=json.loads(conn.execute('SELECT reply_photos_json FROM ai_imagegen_batches WHERE id=?',(bid,)).fetchone()[0])
+                known={p['file_id'] for p in existing}
+                existing.extend(p for p in references if p['file_id'] not in known)
+                conn.execute('UPDATE ai_imagegen_batches SET reply_photos_json=? WHERE id=?',
+                             (json.dumps(existing,ensure_ascii=False),bid))
             conn.execute('''UPDATE ai_imagegen_batches SET touched_at=?,first_message_id=min(first_message_id,?),
                 addressed=max(addressed,?) WHERE id=?''',(time.time(),message.message_id,int(addressed(message,bot_username)),bid))
 
 
 def photos(conn, batch_id):
-    return [dict(r) for r in conn.execute('SELECT message_id,file_id,caption FROM ai_imagegen_inputs WHERE batch_id=? ORDER BY message_id',(batch_id,))]
+    row=conn.execute('SELECT reply_photos_json FROM ai_imagegen_batches WHERE id=?',(batch_id,)).fetchone()
+    references=json.loads(row[0]) if row else []
+    return references+[dict(r) for r in conn.execute('SELECT message_id,file_id,caption FROM ai_imagegen_inputs WHERE batch_id=? ORDER BY message_id',(batch_id,))]
+
+
+def reference_context(inputs):
+    if any(p.get('source')=='reply' for p in inputs):
+        return ('Reference order: '+', '.join(
+            f"image {n}: photo from the replied-to message" if p.get('source')=='reply'
+            else f"image {n}: newly attached photo" for n,p in enumerate(inputs,1))+'\n')
+    return ''
 
 
 def queue_type(batch):
@@ -111,6 +130,7 @@ def queue_type(batch):
     with closing(connect()) as conn:
         inputs=photos(conn,batch['id'])
     text='\n'.join(p['caption'] for p in inputs if p['caption']).strip()
+    text=reference_context(inputs[:4])+text
     return create_type_check_task(chat_id=batch['chat_id'],user_id=batch['user_id'],
         request_message_id=batch['first_message_id'],message_text=text or 'Бот, создай изображение по фотографиям',
         trigger_reason='photo_caption')
