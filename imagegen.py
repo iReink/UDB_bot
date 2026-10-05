@@ -73,7 +73,7 @@ def addressed(message, bot_username=''):
     return (bool(re.match(r'^\s*бот\s*[,!:]', text, re.I))
             or bool(bot_username and '@'+bot_username.lower().lstrip('@') in text.lower())
             or bool(sender and sender.is_bot and (sender.username or '').lower() == bot_username.lower().lstrip('@'))
-            or (message.chat.type == 'private' and creative(text)))
+            or (message.chat.type == 'private' and (getattr(message,'is_reply_image',False) or creative(text))))
 
 
 def collect(message, bot_username=''):

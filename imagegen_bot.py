@@ -17,9 +17,12 @@ bot_username=''
 
 class ImageIntake(BaseMiddleware):
     async def __call__(self,handler,event,data):
-        if event.photo:
+        from ai_conversation import reply_image
+        reference=reply_image(event,getattr(data.get('bot'),'id',None))
+        if reference and not store.addressed(reference,bot_username):reference=None
+        if event.photo or reference:
             try:
-                await asyncio.to_thread(store.collect,event,bot_username)
+                await asyncio.to_thread(store.collect,reference or event,bot_username)
             except Exception:
                 log.exception('Image intake failed')
         return await handler(event,data)

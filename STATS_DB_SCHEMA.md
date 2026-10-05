@@ -575,6 +575,8 @@ JSON включает `chat_id`, `run_date`, `credit_payments_milli`, `new_overd
 
 Note: for Telegram media messages, `message_text` stores message text or caption.
 
+Успешно доставленные ИИ-ответы типа response также сохраняются здесь под реальным Telegram user_id бота, без начисления игровой статистики. Роль assistant определяется связью ai_tasks.response_message_id + chat_id; команды и служебные уведомления не сохраняются этим путём. Новых колонок для роли не вводится.
+
 ### `web_chat_attachments`
 
 Local web-chat attachments saved by the bot for protected rendering in the web UI.

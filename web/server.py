@@ -2699,7 +2699,7 @@ def _require_ai_worker(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Invalid worker token")
 
 
-def _send_telegram_message(chat_id: int, text: str, *, reply_to_message_id: int | None = None) -> int | None:
+def _send_telegram_message(chat_id: int, text: str, *, reply_to_message_id: int | None = None, conversation_task_id: int | None = None) -> int | None:
     if getattr(ai_runtime.delivery_context, "active", False) and not ai_runtime.enabled(chat_id):
         raise ai_runtime.DeliveryError("AI disabled before delivery")
     if not BOT_TOKEN:
@@ -2736,6 +2736,10 @@ def _send_telegram_message(chat_id: int, text: str, *, reply_to_message_id: int 
         raise RuntimeError(f"Telegram sendMessage returned error: {response_data}")
     result = response_data.get("result") or {}
     message_id = result.get("message_id")
+    if conversation_task_id is not None:
+        from ai_conversation import save_reply
+        try:save_reply(conversation_task_id,chat_id,result,text)
+        except Exception:logger.exception('Failed to save delivered AI conversation: task=%s',conversation_task_id)
     return int(message_id) if message_id is not None else None
 
 
@@ -4585,6 +4589,7 @@ def ai_task_result(task_id: int, request: Request, data: AiTaskResultRequest) ->
                         int(task["chat_id"]),
                         rendered_response,
                         reply_to_message_id=int(task["request_message_id"]),
+                        conversation_task_id=task_id if task['task_type']==TASK_TYPE_RESPONSE else None,
                     )
                 except ai_runtime.DeliveryError:
                     raise

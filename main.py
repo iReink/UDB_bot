@@ -1832,7 +1832,12 @@ def _get_ai_response_trigger(message: types.Message) -> str | None:
 async def maybe_create_ai_response_task(message: types.Message) -> None:
     if not ai_enabled(message.chat.id):
         return
-    text = message.text or message.caption or ''
+    from ai_conversation import request_text,reply_image
+    text = request_text(message,globals().get('BOT_ID'))
+    reference=reply_image(message,globals().get('BOT_ID'))
+    if reference:
+        from imagegen import addressed
+        if addressed(reference,BOT_USERNAME_RUNTIME):return
     if not text or not message.from_user:
         return
     if message.from_user.is_bot:
