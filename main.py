@@ -24,6 +24,7 @@ import sticker_manager
 import sqlite3
 import db
 import cepen
+from cepen_message_events import infection_route
 from db import get_connection, get_chat_users, get_total_stats
 from contextlib import closing
 from db import (
@@ -94,7 +95,7 @@ class CepenMessageMiddleware(BaseMiddleware):
         result = await handler(event, data)
         if not isinstance(event, types.Message) or not event.from_user or event.from_user.is_bot:
             return result
-        kind = "sticker" if event.sticker else "round" if event.video_note else None
+        kind, reply_source_id = infection_route(event, reply_source_id)
         if kind:
             notice = cepen.attempt_primary(event.chat.id, event.from_user.id, kind)
             if notice:
