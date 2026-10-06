@@ -24,6 +24,7 @@ import sticker_manager
 import sqlite3
 import db
 import cepen
+import cepen_shop
 from cepen_message_events import infection_route
 from db import get_connection, get_chat_users, get_total_stats
 from contextlib import closing
@@ -2350,47 +2351,10 @@ async def handle_shop_buy(callback: types.CallbackQuery):
             await action_drink_coffee(callback, item)
             return
         if action == "cepen_cure":
-            cepen_name = cepen.name(chat_id, user_id)
-            result = cepen.cure(chat_id, user_id, price=50)
-            if result == "cured":
-                worm = cepen.subject_from_name(
-                    cepen_name, capital=True, html_mode=True
-                )
-                await callback.message.answer(
-                    f"{worm} у {cepen.mention(chat_id, user_id)} исцелён!",
-                    parse_mode="HTML",
-                )
-                await callback.answer()
-            elif result == "insufficient":
-                await callback.answer("Недостаточно сит для лечения. Нужно 50.", show_alert=True)
-            else:
-                await callback.answer(
-                    "Цепень отключён в этом чате." if result == "disabled" else "У тебя нет цепня.",
-                    show_alert=True,
-                )
+            await cepen_shop.handle(callback, cepen_shop.FULL, confirmed=False)
             return
         if action == "cepen_partial_cure":
-            cepen_name = cepen.name(chat_id, user_id)
-            result, old, new = cepen.partial_cure(chat_id, user_id)
-            if result == "reduced":
-                worm = cepen.subject_from_name(
-                    cepen_name, capital=True, html_mode=True
-                )
-                await callback.message.answer(
-                    f"✂️ {worm} у {cepen.mention(chat_id, user_id)} укорочен на 20%: "
-                    f"{format_sits(old)} → {format_sits(new)} см.",
-                    parse_mode="HTML",
-                )
-                await callback.answer()
-            elif result == "insufficient":
-                await callback.answer("Недостаточно сит. Нужно 10.", show_alert=True)
-            elif result == "disabled":
-                await callback.answer("Цепень отключён в этом чате.", show_alert=True)
-            elif result == "minimum":
-                worm = cepen.subject_from_name(cepen_name, capital=True)
-                await callback.answer(f"{worm} уже минимальной длины — 5 см.", show_alert=True)
-            else:
-                await callback.answer("У тебя нет цепня.", show_alert=True)
+            await cepen_shop.handle(callback, cepen_shop.PARTIAL, confirmed=False)
             return
         if action == "group":
             await callback.message.edit_text(
@@ -2429,6 +2393,20 @@ async def handle_shop_buy(callback: types.CallbackQuery):
     except Exception as e:
         logging.exception(f"Ошибка при покупке товара: {e}")
         await callback.answer("❌ Произошла ошибка при покупке.", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("shop:cure:confirm:"))
+async def handle_cepen_cure_confirmation(callback: types.CallbackQuery):
+    parts = callback.data.split(":")
+    if len(parts) != 5 or parts[3] not in {cepen_shop.FULL, cepen_shop.PARTIAL}:
+        await callback.answer("Некорректное подтверждение лечения.", show_alert=True)
+        return
+    await cepen_shop.handle(
+        callback,
+        parts[3],
+        confirmed=True,
+        token=parts[4],
+    )
 
 
 # ---------- Покупка/выпивание кофе ----------
