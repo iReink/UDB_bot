@@ -3540,22 +3540,43 @@ def readonly_authorizer(action: int, arg1: str | None, arg2: str | None, dbname:
     return sqlite3.SQLITE_DENY if action in denied else sqlite3.SQLITE_OK
 
 
-def execute_readonly_sql(sql: str, *, max_rows: int = 100) -> tuple[list[str], list[tuple[Any, ...]], bool]:
+def execute_readonly_sql(sql: str, *, max_rows: int = 100,
+                         timeout_seconds: float = 5.0, max_vm_steps: int = 20_000_000) -> tuple[list[str], list[tuple[Any, ...]], bool]:
+    import time
+    if timeout_seconds<=0 or max_vm_steps<=0:
+        raise ValueError("SQL execution budgets must be positive")
+    deadline=time.monotonic()+timeout_seconds
+    steps=0
+    exceeded=False
+    def progress():
+        nonlocal steps,exceeded
+        steps+=1000
+        exceeded=steps>=max_vm_steps or time.monotonic()>=deadline
+        return int(exceeded)
     uri = f"file:{DB_FILE.as_posix()}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
+    conn = sqlite3.connect(uri, uri=True,timeout=min(timeout_seconds,5.0))
     try:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("PRAGMA query_only = ON")
         conn.set_authorizer(readonly_authorizer)
-        cur.execute(sql)
-        rows = cur.fetchmany(max_rows + 1)
+        conn.set_progress_handler(progress,1000)
+        try:
+            cur.execute(sql)
+            rows = cur.fetchmany(max_rows + 1)
+        except sqlite3.OperationalError as exc:
+            if exceeded:
+                raise TextToSqlError(
+                    'Запрос к БД превысил лимит выполнения. Упростите JOIN и рекурсивные CTE, фильтруйте chat_id до агрегации; рекурсия должна завершаться.'
+                ) from exc
+            raise
         columns = [item[0] for item in (cur.description or [])]
         truncated = len(rows) > max_rows
         if truncated:
             rows = rows[:max_rows]
         return columns, [tuple(row) for row in rows], truncated
     finally:
+        conn.set_progress_handler(None,0)
         conn.close()
 
 
