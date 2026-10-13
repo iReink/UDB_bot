@@ -117,10 +117,8 @@ def format_result(name, stats):
         filled = min(10, int(percent / 10 + 0.5))
         result = f"Процент гейства: {percent:.1f}%\n{'🍆' * filled}{'▫️' * (10 - filled)}"
     text = f'🌈 Гейметр · {name}\n{result}\n{random.choice(PHRASES)}'
-    text += '\nПо формуле: доля взаимодействий со своим полом.'
     if stats['unknown']:
         text += f"\nСобытий с неизвестным полом партнёра: {stats['unknown']} (только в знаменателе)."
-    text += '\nСтарые укусы без журнала не учтены.'
     return text
 
 

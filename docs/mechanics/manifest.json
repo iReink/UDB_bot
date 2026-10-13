@@ -214,12 +214,12 @@
         "/quest"
       ],
       "path": "docs/mechanics/games.md",
-      "hash": "549356a746d10712fa14970366e3bc431dd33a0bf64bd04e9908a921d178f99e",
+      "hash": "def10407c23ab64e12a9d1bb9925e0643aa2947406c5a0b156eafae11e5f5ac0",
       "dependencies": {
         "dick.py": "32f16947d819c473aca17ead9f582079f0fb0a3adb8bb9c52bf98b1560801dc1",
         "fight_club.py": "c523b60a7cf05b8a9cedd749d1f830afdfa786ef79c70d1a2d205eafb89f610e",
         "sosalsa.py": "2669cc1fcb08cbd4eda475ad761a17cf816b72586abc8939cabfacf6c18d23e2",
-        "gaymeter.py": "e8ff5e28811fc2aea5118e94c1d3b8a41f0b229646b0b8e8e9b827175a0761a1",
+        "gaymeter.py": "88f690b3351ffdea2d19535ef38972605ab321465ea3bae60a8343cd311c00e4",
         "db.py": "a22db24731d09268ff5718a6bd8f8cb369d25c06a7636acb019bb4c240cf595f",
         "help.py": "ce46b8a0a1ef50e6dbcacb560dc842ad072b2de4ce9a27dcf99d635f99ee4a88",
         "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
