@@ -19,10 +19,10 @@
       "dependencies": {
         "ai_conversation.py": "d55051d591ce831971a09fc41abe8d2b949e04096e75bc689e95ac947a2f8756",
         "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
-        "ai_runtime.py": "7d5ede966153ce114dc08dde8e188b85afa5718c26525c857e5b6ea72e76073f",
+        "ai_runtime.py": "5b771f3667e9765f645ca2cece62612eadbc3ef06c3e3d65788602d56005448f",
         "ai_http.py": "3e06c73c493ac292b287ca19c91f9171c29d1ce6eae21b05dfccac10c2c22531",
         "ai_notifications.py": "124ed57444f048f0b23a1f91212627aa257197c2ea53f9a4cd4366313d93802a",
-        "ai_providers.py": "dce1d421e34abc50c9517a45df446da52ff96a3e3c457c0721bcebebf93a2945",
+        "ai_providers.py": "b16112e21b7c5151b19aa545acde0dba8db5134fc65c0105862d2d08e094e6ef",
         "ai_grounding.py": "ad16d93a27bc84934cb786ab7d3986e3b36e09ffbf3f2e0a227b1365ab1a07b6",
         "ai_formatting.py": "341ff851201f3da0be8810b0afef0be7d8388e9bcfd966951fa2ff40537ba6d1",
         "rag_repository.py": "0ecf927f186fd975e5dd298a8b0fc3eeb7c9e5888f70a22652f1a4922bbab761",
@@ -96,10 +96,13 @@
         "аватарка",
         "получить цепня",
         "заразиться",
-        "/cepen"
+        "/cepen",
+        "голос цепня",
+        "голосовое",
+        "озвучка"
       ],
       "path": "docs/mechanics/cepen.md",
-      "hash": "2de8b9c1ba3b4bc938cb3e7a58af86e72830f92503ad5f83a85de96b82cb1284",
+      "hash": "be570d758d319863a8cc88d95bec0a4fe0d645c3108d3e5e2f495afaaf0a610e",
       "dependencies": {
         "cepen.py": "c41633c6f479a949f61f4a0807bc0afdca41c175539783e545f6266342351d7a",
         "cepen_shop.py": "acdd36fe2ff94547dccd43568d9eb6b4fb07da278e135f5097f9aa5b3d9ec44e",
@@ -112,9 +115,11 @@
         "docs/specs/cepen-always-happy-spec.md": "9a1a0394eff536da2e8e652d44a85adf07deb26ee8206c98ce8d46fa17af7e16",
         "docs/specs/cepen-message-route-spec.md": "268e521737e287bfb864095c79852a7ff37787f04a7999c3bd34eaa905acc70f",
         "docs/specs/cepen-cure-confirmation-spec.md": "b8f7fb56b90806c61552e86aba80fe5d731052e334bd3c0cb4ad29981ea57a48",
-        "cepen_messages.py": "c91cb9aee9c4c17a251985d051f841660dce324ba55c3d9ed908bcbbb5726677",
+        "cepen_messages.py": "fe9dd8f99177942961554ea852d7defb1c2a7f8c9c274696bbe22462ddbc22e8",
         "docs/specs/cepen-messages-spec.md": "79bc0dbc4680f88a2a31f144b144907aad001b3eb1f2892b39fbacc605db643e",
-        "docs/specs/cepen-self-scratch-spec.md": "a1d7b104b80ed3c4470ad93abb4260ac164ea008c400b79979eda19596a07942"
+        "docs/specs/cepen-self-scratch-spec.md": "a1d7b104b80ed3c4470ad93abb4260ac164ea008c400b79979eda19596a07942",
+        "cepen_tts.py": "ef2e6eec4c19f2c93a7e0cf4f7304f41710b6a7be2b6d965f0d66b2b4fbca4a1",
+        "docs/specs/cepen-tts.md": "f3943c8b22dbdb9b55592e4125df72697a10f01fe83a4ad13407cd12c102e65b"
       }
     },
     {
@@ -168,7 +173,7 @@
         "db.py": "a22db24731d09268ff5718a6bd8f8cb369d25c06a7636acb019bb4c240cf595f",
         "sits.py": "d15a22b318c726f62d257dee01edb5c0047205333d732b295011fb34ef6d9e7f",
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
-        "STATS_DB_SCHEMA.md": "da33e4340e40f1d9943628f095ee03fc83f3b9929d9ee275c405568054dd98ef"
+        "STATS_DB_SCHEMA.md": "202de5c1158a84ee662f83b3c7bf3a8ef3d6f588dc93cdaf876afb4a5a4d80d0"
       }
     },
     {
@@ -223,7 +228,7 @@
         "db.py": "a22db24731d09268ff5718a6bd8f8cb369d25c06a7636acb019bb4c240cf595f",
         "help.py": "ce46b8a0a1ef50e6dbcacb560dc842ad072b2de4ce9a27dcf99d635f99ee4a88",
         "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
-        "STATS_DB_SCHEMA.md": "da33e4340e40f1d9943628f095ee03fc83f3b9929d9ee275c405568054dd98ef",
+        "STATS_DB_SCHEMA.md": "202de5c1158a84ee662f83b3c7bf3a8ef3d6f588dc93cdaf876afb4a5a4d80d0",
         "tests/test_gaymeter.py": "f2817ca95f458c6dc7f985b27345b9d756c76dc550f823840c88f3d642dc96d6",
         "quest.py": "2f692058152c4025d735b0eb246b712a7d4474ab4ed19baadb2e47e022056962",
         "sex_input.py": "017f625f48115950d42d202dbdc6cc76a18514a99ab0ad6894fa39d47cb94315",
@@ -251,8 +256,8 @@
         "imagegen_hf.py": "7da396a1f08c63f8bd23cf7ef83b6f12a5039fed1c7a54b31ea3742a3118bf65",
         "imagegen_bot.py": "b5de341b974e1e3db411c222e13d8ad74922868c8effda3ec5393d2e19875f95",
         "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
-        "ai_runtime.py": "7d5ede966153ce114dc08dde8e188b85afa5718c26525c857e5b6ea72e76073f",
-        "ai_providers.py": "dce1d421e34abc50c9517a45df446da52ff96a3e3c457c0721bcebebf93a2945",
+        "ai_runtime.py": "5b771f3667e9765f645ca2cece62612eadbc3ef06c3e3d65788602d56005448f",
+        "ai_providers.py": "b16112e21b7c5151b19aa545acde0dba8db5134fc65c0105862d2d08e094e6ef",
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
         "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19"
       }

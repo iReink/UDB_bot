@@ -280,7 +280,7 @@ def call_google(task, timeout, model, tool=None):
     for attempt in range(5):
         contents=[{'role':'user','parts':[{'text':prompt}]+task.get('_image_parts',[])}]
         payload={'contents':contents,'generationConfig':{'temperature':0,'maxOutputTokens':4096 if task.get('task_type') in ('photo_story','photo_story_merge') else 1536}}
-        if task.get('task_type')=='mechanics_refine':
+        if task.get('task_type') in ('mechanics_refine', 'cepen_voice'):
             payload['generationConfig']['maxOutputTokens']=768
             payload['generationConfig']['thinkingConfig']={'thinkingBudget':0} if model=='gemini-3.1-flash-lite' else {'thinkingLevel':'minimal'}
         if task.get('task_type') in ('photo_story','imagegen_prepare'):
