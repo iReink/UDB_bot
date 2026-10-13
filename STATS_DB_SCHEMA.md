@@ -797,6 +797,29 @@ Key: `id`; unique message attachment slot: `(chat_id, message_id, attachment_ind
 | `sosalsa_count` | INTEGER | Количество взаимодействий типа "сосаться" у пары. |
 | `shpehalsa_count` | INTEGER | Количество взаимодействий типа "шпехаться" у пары. |
 
+### `bite_events`
+
+Журнал новых успешных укусов, создаваемый идемпотентно `gaymeter.ensure_schema` из `db.initialize_db`.
+Запись, списание в `sit_ledger`, изменение части тела и общие счётчики выполняются в одной транзакции.
+Старые укусы из `total_stats`/`daily_stats` не восстанавливаются: участники неизвестны.
+
+| Поле | Тип | Описание |
+|---|---:|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT; ID события. |
+| `chat_id` | INTEGER | NOT NULL; чат события. |
+| `biter_id` | INTEGER | NOT NULL; инициатор укуса, CHECK `biter_id != victim_id`. |
+| `victim_id` | INTEGER | NOT NULL; укушенный участник. |
+| `body_part_id` | INTEGER | NOT NULL; логическая ссылка на `body_parts.id`, без FOREIGN KEY. |
+| `created_at` | TEXT | NOT NULL; местное серверное время ISO, точность до секунды, без смещения. |
+| `biter_sex` | TEXT | Снимок пола инициатора: CHECK `m`, `f` или NULL, DEFAULT NULL. |
+| `victim_sex` | TEXT | Снимок пола жертвы: CHECK `m`, `f` или NULL, DEFAULT NULL. |
+
+Все NOT NULL поля без DEFAULT. Индексы `idx_bite_events_biter(chat_id,biter_id)` и
+`idx_bite_events_victim(chat_id,victim_id)`; логические ссылки участников на `users(user_id,chat_id)`
+не ограничены внешними ключами, чтобы журнал сохранялся при изменении профиля.
+`/gay` использует текущий `users.sex` для согласованности с историческими парами `sosalsa_stats`;
+снимки пола сохранены отдельно для аудита. Единица события — один успешный укус.
+
 ### `body_parts`
 
 Справочник частей тела для механики укусов.

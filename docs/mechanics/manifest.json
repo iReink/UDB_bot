@@ -18,7 +18,7 @@
       "hash": "048cb3b90957953a685360c8afb41b349ce4369f6d619dd526628bb15e6dcb0d",
       "dependencies": {
         "ai_conversation.py": "d55051d591ce831971a09fc41abe8d2b949e04096e75bc689e95ac947a2f8756",
-        "ai_tasks.py": "52113291fdc0ff2c5ab2153552aef6c52d81cd8132208234ee82886fc1dfd03f",
+        "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
         "ai_runtime.py": "7d5ede966153ce114dc08dde8e188b85afa5718c26525c857e5b6ea72e76073f",
         "ai_http.py": "3e06c73c493ac292b287ca19c91f9171c29d1ce6eae21b05dfccac10c2c22531",
         "ai_notifications.py": "124ed57444f048f0b23a1f91212627aa257197c2ea53f9a4cd4366313d93802a",
@@ -165,10 +165,10 @@
       "path": "docs/mechanics/economy.md",
       "hash": "2a21cbb1d4eb64deb954c80f887ffaece30f7d4fdfa10b3ecf7e2a5a15444c7f",
       "dependencies": {
-        "db.py": "1de2f0336e7cce29f8cf733490c585e6226a36820cde66659346e23ee346b2c3",
+        "db.py": "a22db24731d09268ff5718a6bd8f8cb369d25c06a7636acb019bb4c240cf595f",
         "sits.py": "d15a22b318c726f62d257dee01edb5c0047205333d732b295011fb34ef6d9e7f",
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
-        "STATS_DB_SCHEMA.md": "5b408c1104a22f256993bd14408f3d333e859381483e39419dcedaea3208cbad"
+        "STATS_DB_SCHEMA.md": "da33e4340e40f1d9943628f095ee03fc83f3b9929d9ee275c405568054dd98ef"
       }
     },
     {
@@ -203,6 +203,9 @@
         "поцелуй",
         "шпёх",
         "квест",
+        "укусы",
+        "гейметр",
+        "/gay",
         "/fight",
         "/dick",
         "/givedick",
@@ -211,11 +214,17 @@
         "/quest"
       ],
       "path": "docs/mechanics/games.md",
-      "hash": "436ca26a2ad04575782e0724df3092f3489fd09f7f394d0672803b92dec769d7",
+      "hash": "549356a746d10712fa14970366e3bc431dd33a0bf64bd04e9908a921d178f99e",
       "dependencies": {
         "dick.py": "32f16947d819c473aca17ead9f582079f0fb0a3adb8bb9c52bf98b1560801dc1",
         "fight_club.py": "c523b60a7cf05b8a9cedd749d1f830afdfa786ef79c70d1a2d205eafb89f610e",
-        "sosalsa.py": "1231d1892d85edaef87007e93f77a55b052f3be71a769468ff7f4a82cf6b53f0",
+        "sosalsa.py": "2669cc1fcb08cbd4eda475ad761a17cf816b72586abc8939cabfacf6c18d23e2",
+        "gaymeter.py": "e8ff5e28811fc2aea5118e94c1d3b8a41f0b229646b0b8e8e9b827175a0761a1",
+        "db.py": "a22db24731d09268ff5718a6bd8f8cb369d25c06a7636acb019bb4c240cf595f",
+        "help.py": "ce46b8a0a1ef50e6dbcacb560dc842ad072b2de4ce9a27dcf99d635f99ee4a88",
+        "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
+        "STATS_DB_SCHEMA.md": "da33e4340e40f1d9943628f095ee03fc83f3b9929d9ee275c405568054dd98ef",
+        "tests/test_gaymeter.py": "f2817ca95f458c6dc7f985b27345b9d756c76dc550f823840c88f3d642dc96d6",
         "quest.py": "2f692058152c4025d735b0eb246b712a7d4474ab4ed19baadb2e47e022056962",
         "sex_input.py": "017f625f48115950d42d202dbdc6cc76a18514a99ab0ad6894fa39d47cb94315",
         "nick_input.py": "17efb096ec36bb52a391741ff195b8677d08219a4b0d479064a064ef6737959e"
@@ -241,7 +250,7 @@
         "imagegen.py": "af5f9fb149f1e8379408f10b078a10eea1011579ad3d0393bdbff1cdd5cac7f5",
         "imagegen_hf.py": "7da396a1f08c63f8bd23cf7ef83b6f12a5039fed1c7a54b31ea3742a3118bf65",
         "imagegen_bot.py": "b5de341b974e1e3db411c222e13d8ad74922868c8effda3ec5393d2e19875f95",
-        "ai_tasks.py": "52113291fdc0ff2c5ab2153552aef6c52d81cd8132208234ee82886fc1dfd03f",
+        "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
         "ai_runtime.py": "7d5ede966153ce114dc08dde8e188b85afa5718c26525c857e5b6ea72e76073f",
         "ai_providers.py": "dce1d421e34abc50c9517a45df446da52ff96a3e3c457c0721bcebebf93a2945",
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
@@ -263,7 +272,7 @@
       "hash": "9c5ad9edc3cc33d12c7b10261b61bc05be858e137caea758296dc1008019e023",
       "dependencies": {
         "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19",
-        "db.py": "1de2f0336e7cce29f8cf733490c585e6226a36820cde66659346e23ee346b2c3",
+        "db.py": "a22db24731d09268ff5718a6bd8f8cb369d25c06a7636acb019bb4c240cf595f",
         "ai_worker_client.py": "9dbb7715cdc671f4c50ec261c601b3cd956708ff122f886542985b9091a17e52",
         "ai_worker.py": "f1a194a60ab08311b2e598cfe90c6f27b21b89df137463e3e024b66eaffd877d",
         "ai_classifier_worker.py": "d985201103edf0df9d7907defa1a79cb428c9deb5a68e46f5ecd1b356497257d",
@@ -300,7 +309,7 @@
       "hash": "10ec6cdefc323d9c84d41b1580440a52a44c928a2bc478b5cb0f03bdb446944a",
       "dependencies": {
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
-        "help.py": "c70a35b5ae87590d32d9ca148e51a1b260333b94bf5cf27c703acf975598ae0b",
+        "help.py": "ce46b8a0a1ef50e6dbcacb560dc842ad072b2de4ce9a27dcf99d635f99ee4a88",
         "nick_input.py": "17efb096ec36bb52a391741ff195b8677d08219a4b0d479064a064ef6737959e",
         "sex_input.py": "017f625f48115950d42d202dbdc6cc76a18514a99ab0ad6894fa39d47cb94315",
         "settings.py": "efa5696b7eda37d3d997d91f08e389e87acda9cbd7d1442f5e410bc0776e24df"

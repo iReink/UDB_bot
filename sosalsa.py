@@ -11,6 +11,8 @@ import logging
 from db import get_connection, get_user_sex, add_sits, award_sits, get_user_display_name as db_get_user_display_name
 from dick import try_bite_dick
 from sits import normalize_sits
+from db import apply_sit_change, InsufficientSitsError
+import gaymeter
 
 # ==========================
 # ЖЕНАТЫЕ ПАРЫ (можно добавлять новых)
@@ -18,7 +20,6 @@ from sits import normalize_sits
 MARRIED_PAIRS = [
     (749027951, 884940984),
     (166083474,209887368),
-    (1235654176, 765591886),
 ]
 
 
@@ -96,7 +97,7 @@ def ensure_user_body_parts(user_id: int, chat_id: int):
     """Проверяет, есть ли у пользователя все части тела в user_body_parts.
     Если какой-то части нет, создаёт запись с state=1.
     """
-    with get_connection() as conn:
+    with closing(get_connection()) as conn, conn:
         cur = conn.cursor()
 
         # Получаем все части тела
@@ -440,6 +441,8 @@ def get_sits(chat_id: int, user_id: int) -> int | float:
 # ==========================
 
 def register_sos_handlers(dp):
+    dp.message.register(gaymeter.gay_command, Command("gay"))
+
     @dp.message(Command("sos"))
     async def sos_command(message: types.Message):
         await message.answer("Выбирай действие:", reply_markup=get_sos_menu())
@@ -583,7 +586,8 @@ def register_sos_handlers(dp):
                 ensure_user_body_parts(uid, chat_id)
 
             # Фильтруем пользователей с хотя бы одной живой частью тела
-            with get_connection() as conn:
+            with closing(get_connection()) as conn, conn:
+                conn.execute("BEGIN IMMEDIATE")
                 cur = conn.cursor()
                 users_with_parts = []
                 for uid in active_users:
@@ -600,15 +604,6 @@ def register_sos_handlers(dp):
                     await query.answer("Извини, уже всё откусили до тебя 😢", show_alert=True)
                     return
 
-                # Списываем сит
-                add_sits(
-                    chat_id,
-                    user_id,
-                    -cost,
-                    action_code="bite_purchase",
-                    action_ru="Покупка укуса",
-                )
-
                 # Выбираем случайного «жертву»
                 victim_id = random.choice(users_with_parts)
 
@@ -623,6 +618,19 @@ def register_sos_handlers(dp):
                 victim_part = random.choice(parts)
                 part_id = victim_part["body_part_id"]
                 part_name = victim_part["name_acc"]
+
+                try:
+                    apply_sit_change(
+                        conn, chat_id, user_id, -cost,
+                        action_code="bite_purchase", action_ru="Покупка укуса",
+                        metadata={"target_user_id": victim_id, "body_part_id": part_id},
+                        require_sufficient=True,
+                    )
+                except InsufficientSitsError:
+                    conn.rollback()
+                    await query.answer("Недостаточно сит для покупки действия!", show_alert=True)
+                    return
+                gaymeter.log_bite(conn, chat_id, user_id, victim_id, part_id)
 
                 # Откусываем жертву
                 cur.execute("""

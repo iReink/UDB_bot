@@ -306,6 +306,8 @@ def initialize_db():
             """)
         import bank_core
         bank_core.ensure_schema(conn)
+        import gaymeter
+        gaymeter.ensure_schema(conn)
         conn.commit()
 
 # -------------------------------

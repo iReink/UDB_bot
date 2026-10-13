@@ -218,6 +218,7 @@ CHAT_SCOPED_TABLES = {
     "user_achievements",
     "mujlo",
     "sosalsa_stats",
+    "bite_events",
     "user_quests",
     "daily_events",
     "settings",
