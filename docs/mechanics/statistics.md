@@ -1,4 +1,4 @@
-{"id":"statistics","title":"Статистика, награды и чатовые реакции","keywords":["статистика","флуд","награда","топ","ачивка","лайк","стикер"],"sources":["main.py","chat_stat.py","weekly_awards.py","profanity.py","sticker_manager.py","bot_word_reactions.py","hall.py","new_year.py"]}
+{"id": "statistics", "title": "Статистика, награды и чатовые реакции", "keywords": ["статистика", "флуд", "награда", "топ", "ачивка", "лайк", "стикер", "/flood", "/stat", "/weeklytop", "/totaltop", "/graph", "/top_stickers", "/hall", "/all", "/addme", "/deleteme"], "sources": ["main.py", "chat_stat.py", "weekly_awards.py", "profanity.py", "sticker_manager.py", "bot_word_reactions.py", "hall.py", "new_year.py"]}
 ---
 # Статистика, награды и чатовые реакции
 

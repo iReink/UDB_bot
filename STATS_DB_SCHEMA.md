@@ -37,7 +37,8 @@ current INTEGER NOT NULL DEFAULT 1 (актуальная версия). Оста
 ai_rag_queries: queued/preparing/done/timeout; UTC ISO-дедлайн пять секунд,
 token/lease_until ограждают поздний результат. Триггер ai_mechanics_prepare
 срабатывает при INSERT mechanics/text_to_sql/data_analysis_sql после готовности справки.
-В payload_json.mechanics сохраняются query, fragments с ревизиями, error и duration_ms;
+Дедлайн mechanics — 15 секунд от создания, text_to_sql/data_analysis_sql — 5 секунд. Аренда подготовки ограничена этим же дедлайном. Триггер переопределяется при инициализации для старых БД; таблицы и колонки не меняются.
+В payload_json.mechanics сохраняются query, original_query, refinement (topic, queries, needed_facts), fallback_reason, fragments с ревизиями, error и duration_ms; новые поля необязательны для старых задач.
 анализ использует снимок родительского SQL. ai_rag_state хранит mechanics_* состояние,
 агрегаты, хеш манифеста и завершение первичного прохода.
 ai_rag_usage.purpose дополнительно допускает mechanics_index и mechanics_probe; tokens — токены,

@@ -1,4 +1,4 @@
-{"id":"participation","title":"Участники, команды и персональные настройки","keywords":["команда","ник","пол","упоминание","помощь","участник"],"sources":["main.py","help.py","nick_input.py","sex_input.py","settings.py"]}
+{"id": "participation", "title": "Участники, команды и персональные настройки", "keywords": ["команда", "ник", "пол", "упоминание", "помощь", "участник", "/help", "/addme", "/deleteme", "/all"], "sources": ["main.py", "help.py", "nick_input.py", "sex_input.py", "settings.py"]}
 ---
 # Участники, команды и персональные настройки
 

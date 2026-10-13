@@ -1,4 +1,4 @@
-{"id":"daily","title":"Дейлики, календарь и фото","keywords":["дейлик","встреча","водитель","машина","фото","альбом","календарь"],"sources":["daily.py","daily_search_bot.py","daily_search_store.py","google_calendar_integration.py","photo_bot.py","photo_albums.py","photo_convert.py","web/photo_api.py","daily_photo_story.py","photo_story.py","photo_story_bot.py","web/static/album.js","web/static/album.css","web/templates/album.html"]}
+{"id": "daily", "title": "Дейлики, календарь и фото", "keywords": ["дейлик", "встреча", "водитель", "машина", "фото", "альбом", "календарь", "/daily"], "sources": ["daily.py", "daily_search_bot.py", "daily_search_store.py", "google_calendar_integration.py", "photo_bot.py", "photo_albums.py", "photo_convert.py", "web/photo_api.py", "daily_photo_story.py", "photo_story.py", "photo_story_bot.py", "web/static/album.js", "web/static/album.css", "web/templates/album.html"]}
 ---
 # Дейлики, календарь и фото
 

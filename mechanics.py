@@ -23,11 +23,12 @@ def ensure_schema(conn):
     if repo.exists(conn,'ai_tasks'):
         # One common insertion hook covers commands, classifier, API and retries
         # creating new SQL tasks, without network calls inside transactions.
-        conn.execute('''CREATE TRIGGER IF NOT EXISTS ai_mechanics_prepare AFTER INSERT ON ai_tasks
+        conn.execute('DROP TRIGGER IF EXISTS ai_mechanics_prepare')
+        conn.execute('''CREATE TRIGGER ai_mechanics_prepare AFTER INSERT ON ai_tasks
             WHEN NEW.task_type IN ('mechanics','text_to_sql','data_analysis_sql')
             AND EXISTS(SELECT 1 FROM ai_rag_state WHERE key='mechanics_ready' AND value='1')
             BEGIN
-            UPDATE ai_tasks SET rag_state='queued',rag_deadline_at=strftime('%Y-%m-%dT%H:%M:%f','now','+5 seconds') WHERE id=NEW.id;
+            UPDATE ai_tasks SET rag_state='queued',rag_deadline_at=strftime('%Y-%m-%dT%H:%M:%f','now',CASE WHEN NEW.task_type='mechanics' THEN '+15 seconds' ELSE '+5 seconds' END) WHERE id=NEW.id;
             INSERT OR IGNORE INTO ai_rag_queries(task_id,state,created_at) VALUES(NEW.id,'queued',strftime('%Y-%m-%dT%H:%M:%f','now'));
             END''')
 
@@ -164,11 +165,22 @@ def retrieve(task,deadline):
     payload=json.loads(task['payload_json'] or '{}');query=str(payload.get('user_query') or payload.get('message_text') or '')[:1800]
     # Short memory is context for elliptical questions, never a source of rules.
     from ai_tasks import get_response_short_memory
-    recent=get_response_short_memory(chat_id=task['chat_id'],before_message_id=task['request_message_id'])[-3:]
+    elliptical=bool(re.search(r'\b(его|её|ее|него|неё|нее|это|этого|там|так)\b',query.lower()))
+    recent=get_response_short_memory(chat_id=task['chat_id'],before_message_id=task['request_message_id'])[-3:] if elliptical else []
     question=query+'\n'+'\n'.join(str(r.get('text',''))[:200] for r in recent)
-    words=list(dict.fromkeys(w for w in re.findall(r'\w+',query.lower()) if len(w)>=3 and w not in STOP))[:12]
+    from mechanics_search import lexical,refine
+    ranked=lexical(query)
+    refinement=None;fallback=None
+    if task.get('task_type')=='mechanics':
+        refinement,fallback=refine(task,question,[r['title'] for _,r in ranked],deadline)
+        if refinement:
+            for phrase in refinement['queries']:
+                if time.monotonic()>=deadline:break
+                ranked.extend(lexical(phrase))
+    lexical_scores={}
+    for score,row in ranked:lexical_scores[row['id']]=max(score,lexical_scores.get(row['id'],0))
+    ids=sorted(lexical_scores,key=lexical_scores.get,reverse=True)
     with closing(repo.connect()) as conn:
-        ids=[r[0] for r in conn.execute('SELECT id FROM ai_mechanics_fts WHERE ai_mechanics_fts MATCH ? ORDER BY bm25(ai_mechanics_fts) LIMIT 20',(' OR '.join('"'+w+'"*' for w in words),))] if words else []
         priority=urgent(conn)
         semantic_enabled=repo.get_state(conn,'mechanics_semantic_enabled')=='1'
     semantic=[];error='Приоритетная индексация справочника: лексический поиск' if priority else None
@@ -179,21 +191,23 @@ def retrieve(task,deadline):
                 semantic=Qdrant(COLLECTION).request('POST','/collections/'+COLLECTION+'/points/query',
                     dict(query=vector,limit=30,with_payload=False,filter={'must':[{'key':'index_version','match':{'value':repo.VERSION}}]}),timeout=min(1,deadline-time.monotonic()))['points']
         except Unavailable as exc:error=str(exc)
-    scores={}
+    scores={ident:score for ident,score in lexical_scores.items()}
     for candidates in ([str(p['id']) for p in semantic if p.get('score',0)>=SEMANTIC_THRESHOLD],ids):
         for rank,ident in enumerate(candidates):scores[ident]=scores.get(ident,0)+1/(60+rank+1)
     fragments=[];count=repo.tokens(START+GUARD+END);chars=len(START+GUARD+END)
+    minimum=max(lexical_scores.values(),default=0)*.5
     with closing(repo.connect()) as conn:
         for ident in sorted(scores,key=scores.get,reverse=True):
             if time.monotonic()>=deadline:break
+            if minimum and scores[ident]<minimum:continue
             row=conn.execute('SELECT * FROM ai_mechanics_sections WHERE id=? AND current=1',(ident,)).fetchone()
             if not row:continue
             size=repo.tokens(row['text'])+2;length=len(row['text'])+2
             if count+size>2000 or chars+length>8000:continue
             fragments.append({k:row[k] for k in ('id','document_id','section_id','title','text','revision')})
             count+=size;chars+=length
-            if len(fragments)==4:break
-    return dict(scope='mechanics',query=question,fragments=fragments,error=error,candidates=len(scores))
+    return dict(scope='mechanics',query=question,original_query=query,refinement=refinement,
+        fallback_reason=fallback,fragments=fragments,error=error,candidates=len(scores))
 
 
 def prepare(task):

@@ -1,11 +1,12 @@
-{"id": "cepen", "title": "Цепень: заражение, рост, уход и ИИ-аватарка", "keywords": ["цепень", "рост", "заражение", "чесать", "профессия", "скин", "лечение", "анабиоз", "аватарка"], "sources": ["cepen.py", "cepen_shop.py", "cepen_message_events.py", "cepen_avatar.py", "cepen_ai_avatar.py", "docs/cepen-spec.md", "docs/cepen-growth-benefits-spec.md", "docs/specs/cepen-ai-avatar-spec.md", "docs/specs/cepen-always-happy-spec.md", "docs/specs/cepen-message-route-spec.md", "docs/specs/cepen-cure-confirmation-spec.md", "cepen_messages.py", "docs/specs/cepen-messages-spec.md", "docs/specs/cepen-self-scratch-spec.md"]}
+{"id": "cepen", "title": "Цепень: заражение, рост, уход и ИИ-аватарка", "keywords": ["цепень", "рост", "заражение", "чесать", "профессия", "скин", "лечение", "анабиоз", "аватарка", "получить цепня", "заразиться", "/cepen"], "sources": ["cepen.py", "cepen_shop.py", "cepen_message_events.py", "cepen_avatar.py", "cepen_ai_avatar.py", "docs/cepen-spec.md", "docs/cepen-growth-benefits-spec.md", "docs/specs/cepen-ai-avatar-spec.md", "docs/specs/cepen-always-happy-spec.md", "docs/specs/cepen-message-route-spec.md", "docs/specs/cepen-cure-confirmation-spec.md", "cepen_messages.py", "docs/specs/cepen-messages-spec.md", "docs/specs/cepen-self-scratch-spec.md"]}
 ---
 # Цепень: заражение, рост и уход
 
 ## Полный и частичный рост {#growth}
 Начальная длина цепня 5. Полный новый размер L×1.15, цена L×0.1, округление до тысячных. При недостатке полного бюджета, но балансе не меньше 10% полной цены, возможен частичный рост: коэффициент = доступный баланс / полная цена, прирост L×0.15×коэффициент. Ниже минимума — анабиоз без роста и оплаты. Рост выполняется один раз за серверную дату и зависит от включения механики. Цена зависит от прежней длины, а не новой. Для личного ответа нужны users.cepen, users.sits, cepen_growth_date; длина члена хранится отдельно в dicks.length.
 
-## Заражение и события {#infection}
+## Как получить цепня: заражение и события {#infection}
+Получить цепня можно случайно: заразиться при некоторых действиях и событиях в чате. Покупать цепня или проходить отдельный квест для этого не нужно. При первом заражении появляется цепень длиной 5 см, а меню открывается командой /cepen. Механика должна быть включена в чате.
 Заражение вероятностное, а не гарантированная награда за событие. Первичные вероятности: гейзер 2,5%, кофе 0,4%, кружок 0,3%, стикер 0,06%; заражение через reply 0,25%. Одно Telegram-сообщение участвует только в одном маршруте: стикер всегда проверяется как стикер, кружок — как кружок, даже если Telegram передал для него reply-контекст. Вторичное заражение через reply проверяется только для сообщений без этих первичных медиа. Групповые события и дейлики используют собственные вероятности и защиту от повторного события в cepen_event_checks. Настройка enable_cepen выключает механику. Повторный контакт не означает нового заражения уже заражённого участника.
 
 ## Чесание и лечение {#care}

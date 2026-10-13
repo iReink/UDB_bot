@@ -205,7 +205,7 @@ def call_groq(task, timeout, model=None):
         r=ai_audit.post('https://api.groq.com/openai/v1/chat/completions',provider='groq',model=model,headers={'Authorization':'Bearer '+key},json={
             'model':model,'messages':messages,
             'temperature':0,'reasoning_effort':'low','include_reasoning':False,
-            'max_completion_tokens':completion_limit},timeout=(5,timeout))
+            'max_completion_tokens':completion_limit},timeout=(5,timeout) if isinstance(timeout,(int,float)) else timeout)
     except requests.RequestException:
         cool_model(model,30)
         raise ProviderUnavailable('External API: Groq transport failure',provider_cooldown=False)
@@ -229,12 +229,19 @@ def call_groq(task, timeout, model=None):
         raise ProviderUnavailable('External API: malformed Groq result',provider_cooldown=False)
 
 
-def google_request(model, method, payload, key, timeout, tool=None):
+def google_request(model, method, payload, key, timeout, tool=None, deadline=None):
     from ai_runtime import cool_model
     try:
         post = ai_http.post if method == 'countTokens' else lambda url, **kw: ai_audit.post(url, provider='google', model=model, **kw)
+        request_timeout=(5,timeout)
+        if deadline is not None:
+            import time
+            from urllib3.util import Timeout
+            remaining=deadline-time.monotonic()
+            if remaining<=0:raise ProviderUnavailable('Search refinement deadline exceeded',provider_cooldown=False)
+            request_timeout=Timeout(total=remaining,connect=min(2,remaining),read=remaining)
         r=post('https://generativelanguage.googleapis.com/v1beta/models/'+model+':'+method,
-                        headers={'x-goog-api-key':key},json=payload,timeout=(5,timeout))
+                        headers={'x-goog-api-key':key},json=payload,timeout=request_timeout)
     except requests.RequestException:
         if tool:
             from ai_grounding import cool_tool
@@ -273,6 +280,9 @@ def call_google(task, timeout, model, tool=None):
     for attempt in range(5):
         contents=[{'role':'user','parts':[{'text':prompt}]+task.get('_image_parts',[])}]
         payload={'contents':contents,'generationConfig':{'temperature':0,'maxOutputTokens':4096 if task.get('task_type') in ('photo_story','photo_story_merge') else 1536}}
+        if task.get('task_type')=='mechanics_refine':
+            payload['generationConfig']['maxOutputTokens']=768
+            payload['generationConfig']['thinkingConfig']={'thinkingBudget':0} if model=='gemini-3.1-flash-lite' else {'thinkingLevel':'minimal'}
         if task.get('task_type') in ('photo_story','imagegen_prepare'):
             payload['generationConfig']['thinkingConfig']={'thinkingLevel':'low' if model in ('gemini-3.8-flash','gemini-3.7-flash') else 'minimal'}
         if tool:
@@ -286,7 +296,7 @@ def call_google(task, timeout, model, tool=None):
         if system:
             payload['systemInstruction']={'parts':[{'text':system}]}
         count_payload={'generateContentRequest':{'model':'models/'+model,**payload}} if system or tool else {'contents':contents}
-        counted=google_request(model,'countTokens',count_payload,key,min(timeout,15),tool=tool)
+        counted=google_request(model,'countTokens',count_payload,key,min(timeout,15),tool=tool,**({'deadline':task['_call_deadline']} if '_call_deadline' in task else {}))
         try:count=int(counted['totalTokens'])+64
         except (KeyError,TypeError,ValueError):raise ProviderUnavailable('External API: missing token count',provider_cooldown=False)
         if count<=model_limits(model)['TPM']:break
@@ -301,7 +311,7 @@ def call_google(task, timeout, model, tool=None):
         delay=max(budget_wait(model,count,completion_limit),tool_wait(tool,model) if tool else 0,1)
         raise ProviderUnavailable('External API: model budget occupied',delay,False,budget_kind(model,count,completion_limit))
     try:
-        body=google_request(model,'generateContent',payload,key,timeout,tool=tool)
+        body=google_request(model,'generateContent',payload,key,timeout,tool=tool,**({'deadline':task['_call_deadline']} if '_call_deadline' in task else {}))
     except ProviderUnavailable:
         # Unknown transport outcomes keep the conservative reservation.
         raise
@@ -336,6 +346,20 @@ def call_google(task, timeout, model, tool=None):
         cool_model(model,30)
         raise ProviderUnavailable('External API: Google returned no final text',provider_cooldown=False)
     return output,{'provider':'google','model':model,'usage':normalized}
+
+
+def call_external_once(task, timeout):
+    """One eligible model, no provider traversal/retries for optional refinement."""
+    import time
+    from ai_runtime import model_ready,budget_wait
+    from urllib3.util import Timeout
+    deadline=time.monotonic()+timeout
+    for model in external_models('response'):
+        if not model_ready(model) or budget_wait(model):continue
+        if model.startswith('openai/'):
+            return call_groq(task,Timeout(total=timeout,connect=min(2,timeout),read=timeout),model)
+        return call_google(dict(task,_call_deadline=deadline),timeout,model)
+    raise ProviderUnavailable('No eligible refinement model',provider_cooldown=False)
 
 
 def call_external(task, timeout):

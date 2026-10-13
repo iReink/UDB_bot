@@ -11,25 +11,26 @@
         "саммери",
         "профиль",
         "RAG",
-        "поиск"
+        "поиск",
+        "/summary"
       ],
       "path": "docs/mechanics/ai.md",
-      "hash": "aa9543677929787ded23d583eb31f9dcb7a3d0696de7a29aa7a3382bafab3498",
+      "hash": "048cb3b90957953a685360c8afb41b349ce4369f6d619dd526628bb15e6dcb0d",
       "dependencies": {
         "ai_conversation.py": "d55051d591ce831971a09fc41abe8d2b949e04096e75bc689e95ac947a2f8756",
-        "ai_tasks.py": "075df67cf2c24bd5058f594f54e47c2f90150dd04f55870b441f037a2be78861",
+        "ai_tasks.py": "52113291fdc0ff2c5ab2153552aef6c52d81cd8132208234ee82886fc1dfd03f",
         "ai_runtime.py": "7d5ede966153ce114dc08dde8e188b85afa5718c26525c857e5b6ea72e76073f",
         "ai_http.py": "3e06c73c493ac292b287ca19c91f9171c29d1ce6eae21b05dfccac10c2c22531",
         "ai_notifications.py": "124ed57444f048f0b23a1f91212627aa257197c2ea53f9a4cd4366313d93802a",
-        "ai_providers.py": "0917afaf7fea10890ccd1af15fc96dd99040e5a42d3f0813f98c932c39fe3b1f",
+        "ai_providers.py": "dce1d421e34abc50c9517a45df446da52ff96a3e3c457c0721bcebebf93a2945",
         "ai_grounding.py": "ad16d93a27bc84934cb786ab7d3986e3b36e09ffbf3f2e0a227b1365ab1a07b6",
         "ai_formatting.py": "341ff851201f3da0be8810b0afef0be7d8388e9bcfd966951fa2ff40537ba6d1",
         "rag_repository.py": "0ecf927f186fd975e5dd298a8b0fc3eeb7c9e5888f70a22652f1a4922bbab761",
-        "rag_search.py": "1975b9f9bd576485bc4aa22fbb752e91061d08b2c10bd1d22dc3b0d00ba7b38c",
+        "rag_search.py": "02bf93c5da9e335f1ff8e999753af10a76998fceeff9daa7a5c1f5d203879161",
         "rag_embedding.py": "9a50cfc63bc780befd5b2715ed37535c2470f916c3f67b37a04a0ab12ba915c2",
-        "rag_service.py": "3f3799b76cc1bdfc15aaa6fadbfb219b03e5eeea05be6ca67a91a7fabb3e97f6",
+        "rag_service.py": "5a8b4b826509df870b5f4e2118a9453b69aa13319da7fe81a7947333921e1320",
         "rag_counters.py": "0c8ae43bb7085e8891c317557ece6088a1d645eabcabdda22355d5ffdebdc828",
-        "mechanics.py": "988efb342931e2f2f1f3ec0561fea1ef98d1bb90d7ca57d0405f06c855c6283d",
+        "mechanics.py": "c384bc793ed9f256dddb3d31afe8394df2393b3b8f9e0fb81f5f5472744f5d05",
         "summary_bot.py": "8ed6638fe2fb5fd9c7fb642815908ce508a53e76844ba237ce6c1cacd69da878",
         "summary_access.py": "4d458f99805801cab4eefa03bc168e237471ad8ea331b59e55d619ed47dab73f",
         "web/summary_app.py": "95ec26b4bcd9588a4de9edfc161c2538a768fb26cb1218424f91ca8926b1e6b8",
@@ -54,7 +55,8 @@
         "web/templates/album.html": "34c4a8626086503efd5bdd5768b7e31ff94efcefdfb169962b8f58d32b6cdcb6",
         "web/ai_dashboard.py": "4a7f41d3eeb1d60369d764e1f117283612e5985623a1bc6da0d26689bb222272",
         "web/templates/ai_tasks.html": "9e846ad75a357053039c8bcd760ccf6a435fa53cf81f7c7584cd2250287a7eeb",
-        "web/static/ai_tasks.css": "3339f00e89e612ad42a57d927833892b2c6d0825c7c1d849263187a6ab082bef"
+        "web/static/ai_tasks.css": "3339f00e89e612ad42a57d927833892b2c6d0825c7c1d849263187a6ab082bef",
+        "mechanics_search.py": "d8f36d7174e5f11125053d530f7bd5875dc762d4d4db3c08ae38a07a31c247e7"
       }
     },
     {
@@ -67,10 +69,12 @@
         "ставка",
         "дефолт",
         "ликвидность",
-        "рейтинг"
+        "рейтинг",
+        "процент по вкладу",
+        "/bank"
       ],
       "path": "docs/mechanics/bank.md",
-      "hash": "1e01e3c6f6c4e5913a5d0cedbb7bef22f936d187be8dd8095271bc7ceeab2215",
+      "hash": "5f33cc4b0a4bb02d30b30ac3c3d2713acface5a4557c26e8a96ee0e7b225f89b",
       "dependencies": {
         "bank_core.py": "ab4c0f4e35022669d985bc21000f6e41bf57599593dfe36c42d82f3c207f6f4c",
         "bank_bot.py": "f773a7e869bd2b1630369e49b95008968c8271a839b949d23fafc83efe7fa8a9",
@@ -89,10 +93,13 @@
         "скин",
         "лечение",
         "анабиоз",
-        "аватарка"
+        "аватарка",
+        "получить цепня",
+        "заразиться",
+        "/cepen"
       ],
       "path": "docs/mechanics/cepen.md",
-      "hash": "42e18ab4df5c0cb124ac3dc3ab7b780f6a51dca6a03f415d02619a7e8f9a52b7",
+      "hash": "2de8b9c1ba3b4bc938cb3e7a58af86e72830f92503ad5f83a85de96b82cb1284",
       "dependencies": {
         "cepen.py": "c41633c6f479a949f61f4a0807bc0afdca41c175539783e545f6266342351d7a",
         "cepen_shop.py": "acdd36fe2ff94547dccd43568d9eb6b4fb07da278e135f5097f9aa5b3d9ec44e",
@@ -120,10 +127,11 @@
         "машина",
         "фото",
         "альбом",
-        "календарь"
+        "календарь",
+        "/daily"
       ],
       "path": "docs/mechanics/daily.md",
-      "hash": "81b3a7f374162a13e607888a99acae205346f7e25dd58eaad7012dd05cc5fcf2",
+      "hash": "358109d65aecfb460415de36609d125916f4b9a3c87e0b2dde0437cc79f1a777",
       "dependencies": {
         "daily.py": "0e220d9596293cc630a601019603563ca20824f11b8287c9e90dca6374b102da",
         "daily_search_bot.py": "d2f312a8a6ad04d6f0e56f0789673fa4e5422405ddf5633f54f1d738dcd5385c",
@@ -150,30 +158,33 @@
         "заработок",
         "доход",
         "налог",
-        "перевод"
+        "перевод",
+        "/give",
+        "/charity"
       ],
       "path": "docs/mechanics/economy.md",
-      "hash": "f6493ec376ae9afb0ebcecd2ef4853dccb1742294d209adc0c368740cfa71022",
+      "hash": "2a21cbb1d4eb64deb954c80f887ffaece30f7d4fdfa10b3ecf7e2a5a15444c7f",
       "dependencies": {
         "db.py": "1de2f0336e7cce29f8cf733490c585e6226a36820cde66659346e23ee346b2c3",
         "sits.py": "d15a22b318c726f62d257dee01edb5c0047205333d732b295011fb34ef6d9e7f",
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
-        "STATS_DB_SCHEMA.md": "bb8d555ef6837a5393e311fee9d128dd5939c2796a3a9305fca14741d75fda85"
+        "STATS_DB_SCHEMA.md": "5b408c1104a22f256993bd14408f3d333e859381483e39419dcedaea3208cbad"
       }
     },
     {
       "id": "events",
-      "title": "Гейзеры и групповые события",
+      "title": "Гейзеры и групповая мастурбация",
       "keywords": [
         "гейзер",
         "расписание",
         "ведёрко",
-        "групповая",
+        "групповая мастурбация",
+        "групповой дроч",
         "участник",
         "зритель"
       ],
       "path": "docs/mechanics/events.md",
-      "hash": "98ab631d6330d14c44793fbcf4f1b4292b1eecc3c274fa4270f420c97af4ea98",
+      "hash": "dc7281889b7872ed0e8aac2b13784830ae6d7778df29e83215be08059f088ae5",
       "dependencies": {
         "geyser.py": "14749aa91af286612c9cd8ccb4ffa154a0c894ecf7c54e366576382783a4e207",
         "group.py": "30d31850acd760e5005588b12c7a36e4d7d859bd6722ff34085e91e994dc2762",
@@ -191,10 +202,16 @@
         "сосаться",
         "поцелуй",
         "шпёх",
-        "квест"
+        "квест",
+        "/fight",
+        "/dick",
+        "/givedick",
+        "/sos",
+        "/help",
+        "/quest"
       ],
       "path": "docs/mechanics/games.md",
-      "hash": "24a89cd5a947476bf0a198f3016a3a183cb7686980528b1d5be12d2a09dcc176",
+      "hash": "436ca26a2ad04575782e0724df3092f3489fd09f7f394d0672803b92dec769d7",
       "dependencies": {
         "dick.py": "32f16947d819c473aca17ead9f582079f0fb0a3adb8bb9c52bf98b1560801dc1",
         "fight_club.py": "c523b60a7cf05b8a9cedd749d1f830afdfa786ef79c70d1a2d205eafb89f610e",
@@ -224,9 +241,9 @@
         "imagegen.py": "af5f9fb149f1e8379408f10b078a10eea1011579ad3d0393bdbff1cdd5cac7f5",
         "imagegen_hf.py": "7da396a1f08c63f8bd23cf7ef83b6f12a5039fed1c7a54b31ea3742a3118bf65",
         "imagegen_bot.py": "b5de341b974e1e3db411c222e13d8ad74922868c8effda3ec5393d2e19875f95",
-        "ai_tasks.py": "075df67cf2c24bd5058f594f54e47c2f90150dd04f55870b441f037a2be78861",
+        "ai_tasks.py": "52113291fdc0ff2c5ab2153552aef6c52d81cd8132208234ee82886fc1dfd03f",
         "ai_runtime.py": "7d5ede966153ce114dc08dde8e188b85afa5718c26525c857e5b6ea72e76073f",
-        "ai_providers.py": "0917afaf7fea10890ccd1af15fc96dd99040e5a42d3f0813f98c932c39fe3b1f",
+        "ai_providers.py": "dce1d421e34abc50c9517a45df446da52ff96a3e3c457c0721bcebebf93a2945",
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
         "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19"
       }
@@ -273,10 +290,14 @@
         "пол",
         "упоминание",
         "помощь",
-        "участник"
+        "участник",
+        "/help",
+        "/addme",
+        "/deleteme",
+        "/all"
       ],
       "path": "docs/mechanics/participation.md",
-      "hash": "723f7232e935fe3e25f82446b06792fa457051e514a9eb568fb51ab42483e7ec",
+      "hash": "10ec6cdefc323d9c84d41b1580440a52a44c928a2bc478b5cb0f03bdb446944a",
       "dependencies": {
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
         "help.py": "c70a35b5ae87590d32d9ca148e51a1b260333b94bf5cf27c703acf975598ae0b",
@@ -294,10 +315,12 @@
         "фильтр",
         "штраф",
         "мужло",
-        "подписка"
+        "подписка",
+        "/shop",
+        "/help"
       ],
       "path": "docs/mechanics/shop.md",
-      "hash": "000c15b501887a1378e239f22ba87a605257edd74fa15605d2a42409aa7cfcf7",
+      "hash": "83c1f3a711bb0ea73f88932d899c1cf1e31e9c5139aca54747e0356af4487a60",
       "dependencies": {
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
         "cepen_shop.py": "acdd36fe2ff94547dccd43568d9eb6b4fb07da278e135f5097f9aa5b3d9ec44e",
@@ -316,10 +339,20 @@
         "топ",
         "ачивка",
         "лайк",
-        "стикер"
+        "стикер",
+        "/flood",
+        "/stat",
+        "/weeklytop",
+        "/totaltop",
+        "/graph",
+        "/top_stickers",
+        "/hall",
+        "/all",
+        "/addme",
+        "/deleteme"
       ],
       "path": "docs/mechanics/statistics.md",
-      "hash": "59f77c1006dc992a3d270dfe7f8be586223660a05ba6789dd48820c43fce8a28",
+      "hash": "01f1a3d87fa671072910b70bb5faee0525b2321ebe6aa6f9cc57d236be70247c",
       "dependencies": {
         "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
         "chat_stat.py": "764fd27b3b5558afd44b513be7dad8b6c27bc365be56f0b5742446ae37eb22bd",

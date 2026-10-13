@@ -47,7 +47,7 @@ def expire(conn):
     conn.execute("UPDATE ai_tasks SET rag_state='timeout' WHERE rag_state='queued' AND rag_deadline_at<=?",(deadline,))
 
 
-def claim():
+def claim(*, allow_mechanics=True):
     # Empty polling must not compete with message ingestion for SQLite's writer.
     with closing(repo.connect()) as conn:
         if not conn.execute("SELECT 1 FROM ai_tasks WHERE rag_state='queued' AND status='pending' LIMIT 1").fetchone(): return None
@@ -56,10 +56,11 @@ def claim():
         expire(conn)
         row=conn.execute("""SELECT t.*,q.task_id FROM ai_tasks t JOIN ai_rag_queries q ON q.task_id=t.id
             WHERE t.status='pending' AND t.rag_state='queued' AND t.rag_deadline_at>?
-            AND (q.state='queued' OR (q.state='preparing' AND q.lease_until<?)) ORDER BY t.created_at LIMIT 1""",(repo.stamp(),repo.stamp())).fetchone()
+            AND (? OR t.task_type<>'mechanics')
+            AND (q.state='queued' OR (q.state='preparing' AND q.lease_until<?)) ORDER BY t.priority DESC,t.created_at LIMIT 1""",(repo.stamp(),allow_mechanics,repo.stamp())).fetchone()
         if not row: return None
         token=uuid.uuid4().hex
-        conn.execute("UPDATE ai_rag_queries SET state='preparing',token=?,lease_until=? WHERE task_id=?",(token,repo.stamp(5),row['id']))
+        conn.execute("UPDATE ai_rag_queries SET state='preparing',token=?,lease_until=? WHERE task_id=?",(token,row['rag_deadline_at'],row['id']))
         result=dict(row);result['rag_token']=token
         return result
 

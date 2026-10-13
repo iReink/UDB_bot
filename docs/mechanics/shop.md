@@ -1,4 +1,4 @@
-{"id":"shop","title":"Магазин, кофе и ночные реплики","keywords":["магазин","кофе","фильтр","штраф","мужло","подписка"],"sources":["main.py","cepen_shop.py","docs/specs/cepen-cure-confirmation-spec.md","mujlo.py","sits.py"]}
+{"id": "shop", "title": "Магазин, кофе и ночные реплики", "keywords": ["магазин", "кофе", "фильтр", "штраф", "мужло", "подписка", "/shop", "/help"], "sources": ["main.py", "cepen_shop.py", "docs/specs/cepen-cure-confirmation-spec.md", "mujlo.py", "sits.py"]}
 ---
 # Магазин, кофе и ночные реплики
 

@@ -1,4 +1,4 @@
-{"id":"economy","title":"Ситы, начисления и переводы","keywords":["сит","баланс","заработок","доход","налог","перевод"],"sources":["db.py","sits.py","main.py","STATS_DB_SCHEMA.md"]}
+{"id": "economy", "title": "Ситы, начисления и переводы", "keywords": ["сит", "баланс", "заработок", "доход", "налог", "перевод", "/give", "/charity"], "sources": ["db.py", "sits.py", "main.py", "STATS_DB_SCHEMA.md"]}
 ---
 # Ситы, начисления и переводы
 

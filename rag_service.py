@@ -42,11 +42,11 @@ def supervise(threads):
     write_status(heartbeat=repo.stamp())
 
 
-def retrieval_loop():
+def retrieval_loop(allow_mechanics=True):
     while not STOP.is_set():
         try:
             READY.clear()
-            task=rag_search.claim()
+            task=rag_search.claim(allow_mechanics=allow_mechanics)
             if task: rag_search.prepare(task)
             else: READY.wait(25)
         except Exception:
@@ -262,7 +262,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     from ai_notifications import rag_listener
     threading.Thread(target=rag_listener,args=(STOP,READY),daemon=True).start()
-    threads=[threading.Thread(target=retrieval_loop,name=f'rag-search-{i}') for i in range(2)]
+    threads=[threading.Thread(target=retrieval_loop,args=(i==0,),name=f'rag-search-{i}') for i in range(2)]
     threads.append(threading.Thread(target=indexing_loop,name='rag-index'))
     for thread in threads: thread.start()
     try:

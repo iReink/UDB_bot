@@ -1,4 +1,4 @@
-{"id":"games","title":"Дуэли, отношения и квесты","keywords":["дуэль","бой","член","сосаться","поцелуй","шпёх","квест"],"sources":["dick.py","fight_club.py","sosalsa.py","quest.py","sex_input.py","nick_input.py"]}
+{"id": "games", "title": "Дуэли, отношения и квесты", "keywords": ["дуэль", "бой", "член", "сосаться", "поцелуй", "шпёх", "квест", "/fight", "/dick", "/givedick", "/sos", "/help", "/quest"], "sources": ["dick.py", "fight_club.py", "sosalsa.py", "quest.py", "sex_input.py", "nick_input.py"]}
 ---
 # Дуэли, отношения и квесты
 
