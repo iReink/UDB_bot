@@ -48,6 +48,7 @@ def next_time(now):
 
 
 def ensure_schema(conn):
+    conn.execute('CREATE TABLE IF NOT EXISTS cepen_voice_profiles(chat_id INTEGER NOT NULL,user_id INTEGER NOT NULL,cache_key TEXT NOT NULL,voice_json TEXT NOT NULL,PRIMARY KEY(chat_id,user_id))')
     conn.execute('''CREATE TABLE IF NOT EXISTS cepen_letters (
         chat_id INTEGER NOT NULL,user_id INTEGER NOT NULL,due_at TEXT NOT NULL,
         state TEXT NOT NULL DEFAULT 'pending',text TEXT,prompt TEXT,
@@ -79,6 +80,7 @@ def context(chat_id, user_id, now):
         user = dict(conn.execute('SELECT cepen,cepen_name,cepen_profession,sits FROM users WHERE chat_id=? AND user_id=?', (chat_id,user_id)).fetchone())
         length = conn.execute('SELECT length FROM dicks WHERE chat_id=? AND user_id=?', (chat_id,user_id)).fetchone()
         user['dick_length_cm'] = length[0] if length else None
+        user['skin'] = user['cepen_profession']
         user['profession'] = cepen_avatar.profession_title(user.pop('cepen_profession'))
         user['recent_messages'] = [r[0][:200] for r in conn.execute('SELECT message_text FROM messages_reactions WHERE chat_id=? AND user_id=? AND message_text IS NOT NULL ORDER BY date DESC,message_id DESC LIMIT 50', (chat_id,user_id))]
         count = conn.execute('SELECT COUNT(*) FROM cepen_scratches WHERE chat_id=? AND owner_id=? AND scratch_date=?', (chat_id,user_id,local(now).date().isoformat())).fetchone()[0]
@@ -215,7 +217,7 @@ async def dispatch(bot, now):
                     if not row['voice_json']:
                         data = context(chat,user,now)
                         data['mood'] = row['mood'] or data['mood']
-                        voice = await asyncio.to_thread(cepen_tts.direction,data,chat)
+                        voice = await asyncio.to_thread(cepen_tts.direction,data,chat,user)
                         row['voice_json'] = json.dumps(voice)
                         with closing(db.get_connection()) as conn:
                             conn.execute('UPDATE cepen_letters SET voice_json=? WHERE chat_id=? AND user_id=?', (row['voice_json'],chat,user)); conn.commit()

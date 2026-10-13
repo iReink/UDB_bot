@@ -70,6 +70,26 @@ class VoiceTests(unittest.TestCase):
         for model in cepen_tts.MODELS:
             self.assertEqual(10,ai_runtime.model_limits(model)['RPD'])
 
+    def test_exact_size_boundaries(self):
+        for tier,boundary in enumerate((30,120,300,500)):
+            self.assertEqual(tier,cepen_tts.size_tier(boundary))
+            self.assertEqual(tier+1,cepen_tts.size_tier(boundary+0.001))
+
+    def test_cached_basis_keeps_voice_across_moods(self):
+        data={'cepen':200,'skin':'chef','profession':'chef','mood':'подавлен'}
+        with closing(db.get_connection()) as conn,conn:
+            conn.execute('INSERT INTO cepen_voice_profiles VALUES (?,?,?,?)',
+                         (CHAT,1,'[2, "chef"]','{"voice":"Kore","style":"warm worm"}'))
+        self.mocks[-2].stop()
+        try:
+            with patch('cepen_tts.providers.call_google') as call:
+                first=cepen_tts.direction(data,CHAT,1)
+                second=cepen_tts.direction({**data,'mood':'счастлив'},CHAT,1)
+                self.assertEqual(first['voice'],second['voice'])
+                self.assertNotEqual(first['style'],second['style'])
+                call.assert_not_called()
+        finally:self.mocks[-2].start()
+
     def test_chain_skips_exhausted_model(self):
         # Exercise the real adapter without network/audio conversion.
         import base64

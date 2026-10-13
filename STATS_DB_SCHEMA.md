@@ -483,6 +483,13 @@ JSON включает `chat_id`, `run_date`, `credit_payments_milli`, `new_overd
 
 ### `cepen_letters`
 
+Размерный голос хранится отдельно в `cepen_voice_profiles`: `chat_id` INTEGER NOT NULL,
+`user_id` INTEGER NOT NULL (составной PRIMARY KEY), `cache_key` TEXT NOT NULL
+(JSON: ступень 0–4 и ID скина), `voice_json` TEXT NOT NULL (проверенные voice/style
+постоянного тембра без текущей эмоции). Связь с users по чату и владельцу;
+FK не объявлен. Повторяемое создание в cepen_messages.ensure_schema. При смене
+ступени или скина кеш заменяется после успешной генерации; настроение не сбрасывает кеш.
+
 Повторяемая миграция в `cepen_messages.ensure_schema`, вызывается при инициализации БД. Одна текущая реплика на владельца в чате: `PRIMARY KEY(chat_id,user_id)`; оба INTEGER NOT NULL. Новые владельцы начинают отсчёт от запуска, существующие — от последней отправленной архивной реплики.
 
 | Поле | Тип | Описание |
