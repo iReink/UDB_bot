@@ -367,7 +367,9 @@ def record_attempt(queue, task_id, token, metadata, outcome):
 
 def model_limits(model):
     from photo_story import VISION_MODELS
-    if model.endswith('-tts') or model.endswith('-tts-preview'):
+    if model=='gemini-3.5-transcribe':
+        defaults={'RPM':3,'RPD':25,'TPM':10000,'TPD':0}; prefix='TRANSCRIBE_'
+    elif model.endswith('-tts') or model.endswith('-tts-preview'):
         defaults={'RPM':3,'RPD':10,'TPM':10000,'TPD':0}; prefix='TTS_'
     elif model in VISION_MODELS:
         defaults={'RPM':5,'RPD':20,'TPM':250000,'TPD':0}; prefix='AI_VISION_'

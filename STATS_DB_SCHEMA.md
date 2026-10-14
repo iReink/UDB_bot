@@ -481,6 +481,24 @@ JSON включает `chat_id`, `run_date`, `credit_payments_milli`, `new_overd
 | `phrase` | TEXT | Зафиксированный шаблон реплики с `{nickname}`. |
 | `sent_at` | TEXT | Время успешной отправки или `NULL`. |
 
+### `ai_voice_transcripts`
+
+Отдельная очередь голосовых `ai_voice_transcripts` создаётся повторяемо через
+`voice_transcribe.ensure_schema` из `db.initialize_db`:
+`chat_id` INTEGER NOT NULL, `message_id` INTEGER NOT NULL — составной PRIMARY KEY;
+`source_json` TEXT NOT NULL — метаданные Telegram (включая file_id и reply/quote,
+без аудиобайтов); `status` TEXT NOT NULL DEFAULT 'queued' — queued/processing/
+ready/delivering/done/failed; `transcript` TEXT — расшифровка; `attempts` INTEGER
+NOT NULL DEFAULT 0 — начатые обработки; `retry_at` REAL NOT NULL DEFAULT 0 —
+Unix-секунды следующей попытки; `error` TEXT — безопасная причина;
+`created_at`, `updated_at` TEXT NOT NULL — UTC ISO-время. Индекс idx_voice_ready
+по (status,retry_at). Связь с messages_reactions по чату/сообщению, FK отсутствует.
+Служебная таблица запрещена для пользовательского text-to-SQL; запросам доступен
+только обычный журнал сообщений с прежней изоляцией чатов.
+processing после рестарта возвращается в queued; ready переиспользует текст;
+delivering переводится в failed без повторной отправки. Текстовая расшифровка
+обновляет исходный messages_reactions с дополнительной проверкой автора.
+
 ### `cepen_letters`
 
 Размерный голос хранится отдельно в `cepen_voice_profiles`: `chat_id` INTEGER NOT NULL,

@@ -234,6 +234,7 @@ CHAT_SCOPED_TABLES = {
 }
 
 FORBIDDEN_TEXT_TO_SQL_TABLES = {
+    'ai_voice_transcripts',
     'ai_imagegen_batches','ai_imagegen_inputs','ai_imagegen_jobs','ai_imagegen_usage','ai_imagegen_days',
     "ai_profiles",
     "ai_data_analyses",

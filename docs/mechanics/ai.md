@@ -1,6 +1,25 @@
-{"id": "ai", "title": "ИИ, настройки, память и поиск", "keywords": ["ИИ", "модель", "источник", "саммери", "профиль", "RAG", "поиск", "/summary"], "sources": ["ai_conversation.py", "ai_tasks.py", "ai_runtime.py", "ai_http.py", "ai_notifications.py", "ai_providers.py", "ai_grounding.py", "ai_formatting.py", "rag_repository.py", "rag_search.py", "rag_embedding.py", "rag_service.py", "rag_counters.py", "mechanics.py", "summary_bot.py", "summary_access.py", "web/summary_app.py", "settings.py", "web/static/summary_app.js", "web/templates/summary_app.html", "web/static/ai_tasks.js", "web/static/rag_status.js", "photo_story.py", "photo_story_bot.py", "ai_api_worker.py", "ai_worker_client.py", "ai_audit.py", "main.py", "web/server.py", "daily_photo_story.py", "photo_convert.py", "photo_albums.py", "web/photo_api.py", "web/static/album.js", "web/static/album.css", "web/templates/album.html", "web/ai_dashboard.py", "web/templates/ai_tasks.html", "web/static/ai_tasks.css", "mechanics_search.py"]}
+{"id": "ai", "title": "ИИ, настройки, память и поиск", "keywords": ["ИИ", "модель", "источник", "саммери", "профиль", "RAG", "поиск", "/summary"], "sources": ["ai_conversation.py", "ai_tasks.py", "ai_runtime.py", "ai_http.py", "ai_notifications.py", "ai_providers.py", "ai_grounding.py", "ai_formatting.py", "rag_repository.py", "rag_search.py", "rag_embedding.py", "rag_service.py", "rag_counters.py", "mechanics.py", "summary_bot.py", "summary_access.py", "web/summary_app.py", "settings.py", "web/static/summary_app.js", "web/templates/summary_app.html", "web/static/ai_tasks.js", "web/static/rag_status.js", "photo_story.py", "photo_story_bot.py", "ai_api_worker.py", "ai_worker_client.py", "ai_audit.py", "main.py", "web/server.py", "daily_photo_story.py", "photo_convert.py", "photo_albums.py", "web/photo_api.py", "web/static/album.js", "web/static/album.css", "web/templates/album.html", "web/ai_dashboard.py", "web/templates/ai_tasks.html", "web/static/ai_tasks.css", "mechanics_search.py", "voice_transcribe.py", "db.py", "docs/specs/voice-transcribe.md"]}
 ---
 # ИИ, настройки, память и поиск
+
+## Голосовые сообщения {#voice}
+Бот распознаёт входящие голосовые от людей с помощью Gemini 3.5 Transcribe.
+Если первое отдельное слово — «бот» (любой регистр, пробел или пунктуация после
+слова) либо голосовое отправлено ответом на сообщение этого бота, распознанный
+текст идёт в обычную типизацию и дальнейший ИИ-сценарий. Начальное обращение
+удаляется; контекст reply и цитаты сохраняется. Упоминание слова в середине и
+слово «ботаника» обращением не считаются. Остальные голосовые получают только
+расшифровку ответом на исходное сообщение, без случайной ИИ-реплики.
+Настройки доступности ИИ и существующие ограничения личных сообщений сохраняются;
+если ИИ выключен или сценарий лички не поддерживается, отправляется расшифровка.
+Расшифровка сохраняется у исходного сообщения в журнале, повторного начисления
+статистики нет. Собственные голосовые бота повторно не распознаются.
+Бесплатный бюджет модели: 25 запросов в сутки, 3 в минуту, 10 тысяч входных
+токенов в минуту. Минутное ожидание откладывает задачу, исчерпание суточного
+лимита сообщает об этом. Для текущего бюджета длина ограничена примерно пятью
+минутами; размер аудиофайла до 14 MB. При слишком длинной записи бот объясняет
+ограничение, при отказе распознавания сообщает об ошибке. Повтор update не
+создаёт новую задачу. Неопределённая доставка текста не повторяется автоматически.
 
 ## Источники и очереди ИИ {#sources}
 Вопрос о правилах («как получить цепня», «как происходит групповая мастурбация», «от чего зависит процент по вкладу») направляется в справку, а текущие личные значения — в SQL. Поиск справки учитывает словоформы и названия из каталога, затем может один раз обратиться к API-модели для уточнения поисковых фраз. Уточнение не является источником правил. При отказе или ошибке используется локальный поиск. Подготовка справки ограничена 15 секундами, API-уточнение — 8 секундами, контекст — 2000 токенами и 8000 символами; подготовка SQL остаётся 5 секунд. Ответ сначала объясняет заданный вопрос, затем необходимые условия. Общий обзор только по просьбе; при недостатке справки бот обозначает недостающий факт. Вызов уточнения учитывается в общих квотах и журнале; персональное состояние не выводится из правил.

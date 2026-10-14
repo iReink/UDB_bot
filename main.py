@@ -1831,7 +1831,7 @@ def _get_ai_response_trigger(message: types.Message) -> str | None:
     return None
 
 
-async def maybe_create_ai_response_task(message: types.Message) -> None:
+async def maybe_create_ai_response_task(message: types.Message, *, voice_trigger: str | None = None) -> bool | None:
     if not ai_enabled(message.chat.id):
         return
     from ai_conversation import request_text,reply_image
@@ -1839,7 +1839,11 @@ async def maybe_create_ai_response_task(message: types.Message) -> None:
     reference=reply_image(message,globals().get('BOT_ID'))
     if reference:
         from imagegen import addressed
-        if addressed(reference,BOT_USERNAME_RUNTIME):return
+        if addressed(reference,BOT_USERNAME_RUNTIME):
+            if voice_trigger:
+                from imagegen import collect
+                await asyncio.to_thread(collect,reference,BOT_USERNAME_RUNTIME)
+            return True
     if not text or not message.from_user:
         return
     if message.from_user.is_bot:
@@ -1849,10 +1853,10 @@ async def maybe_create_ai_response_task(message: types.Message) -> None:
     if message.chat.id >= 0:
         from imagegen import creative
         if not creative(text):
-            return
+            return False
     if text.startswith("/"):
         return
-    trigger_reason = _get_ai_response_trigger(message)
+    trigger_reason = voice_trigger or _get_ai_response_trigger(message)
     if message.chat.id >= 0:
         trigger_reason = 'private_imagegen'
     if trigger_reason:
@@ -1872,7 +1876,7 @@ async def maybe_create_ai_response_task(message: types.Message) -> None:
                 message.message_id,
                 trigger_reason,
             )
-        return
+        return True
     else:
         if has_pending_response_task(int(message.chat.id)) or has_pending_type_check(chat_id=int(message.chat.id)):
             return
@@ -2013,7 +2017,11 @@ async def handle_message(message: types.Message):
                 message.message_id,
             )
 
-    if message.text or message.caption:
+    if message.voice:
+        import voice_transcribe
+        if await asyncio.to_thread(voice_transcribe.enqueue,message):
+            voice_transcribe.WAKE.set()
+    elif message.text or message.caption:
         await maybe_create_ai_response_task(message)
 
     await handle_mujlo_message(message)
@@ -2674,6 +2682,8 @@ async def main():
     asyncio.create_task(photo_bot.worker(bot))
     asyncio.create_task(photo_story_bot.worker(bot))
     asyncio.create_task(imagegen_bot.worker(bot))
+    import voice_transcribe
+    asyncio.create_task(voice_transcribe.worker(bot,maybe_create_ai_response_task))
 
     await group.initialize_group_runtime(bot, reset_state=True)
     # Запускаем фоновые задачи

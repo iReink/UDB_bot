@@ -15,11 +15,11 @@
         "/summary"
       ],
       "path": "docs/mechanics/ai.md",
-      "hash": "048cb3b90957953a685360c8afb41b349ce4369f6d619dd526628bb15e6dcb0d",
+      "hash": "b7fb8c6b7fe4309a9e5e98ae25cd3729e4d5eb0d94b1040e4cb4cf961ea2f5cb",
       "dependencies": {
         "ai_conversation.py": "d55051d591ce831971a09fc41abe8d2b949e04096e75bc689e95ac947a2f8756",
-        "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
-        "ai_runtime.py": "5b771f3667e9765f645ca2cece62612eadbc3ef06c3e3d65788602d56005448f",
+        "ai_tasks.py": "aac33ffdcfaa935e83786a2face16b3b51c461caba67a50266c71054165ee993",
+        "ai_runtime.py": "e6e4c3a5ed537b99616af215069f879af3a4db1afeb7573dabc0c7c205525394",
         "ai_http.py": "3e06c73c493ac292b287ca19c91f9171c29d1ce6eae21b05dfccac10c2c22531",
         "ai_notifications.py": "124ed57444f048f0b23a1f91212627aa257197c2ea53f9a4cd4366313d93802a",
         "ai_providers.py": "b16112e21b7c5151b19aa545acde0dba8db5134fc65c0105862d2d08e094e6ef",
@@ -44,7 +44,7 @@
         "ai_api_worker.py": "59da18fed156faf82fecd42bccb7442c018e2968ca30f65e3f6603d34b785501",
         "ai_worker_client.py": "9dbb7715cdc671f4c50ec261c601b3cd956708ff122f886542985b9091a17e52",
         "ai_audit.py": "44b38a7d35c1188b045d3efa045bf433aa98c1fbcb46f53155dc938ed4c04e14",
-        "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
+        "main.py": "2f958d96282a2a6929fb8d3a330375df8acee196595d66f8334ddbefa3a82bb7",
         "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19",
         "daily_photo_story.py": "8e35c4dedf33859356b6462ae142075b3c514f4ecff08664dea0222539508bd2",
         "photo_convert.py": "b1d4bf0c7753aa63dea36ec810ec75a4f49ded56082fbc025edbcc6c1b1fbfb6",
@@ -56,7 +56,10 @@
         "web/ai_dashboard.py": "4a7f41d3eeb1d60369d764e1f117283612e5985623a1bc6da0d26689bb222272",
         "web/templates/ai_tasks.html": "9e846ad75a357053039c8bcd760ccf6a435fa53cf81f7c7584cd2250287a7eeb",
         "web/static/ai_tasks.css": "3339f00e89e612ad42a57d927833892b2c6d0825c7c1d849263187a6ab082bef",
-        "mechanics_search.py": "d8f36d7174e5f11125053d530f7bd5875dc762d4d4db3c08ae38a07a31c247e7"
+        "mechanics_search.py": "d8f36d7174e5f11125053d530f7bd5875dc762d4d4db3c08ae38a07a31c247e7",
+        "voice_transcribe.py": "f8c0954f764f89f645cb631a59f643c23eab98200a8f33a1db23f511a904917f",
+        "db.py": "6199366dd910d06e4260bfbc037b18ef0b68a04a405952e2a18ea0cd7d00d3fc",
+        "docs/specs/voice-transcribe.md": "fd6c7ea57f6d6c139390757d351d6111b26a2d4a2d929301e7737e8aae22108c"
       }
     },
     {
@@ -171,10 +174,10 @@
       "path": "docs/mechanics/economy.md",
       "hash": "2a21cbb1d4eb64deb954c80f887ffaece30f7d4fdfa10b3ecf7e2a5a15444c7f",
       "dependencies": {
-        "db.py": "a22db24731d09268ff5718a6bd8f8cb369d25c06a7636acb019bb4c240cf595f",
+        "db.py": "6199366dd910d06e4260bfbc037b18ef0b68a04a405952e2a18ea0cd7d00d3fc",
         "sits.py": "d15a22b318c726f62d257dee01edb5c0047205333d732b295011fb34ef6d9e7f",
-        "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
-        "STATS_DB_SCHEMA.md": "6f4e8d10bfaafc38b578311daddf96f5b21ac50cc52f0fa27314a6215f5bf16d"
+        "main.py": "2f958d96282a2a6929fb8d3a330375df8acee196595d66f8334ddbefa3a82bb7",
+        "STATS_DB_SCHEMA.md": "0a23955c740f0bb0384be8da819039d5154daaa80c958c16e52b2f77977d3c19"
       }
     },
     {
@@ -226,10 +229,10 @@
         "fight_club.py": "c523b60a7cf05b8a9cedd749d1f830afdfa786ef79c70d1a2d205eafb89f610e",
         "sosalsa.py": "2669cc1fcb08cbd4eda475ad761a17cf816b72586abc8939cabfacf6c18d23e2",
         "gaymeter.py": "88f690b3351ffdea2d19535ef38972605ab321465ea3bae60a8343cd311c00e4",
-        "db.py": "a22db24731d09268ff5718a6bd8f8cb369d25c06a7636acb019bb4c240cf595f",
+        "db.py": "6199366dd910d06e4260bfbc037b18ef0b68a04a405952e2a18ea0cd7d00d3fc",
         "help.py": "ce46b8a0a1ef50e6dbcacb560dc842ad072b2de4ce9a27dcf99d635f99ee4a88",
-        "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
-        "STATS_DB_SCHEMA.md": "6f4e8d10bfaafc38b578311daddf96f5b21ac50cc52f0fa27314a6215f5bf16d",
+        "ai_tasks.py": "aac33ffdcfaa935e83786a2face16b3b51c461caba67a50266c71054165ee993",
+        "STATS_DB_SCHEMA.md": "0a23955c740f0bb0384be8da819039d5154daaa80c958c16e52b2f77977d3c19",
         "tests/test_gaymeter.py": "f2817ca95f458c6dc7f985b27345b9d756c76dc550f823840c88f3d642dc96d6",
         "quest.py": "2f692058152c4025d735b0eb246b712a7d4474ab4ed19baadb2e47e022056962",
         "sex_input.py": "017f625f48115950d42d202dbdc6cc76a18514a99ab0ad6894fa39d47cb94315",
@@ -256,10 +259,10 @@
         "imagegen.py": "af5f9fb149f1e8379408f10b078a10eea1011579ad3d0393bdbff1cdd5cac7f5",
         "imagegen_hf.py": "7da396a1f08c63f8bd23cf7ef83b6f12a5039fed1c7a54b31ea3742a3118bf65",
         "imagegen_bot.py": "b5de341b974e1e3db411c222e13d8ad74922868c8effda3ec5393d2e19875f95",
-        "ai_tasks.py": "d85059a091deffd8a82e582b4f117accc488559b129ec2735a4e9197b6de29fb",
-        "ai_runtime.py": "5b771f3667e9765f645ca2cece62612eadbc3ef06c3e3d65788602d56005448f",
+        "ai_tasks.py": "aac33ffdcfaa935e83786a2face16b3b51c461caba67a50266c71054165ee993",
+        "ai_runtime.py": "e6e4c3a5ed537b99616af215069f879af3a4db1afeb7573dabc0c7c205525394",
         "ai_providers.py": "b16112e21b7c5151b19aa545acde0dba8db5134fc65c0105862d2d08e094e6ef",
-        "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
+        "main.py": "2f958d96282a2a6929fb8d3a330375df8acee196595d66f8334ddbefa3a82bb7",
         "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19"
       }
     },
@@ -278,7 +281,7 @@
       "hash": "9c5ad9edc3cc33d12c7b10261b61bc05be858e137caea758296dc1008019e023",
       "dependencies": {
         "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19",
-        "db.py": "a22db24731d09268ff5718a6bd8f8cb369d25c06a7636acb019bb4c240cf595f",
+        "db.py": "6199366dd910d06e4260bfbc037b18ef0b68a04a405952e2a18ea0cd7d00d3fc",
         "ai_worker_client.py": "9dbb7715cdc671f4c50ec261c601b3cd956708ff122f886542985b9091a17e52",
         "ai_worker.py": "f1a194a60ab08311b2e598cfe90c6f27b21b89df137463e3e024b66eaffd877d",
         "ai_classifier_worker.py": "d985201103edf0df9d7907defa1a79cb428c9deb5a68e46f5ecd1b356497257d",
@@ -314,7 +317,7 @@
       "path": "docs/mechanics/participation.md",
       "hash": "10ec6cdefc323d9c84d41b1580440a52a44c928a2bc478b5cb0f03bdb446944a",
       "dependencies": {
-        "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
+        "main.py": "2f958d96282a2a6929fb8d3a330375df8acee196595d66f8334ddbefa3a82bb7",
         "help.py": "ce46b8a0a1ef50e6dbcacb560dc842ad072b2de4ce9a27dcf99d635f99ee4a88",
         "nick_input.py": "17efb096ec36bb52a391741ff195b8677d08219a4b0d479064a064ef6737959e",
         "sex_input.py": "017f625f48115950d42d202dbdc6cc76a18514a99ab0ad6894fa39d47cb94315",
@@ -337,7 +340,7 @@
       "path": "docs/mechanics/shop.md",
       "hash": "83c1f3a711bb0ea73f88932d899c1cf1e31e9c5139aca54747e0356af4487a60",
       "dependencies": {
-        "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
+        "main.py": "2f958d96282a2a6929fb8d3a330375df8acee196595d66f8334ddbefa3a82bb7",
         "cepen_shop.py": "acdd36fe2ff94547dccd43568d9eb6b4fb07da278e135f5097f9aa5b3d9ec44e",
         "docs/specs/cepen-cure-confirmation-spec.md": "b8f7fb56b90806c61552e86aba80fe5d731052e334bd3c0cb4ad29981ea57a48",
         "mujlo.py": "c3ce91e8c26f040924e66e608fafc91dbefb6ed5a01e5ef23ee94ac1d5d86094",
@@ -369,7 +372,7 @@
       "path": "docs/mechanics/statistics.md",
       "hash": "01f1a3d87fa671072910b70bb5faee0525b2321ebe6aa6f9cc57d236be70247c",
       "dependencies": {
-        "main.py": "685d3ce4ddef38824d16326737471ab31649f47da6c4ba591f4cfb6134487c7f",
+        "main.py": "2f958d96282a2a6929fb8d3a330375df8acee196595d66f8334ddbefa3a82bb7",
         "chat_stat.py": "764fd27b3b5558afd44b513be7dad8b6c27bc365be56f0b5742446ae37eb22bd",
         "weekly_awards.py": "270d2996f1f51e197a0c0739211d3d7057fdc0a640988e24a22c098767c3bb7f",
         "profanity.py": "142948e4decdfa030f8854bdc786e90aa20ae3fbd539ca53864be17269355b55",
