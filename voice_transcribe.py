@@ -19,7 +19,7 @@ import ai_runtime
 
 MODEL = 'gemini-3.5-transcribe'
 WAKE = asyncio.Event()
-PREFIX = re.compile(r'^\s*бот\b[\s,.:;!?—–-]*', re.I)
+PREFIX = re.compile(r'^\s*(?:бот|вот)\b[\s,.:;!?—–-]*', re.I)
 MAX_BYTES = 14_000_000  # base64 plus JSON must fit the API's 20 MB request limit
 
 

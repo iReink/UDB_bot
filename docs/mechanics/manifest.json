@@ -15,7 +15,7 @@
         "/summary"
       ],
       "path": "docs/mechanics/ai.md",
-      "hash": "b7fb8c6b7fe4309a9e5e98ae25cd3729e4d5eb0d94b1040e4cb4cf961ea2f5cb",
+      "hash": "664f7a9feb21f7d28ca6ea32b91748107958e0c886da8c2ac2dedaa3e5cbde52",
       "dependencies": {
         "ai_conversation.py": "d55051d591ce831971a09fc41abe8d2b949e04096e75bc689e95ac947a2f8756",
         "ai_tasks.py": "aac33ffdcfaa935e83786a2face16b3b51c461caba67a50266c71054165ee993",
@@ -57,9 +57,9 @@
         "web/templates/ai_tasks.html": "9e846ad75a357053039c8bcd760ccf6a435fa53cf81f7c7584cd2250287a7eeb",
         "web/static/ai_tasks.css": "3339f00e89e612ad42a57d927833892b2c6d0825c7c1d849263187a6ab082bef",
         "mechanics_search.py": "d8f36d7174e5f11125053d530f7bd5875dc762d4d4db3c08ae38a07a31c247e7",
-        "voice_transcribe.py": "f8c0954f764f89f645cb631a59f643c23eab98200a8f33a1db23f511a904917f",
+        "voice_transcribe.py": "28a27f00e868d286f1381926cbbb04a19aed1e92d4a03c6e4015eb5607aa7a99",
         "db.py": "6199366dd910d06e4260bfbc037b18ef0b68a04a405952e2a18ea0cd7d00d3fc",
-        "docs/specs/voice-transcribe.md": "fd6c7ea57f6d6c139390757d351d6111b26a2d4a2d929301e7737e8aae22108c"
+        "docs/specs/voice-transcribe.md": "fd27e2099548db08f47bb8664141a88bf4d0b057d07da9d2e3f32e870684f802"
       }
     },
     {

@@ -46,10 +46,11 @@ class VoiceTests(unittest.TestCase):
         return row
 
     def test_prefix_is_only_first_word(self):
-        for text in ['Бот, расскажи','  БОТ расскажи','бот: расскажи']:
+        for text in ['Бот, расскажи','  БОТ расскажи','бот: расскажи',
+                     'Вот, расскажи','  ВОТ расскажи','вот: расскажи']:
             reason,clean = voice.addressed(self.message(),text,999)
             self.assertEqual('mention_bot_word',reason); self.assertEqual('расскажи',clean)
-        for text in ['ботаника','Мне сказал бот','работа бота']:
+        for text in ['ботаника','Мне сказал бот','работа бота','вотчина','Мне вот сказали']:
             self.assertIsNone(voice.addressed(self.message(),text,999)[0])
 
     def test_reply_is_scoped_to_own_bot(self):
