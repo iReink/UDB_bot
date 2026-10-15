@@ -283,6 +283,9 @@ def call_google(task, timeout, model, tool=None):
         if task.get('task_type') in ('mechanics_refine', 'cepen_voice'):
             payload['generationConfig']['maxOutputTokens']=768
             payload['generationConfig']['thinkingConfig']={'thinkingBudget':0} if model=='gemini-3.1-flash-lite' else {'thinkingLevel':'minimal'}
+        if task.get('task_type')=='preference_extract':
+            payload['generationConfig']['responseMimeType']='application/json'
+            payload['generationConfig']['thinkingConfig']={'thinkingBudget':0} if model=='gemini-3.1-flash-lite' else {'thinkingLevel':'minimal'}
         if task.get('task_type') in ('photo_story','imagegen_prepare'):
             payload['generationConfig']['thinkingConfig']={'thinkingLevel':'low' if model in ('gemini-3.8-flash','gemini-3.7-flash') else 'minimal'}
         if tool:

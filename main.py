@@ -1840,7 +1840,9 @@ async def maybe_create_ai_response_task(message: types.Message, *, voice_trigger
         preference_result = await asyncio.to_thread(ai_preferences.handle,message)
         if preference_result is not None:
             if preference_result['response']:
-                await message.reply(preference_result['response'],parse_mode=None)
+                replies=preference_result['response']
+                for reply in replies if isinstance(replies,list) else [replies]:
+                    await message.reply(reply,parse_mode=None)
             return True
     from ai_conversation import request_text,reply_image
     text = request_text(message,globals().get('BOT_ID'))
