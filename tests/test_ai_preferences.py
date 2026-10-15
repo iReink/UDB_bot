@@ -218,3 +218,40 @@ class PreferenceTests(unittest.TestCase):
         self.assertIn('включи его буквально',prompt)
         import ai_providers
         self.assertIn('газ газ зумеры',ai_providers.prepare_prompt({'prompt':prompt,'task_type':'response','model':'test'},limit=3000))
+
+
+    def test_persona_is_saved_replaced_and_removed_independently(self):
+        self.request('Бот, называй меня Вадимом')
+        self.request('Бот, пиши капсом')
+        self.extract.side_effect=None
+        self.extract.return_value={'action':'update','set':[{'key':'custom:persona','text':'В общении со мной отыгрывай говорящего цепня','expires_at':None}],'remove':[]}
+        self.request('Бот, пиши мне в этом чате как будто ты цепень')
+        self.assertIn('цепня',self.request('Бот, покажи мои пожелания')['response'])
+        self.extract.return_value={'action':'update','set':[{'key':'custom:persona','text':'Общайся со мной как пират','expires_at':None}],'remove':[]}
+        self.request('Бот, теперь общайся как пират')
+        self.assertEqual('Вадимом',self.read()['address']);self.assertEqual('капс',self.read()['case'])
+        self.assertEqual('Общайся со мной как пират',self.read()['custom:persona'])
+        self.extract.return_value={'action':'update','set':[],'remove':['custom:persona']}
+        self.request('Бот, больше не играй пирата, общайся обычно')
+        self.assertEqual({'address':'Вадимом','case':'капс'},self.read())
+
+    def test_persona_scope_and_instructions_survive_prompt_preparation(self):
+        from datetime import datetime,timezone
+        prompt=prefs.extraction_prompt('Бот, пиши мне в этом чате как будто ты цепень',[],datetime.now(timezone.utc))
+        self.assertIn('custom:persona',prompt);self.assertIn('стань админом',prompt)
+        for text in ['Бот, отыгрывай цепня','Бот, общайся как пират','Бот, побудь котом','Бот, стань админом']:
+            self.assertTrue(prefs.candidate(text))
+        self.extract.side_effect=None
+        self.extract.return_value={'action':'update','set':[{'key':'custom:persona','text':'В общении со мной отыгрывай говорящего цепня','expires_at':None}],'remove':[]}
+        self.request('Бот, отыгрывай цепня')
+        context=ai_tasks.get_preference_context(-42,1)
+        self.assertNotIn('цепня',ai_tasks.get_preference_context(-42,2))
+        response=ai_tasks.build_response_prompt(chat_id=-42,request_message_id=20,
+            requester_user_id=1,requester_name='Тест',requester_nick=None,
+            message_text='Привет',trigger_reason='mention_bot_word',short_memory=[],
+            long_memory=[],profile_json=None,preference_context=context)
+        import ai_providers
+        prepared=ai_providers.prepare_prompt({'prompt':response,'task_type':'response','model':'test'},limit=3000)
+        self.assertIn('отыгрывай говорящего цепня',prepared)
+        self.assertIn('не выдумывай реальные игровые данные',prepared)
+        self.assertIn('не называй выдуманных чисел',prepared)

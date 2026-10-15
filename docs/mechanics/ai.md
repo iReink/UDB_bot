@@ -1,4 +1,4 @@
-{"id": "ai", "title": "ИИ, настройки, память и поиск", "keywords": ["ИИ", "модель", "источник", "саммери", "профиль", "RAG", "поиск", "/summary"], "sources": ["ai_conversation.py", "ai_tasks.py", "ai_runtime.py", "ai_http.py", "ai_notifications.py", "ai_providers.py", "ai_grounding.py", "ai_formatting.py", "rag_repository.py", "rag_search.py", "rag_embedding.py", "rag_service.py", "rag_counters.py", "mechanics.py", "summary_bot.py", "summary_access.py", "web/summary_app.py", "settings.py", "web/static/summary_app.js", "web/templates/summary_app.html", "web/static/ai_tasks.js", "web/static/rag_status.js", "photo_story.py", "photo_story_bot.py", "ai_api_worker.py", "ai_worker_client.py", "ai_audit.py", "main.py", "web/server.py", "daily_photo_story.py", "photo_convert.py", "photo_albums.py", "web/photo_api.py", "web/static/album.js", "web/static/album.css", "web/templates/album.html", "web/ai_dashboard.py", "web/templates/ai_tasks.html", "web/static/ai_tasks.css", "mechanics_search.py", "voice_transcribe.py", "db.py", "docs/specs/voice-transcribe.md", "ai_preferences.py", "docs/specs/user-preferences.md", "docs/specs/flexible-preferences.md"]}
+{"id": "ai", "title": "ИИ, настройки, память и поиск", "keywords": ["ИИ", "модель", "источник", "саммери", "профиль", "RAG", "поиск", "/summary"], "sources": ["ai_conversation.py", "ai_tasks.py", "ai_runtime.py", "ai_http.py", "ai_notifications.py", "ai_providers.py", "ai_grounding.py", "ai_formatting.py", "rag_repository.py", "rag_search.py", "rag_embedding.py", "rag_service.py", "rag_counters.py", "mechanics.py", "summary_bot.py", "summary_access.py", "web/summary_app.py", "settings.py", "web/static/summary_app.js", "web/templates/summary_app.html", "web/static/ai_tasks.js", "web/static/rag_status.js", "photo_story.py", "photo_story_bot.py", "ai_api_worker.py", "ai_worker_client.py", "ai_audit.py", "main.py", "web/server.py", "daily_photo_story.py", "photo_convert.py", "photo_albums.py", "web/photo_api.py", "web/static/album.js", "web/static/album.css", "web/templates/album.html", "web/ai_dashboard.py", "web/templates/ai_tasks.html", "web/static/ai_tasks.css", "mechanics_search.py", "voice_transcribe.py", "db.py", "docs/specs/voice-transcribe.md", "ai_preferences.py", "docs/specs/user-preferences.md", "docs/specs/flexible-preferences.md", "docs/specs/preference-persona.md"]}
 ---
 # ИИ, настройки, память и поиск
 
@@ -9,6 +9,12 @@
 внешности». Модель разбирает просьбу и сохраняет короткие отдельные пункты вне
 автоматического профиля. Независимые пожелания накапливаются; конфликтующее меняет
 только соответствующий пункт. Новое обращение, например, не отменяет капс.
+Можно сменить роль собеседника-бота: «пиши мне в этом чате как будто ты цепень»,
+«общайся со мной как пират». Бот сохраняет персонажа и отвечает от его лица вместо
+стандартной персоны. Новая роль заменяет только прежнюю, сохраняя остальные
+пожелания; «больше не играй цепня, общайся обычно» снимает только роль. От игры
+персонажа не меняются ваша личность, настоящий игровой цепень, его параметры,
+начисления, права или доступ к чужим данным. Роль может иметь срок действия.
 Можно задать временное пожелание: «до 17 октября 00:30 начинай ответы мне с
 „газ газ зумеры“». Время по умолчанию екатеринбургское; дата без года — ближайшая
 будущая такая дата. Бот указывает конкретный срок в подтверждении. После срока
