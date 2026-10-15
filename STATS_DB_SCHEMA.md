@@ -481,6 +481,29 @@ JSON включает `chat_id`, `run_date`, `credit_payments_milli`, `new_overd
 | `phrase` | TEXT | Зафиксированный шаблон реплики с `{nickname}`. |
 | `sent_at` | TEXT | Время успешной отправки или `NULL`. |
 
+### `ai_user_preferences`
+
+Явные пожелания по паре чат/владелец, независимо от ai_profiles. Колонки:
+`chat_id` INTEGER NOT NULL, `user_id` INTEGER NOT NULL, `key` TEXT NOT NULL —
+составной PRIMARY KEY; `value` TEXT NOT NULL — проверенное значение;
+`updated_at` TEXT NOT NULL — UTC ISO-время; `source_message_id` INTEGER NOT NULL —
+ID прямой просьбы владельца. key: address (до 40 букв, пробел/дефис), pronoun
+(ты/вы), case (капс/обычный), verbosity (кратко/обычно/подробно), emoji (да/нет),
+humor (мягкий/обычный/без шуток), jokes_appearance/health/family/age/money
+(«не шутить»). Отмена удаляет отдельную строку. FK отсутствует, связь с users
+по чату/владельцу. Таблица запрещена для text-to-SQL.
+
+### `ai_preference_requests`
+
+Идемпотентность изменения/подтверждения: `chat_id` INTEGER NOT NULL,
+`message_id` INTEGER NOT NULL — составной PRIMARY KEY; `user_id` INTEGER NOT NULL;
+`response` TEXT NOT NULL — безопасное подтверждение/просмотр/отказ, без исходного
+текста просьбы; `created_at` TEXT NOT NULL — UTC ISO. Запись создаётся в общей
+транзакции с изменением пожеланий до отправки подтверждения в Telegram;
+повтор того же update ничего не меняет и не отправляет подтверждение снова,
+в том числе при неизвестной доставке. Таблица запрещена для text-to-SQL.
+Обе таблицы создаёт повторяемая ai_preferences.ensure_schema из db.initialize_db.
+
 ### `ai_voice_transcripts`
 
 Отдельная очередь голосовых `ai_voice_transcripts` создаётся повторяемо через

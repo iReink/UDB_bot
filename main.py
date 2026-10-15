@@ -1834,6 +1834,14 @@ def _get_ai_response_trigger(message: types.Message) -> str | None:
 async def maybe_create_ai_response_task(message: types.Message, *, voice_trigger: str | None = None) -> bool | None:
     if not ai_enabled(message.chat.id):
         return
+    if (message.from_user and not message.from_user.is_bot
+            and (voice_trigger or _get_ai_response_trigger(message))):
+        import ai_preferences
+        preference_result = await asyncio.to_thread(ai_preferences.handle,message)
+        if preference_result is not None:
+            if preference_result['response']:
+                await message.reply(preference_result['response'],parse_mode=None)
+            return True
     from ai_conversation import request_text,reply_image
     text = request_text(message,globals().get('BOT_ID'))
     reference=reply_image(message,globals().get('BOT_ID'))

@@ -189,6 +189,8 @@ def initialize_db():
         ensure_cepen_letters(conn)
         from voice_transcribe import ensure_schema as ensure_voice_transcripts
         ensure_voice_transcripts(conn)
+        from ai_preferences import ensure_schema as ensure_user_preferences
+        ensure_user_preferences(conn)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS cepen_scratches (
                 callback_query_id TEXT PRIMARY KEY,

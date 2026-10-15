@@ -234,6 +234,7 @@ CHAT_SCOPED_TABLES = {
 }
 
 FORBIDDEN_TEXT_TO_SQL_TABLES = {
+    'ai_user_preferences','ai_preference_requests',
     'ai_voice_transcripts',
     'ai_imagegen_batches','ai_imagegen_inputs','ai_imagegen_jobs','ai_imagegen_usage','ai_imagegen_days',
     "ai_profiles",
@@ -2387,6 +2388,12 @@ def get_response_long_memory(*, chat_id: int) -> list[dict[str, Any]]:
     ]
 
 
+def get_preference_context(chat_id: int, user_id: int) -> str:
+    import ai_preferences
+    with closing(get_connection()) as conn:
+        return ai_preferences.prompt_block(conn,chat_id,user_id)
+
+
 @with_creator_policy
 def build_response_prompt(
     *,
@@ -2403,6 +2410,7 @@ def build_response_prompt(
     web_context: str | None = None,
     previous_response: str | None = None,
     previous_error: str | None = None,
+    preference_context: str | None = None,
 ) -> str:
     retry_block = ""
     if previous_response or previous_error:
@@ -2433,6 +2441,7 @@ def build_response_prompt(
         summary_lines.append(f"- {item['window_start']} -> {item['window_end']}: {summary}")
 
     profile_block = profile_json or "null"
+    preference_block = preference_context or '(явных пожеланий нет)'
     short_block = "\n".join(short_lines) or "(нет предыдущих сообщений)"
     summary_block = "\n".join(summary_lines) or "(нет долгосрочных summary)"
     requester_nick_text = (requester_nick or "").strip() or "unknown"
@@ -2461,6 +2470,9 @@ def build_response_prompt(
 Профиль пользователя в этом чате:
 {profile_block}
 
+Явные пожелания собеседника (отдельно от автоматически составленного профиля):
+{preference_block}
+
 Долгая память чата, последние summary:
 {summary_block}
 
@@ -2472,7 +2484,7 @@ def build_response_prompt(
 {BOT_PERSONA_GUIDE}
 
 Правила ответа:
-- Отвечай естественно, кратко и по-русски.
+- Отвечай естественно и по-русски. По умолчанию кратко; явное пожелание подробности учитывай в пределах контракта ответа.
 - Подстрой тон под пользователя и контекст: можно быть мягким, ироничным или резким, если это уместно.
 - Не усиливай токсичность до угроз, травли, преследования или унижения по защищённым признакам.
 - Не выдумывай факты и не делай вид, что знаешь больше, чем есть в контексте.
@@ -2516,6 +2528,7 @@ def create_response_task(
         short_memory=short_memory,
         long_memory=long_memory,
         profile_json=profile_json,
+        preference_context=get_preference_context(chat_id,requester_user_id),
         web_context=web_context,
     )
     payload = {
@@ -3278,6 +3291,7 @@ def _rebuild_response_retry_prompt(
         short_memory=short_memory,
         long_memory=long_memory,
         profile_json=profile_json,
+        preference_context=get_preference_context(chat_id,requester_user_id),
         web_context=web_context,
         previous_response=previous_response,
         previous_error=previous_error,

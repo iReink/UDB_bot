@@ -1,6 +1,26 @@
-{"id": "ai", "title": "ИИ, настройки, память и поиск", "keywords": ["ИИ", "модель", "источник", "саммери", "профиль", "RAG", "поиск", "/summary"], "sources": ["ai_conversation.py", "ai_tasks.py", "ai_runtime.py", "ai_http.py", "ai_notifications.py", "ai_providers.py", "ai_grounding.py", "ai_formatting.py", "rag_repository.py", "rag_search.py", "rag_embedding.py", "rag_service.py", "rag_counters.py", "mechanics.py", "summary_bot.py", "summary_access.py", "web/summary_app.py", "settings.py", "web/static/summary_app.js", "web/templates/summary_app.html", "web/static/ai_tasks.js", "web/static/rag_status.js", "photo_story.py", "photo_story_bot.py", "ai_api_worker.py", "ai_worker_client.py", "ai_audit.py", "main.py", "web/server.py", "daily_photo_story.py", "photo_convert.py", "photo_albums.py", "web/photo_api.py", "web/static/album.js", "web/static/album.css", "web/templates/album.html", "web/ai_dashboard.py", "web/templates/ai_tasks.html", "web/static/ai_tasks.css", "mechanics_search.py", "voice_transcribe.py", "db.py", "docs/specs/voice-transcribe.md"]}
+{"id": "ai", "title": "ИИ, настройки, память и поиск", "keywords": ["ИИ", "модель", "источник", "саммери", "профиль", "RAG", "поиск", "/summary"], "sources": ["ai_conversation.py", "ai_tasks.py", "ai_runtime.py", "ai_http.py", "ai_notifications.py", "ai_providers.py", "ai_grounding.py", "ai_formatting.py", "rag_repository.py", "rag_search.py", "rag_embedding.py", "rag_service.py", "rag_counters.py", "mechanics.py", "summary_bot.py", "summary_access.py", "web/summary_app.py", "settings.py", "web/static/summary_app.js", "web/templates/summary_app.html", "web/static/ai_tasks.js", "web/static/rag_status.js", "photo_story.py", "photo_story_bot.py", "ai_api_worker.py", "ai_worker_client.py", "ai_audit.py", "main.py", "web/server.py", "daily_photo_story.py", "photo_convert.py", "photo_albums.py", "web/photo_api.py", "web/static/album.js", "web/static/album.css", "web/templates/album.html", "web/ai_dashboard.py", "web/templates/ai_tasks.html", "web/static/ai_tasks.css", "mechanics_search.py", "voice_transcribe.py", "db.py", "docs/specs/voice-transcribe.md", "ai_preferences.py", "docs/specs/user-preferences.md"]}
 ---
 # ИИ, настройки, память и поиск
+
+## Явные пожелания собеседника {#preferences}
+Прямым обращением к боту можно задать свои пожелания в текущем чате:
+«называй меня Вадимом», «обращайся на ты/вы», «пиши короче/подробно», «пиши
+капсом», «без эмодзи», «отвечай мягче», «не шути о моей внешности/здоровье/
+семье/возрасте/деньгах». Они сохраняются отдельно от автоматического профиля и
+учитываются в новых ответах типа «общение». Новое независимое пожелание добавляется;
+противоречащее меняет только свой пункт. Имя и капс, например, сохраняются вместе.
+«Больше не пиши капсом» отменяет капс, сохраняя имя; «сбрось настройку эмодзи»
+сбрасывает только эмодзи. «Снова можешь шутить о моей внешности» снимает только
+этот запрет. «Покажи мои пожелания» показывает настройки, «забудь мои пожелания»
+очищает их для текущего чата. После сохранения бот коротко подтверждает изменения.
+Настройки определяются реальным отправителем, не выбранным именем. Чужие настройки,
+права, баланс и правила игры не меняются. Произвольные приказы, инструкции из
+цитат и пересылок не сохраняются; неподдерживаемую формулировку нужно уточнить.
+Медицинское объяснение не сохраняется в пожеланиях: из просьбы о капсе сохраняется
+только формат. Пожелания не отменяют безопасность и контракт ответа; другие типы
+задач, игровые уведомления и технические сообщения не форматируются этой памятью.
+Обработка пожелания не вызывает дополнительную модель. Повтор одного Telegram
+обновления не применяет настройку и не отправляет подтверждение ещё раз.
 
 ## Голосовые сообщения {#voice}
 Бот распознаёт входящие голосовые от людей с помощью Gemini 3.5 Transcribe.
