@@ -725,13 +725,26 @@ def get_user_display_name(user_id: int, chat_id: int, name_override: str | None 
             subscription_till = row["subscription_till"] if row else ""
             cepen_length = row["cepen"] if row else 0
 
+        try:
+            badge_row = conn.execute(
+                "SELECT value FROM settings WHERE chat_id=? AND name=?",
+                (chat_id, f"name_pistol:{int(user_id)}"),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if 'no such table' not in str(exc):
+                raise
+            badge_row = None
+        show_pistol = bool(badge_row and badge_row[0] in (1, '1'))
+
     base_name = name_override or (row["name"] if row and row["name"] else str(user_id))
     prefixes = []
     if has_active_subscription_str(subscription_till):
         prefixes.append("👑")
     if show_cepen and float(cepen_length or 0) > 0:
         prefixes.append("🐛")
-    for prefix in ("👑 ", "🪱 ", "🐛 "):
+    if show_pistol:
+        prefixes.append("🔫")
+    for prefix in ("👑 ", "🪱 ", "🐛 ", "🔫 "):
         if base_name.startswith(prefix):
             base_name = base_name[len(prefix):]
     return " ".join([*prefixes, base_name])

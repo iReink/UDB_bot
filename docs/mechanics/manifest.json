@@ -58,7 +58,7 @@
         "web/static/ai_tasks.css": "3339f00e89e612ad42a57d927833892b2c6d0825c7c1d849263187a6ab082bef",
         "mechanics_search.py": "d8f36d7174e5f11125053d530f7bd5875dc762d4d4db3c08ae38a07a31c247e7",
         "voice_transcribe.py": "28a27f00e868d286f1381926cbbb04a19aed1e92d4a03c6e4015eb5607aa7a99",
-        "db.py": "b0a71a02b325da9469892037fde31c12eb52feefabb8f56a40cee4af8e2f5af9",
+        "db.py": "e927dce137ac22cf2914fc9e71dc46ed8b7393a04bd9027352df741549d3d599",
         "docs/specs/voice-transcribe.md": "fd27e2099548db08f47bb8664141a88bf4d0b057d07da9d2e3f32e870684f802",
         "ai_preferences.py": "a5ec1cc5795aafde15645903a8f11069c50009e8a5c17514c3d34571ee1e8d29",
         "docs/specs/user-preferences.md": "9f87d7e1967abb578734d3e79f9b37fb7a1696e240c2596d9e6c849a31b32e40",
@@ -178,10 +178,10 @@
       "path": "docs/mechanics/economy.md",
       "hash": "2a21cbb1d4eb64deb954c80f887ffaece30f7d4fdfa10b3ecf7e2a5a15444c7f",
       "dependencies": {
-        "db.py": "b0a71a02b325da9469892037fde31c12eb52feefabb8f56a40cee4af8e2f5af9",
+        "db.py": "e927dce137ac22cf2914fc9e71dc46ed8b7393a04bd9027352df741549d3d599",
         "sits.py": "d15a22b318c726f62d257dee01edb5c0047205333d732b295011fb34ef6d9e7f",
         "main.py": "25d70c58500b70a97aad1d0a9fcb111aa81bad39bdd39f1fcd4d7934a4bdf0a0",
-        "STATS_DB_SCHEMA.md": "aa3838e90254104e0d2a8a86ecaeea2a550b6718b00e74a77d9476bf0ffaddc9"
+        "STATS_DB_SCHEMA.md": "bd6faf305df9cb0abd27d7c918b3c40a17b0067e7f21755ce654d2a91731532c"
       }
     },
     {
@@ -233,10 +233,10 @@
         "fight_club.py": "c523b60a7cf05b8a9cedd749d1f830afdfa786ef79c70d1a2d205eafb89f610e",
         "sosalsa.py": "2669cc1fcb08cbd4eda475ad761a17cf816b72586abc8939cabfacf6c18d23e2",
         "gaymeter.py": "88f690b3351ffdea2d19535ef38972605ab321465ea3bae60a8343cd311c00e4",
-        "db.py": "b0a71a02b325da9469892037fde31c12eb52feefabb8f56a40cee4af8e2f5af9",
+        "db.py": "e927dce137ac22cf2914fc9e71dc46ed8b7393a04bd9027352df741549d3d599",
         "help.py": "ce46b8a0a1ef50e6dbcacb560dc842ad072b2de4ce9a27dcf99d635f99ee4a88",
         "ai_tasks.py": "02f85b122f1374863f0e61867be3c57477e279e3e5bb775978341cc005f9a31f",
-        "STATS_DB_SCHEMA.md": "aa3838e90254104e0d2a8a86ecaeea2a550b6718b00e74a77d9476bf0ffaddc9",
+        "STATS_DB_SCHEMA.md": "bd6faf305df9cb0abd27d7c918b3c40a17b0067e7f21755ce654d2a91731532c",
         "tests/test_gaymeter.py": "f2817ca95f458c6dc7f985b27345b9d756c76dc550f823840c88f3d642dc96d6",
         "quest.py": "2f692058152c4025d735b0eb246b712a7d4474ab4ed19baadb2e47e022056962",
         "sex_input.py": "017f625f48115950d42d202dbdc6cc76a18514a99ab0ad6894fa39d47cb94315",
@@ -285,7 +285,7 @@
       "hash": "9c5ad9edc3cc33d12c7b10261b61bc05be858e137caea758296dc1008019e023",
       "dependencies": {
         "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19",
-        "db.py": "b0a71a02b325da9469892037fde31c12eb52feefabb8f56a40cee4af8e2f5af9",
+        "db.py": "e927dce137ac22cf2914fc9e71dc46ed8b7393a04bd9027352df741549d3d599",
         "ai_worker_client.py": "9dbb7715cdc671f4c50ec261c601b3cd956708ff122f886542985b9091a17e52",
         "ai_worker.py": "f1a194a60ab08311b2e598cfe90c6f27b21b89df137463e3e024b66eaffd877d",
         "ai_classifier_worker.py": "d985201103edf0df9d7907defa1a79cb428c9deb5a68e46f5ecd1b356497257d",
@@ -319,13 +319,16 @@
         "/all"
       ],
       "path": "docs/mechanics/participation.md",
-      "hash": "10ec6cdefc323d9c84d41b1580440a52a44c928a2bc478b5cb0f03bdb446944a",
+      "hash": "9d15754c180c2ff5eb13fcac5a7123a44aec78fca98c8948b561df0957512944",
       "dependencies": {
         "main.py": "25d70c58500b70a97aad1d0a9fcb111aa81bad39bdd39f1fcd4d7934a4bdf0a0",
         "help.py": "ce46b8a0a1ef50e6dbcacb560dc842ad072b2de4ce9a27dcf99d635f99ee4a88",
         "nick_input.py": "17efb096ec36bb52a391741ff195b8677d08219a4b0d479064a064ef6737959e",
         "sex_input.py": "017f625f48115950d42d202dbdc6cc76a18514a99ab0ad6894fa39d47cb94315",
-        "settings.py": "efa5696b7eda37d3d997d91f08e389e87acda9cbd7d1442f5e410bc0776e24df"
+        "settings.py": "efa5696b7eda37d3d997d91f08e389e87acda9cbd7d1442f5e410bc0776e24df",
+        "db.py": "e927dce137ac22cf2914fc9e71dc46ed8b7393a04bd9027352df741549d3d599",
+        "docs/specs/personal-name-badge.md": "184fe9ce6824359a310be85a0bd85f0c1d2e9b9c5b48d3cd5d3a94b5f46d4a5a",
+        "STATS_DB_SCHEMA.md": "bd6faf305df9cb0abd27d7c918b3c40a17b0067e7f21755ce654d2a91731532c"
       }
     },
     {

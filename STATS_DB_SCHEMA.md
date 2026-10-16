@@ -768,7 +768,7 @@ Key: `id`; unique message attachment slot: `(chat_id, message_id, attachment_ind
 | `name` | TEXT | Код настройки. |
 | `value` | INTEGER | Значение настройки: обычно флаг `0/1`, но для некоторых настроек может быть числом. |
 
-Известные `name`: `daily_reminders`, `enable_geyser`, `enable_cepen`, `forbid_mujlo`, `group_masturbation`, `ai_response_chance_percent`. Отсутствие `enable_cepen` означает, что механика включена.
+Известные `name`: `daily_reminders`, `enable_geyser`, `enable_cepen`, `forbid_mujlo`, `group_masturbation`, `ai_response_chance_percent`. Отсутствие `enable_cepen` означает, что механика включена. Персональный декоративный флаг `name_pistol:<user_id>` равен `1` для отображения 🔫 рядом с именем этого участника в текущем `chat_id`; `0` или отсутствие записи отключает метку. Схема таблицы не меняется.
 
 ### `daily_events`
 
