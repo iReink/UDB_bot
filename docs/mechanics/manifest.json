@@ -15,7 +15,7 @@
         "/summary"
       ],
       "path": "docs/mechanics/ai.md",
-      "hash": "3e5936f80d3eb22d708c7edb6a6525daaef16cd3dcd397593309e0b53b81d8a5",
+      "hash": "94b12137922fd68d5b9840149d3ec62c1f40ff7432db3c132b8646cba4840b09",
       "dependencies": {
         "ai_conversation.py": "d55051d591ce831971a09fc41abe8d2b949e04096e75bc689e95ac947a2f8756",
         "ai_tasks.py": "02f85b122f1374863f0e61867be3c57477e279e3e5bb775978341cc005f9a31f",
@@ -60,10 +60,11 @@
         "voice_transcribe.py": "28a27f00e868d286f1381926cbbb04a19aed1e92d4a03c6e4015eb5607aa7a99",
         "db.py": "e927dce137ac22cf2914fc9e71dc46ed8b7393a04bd9027352df741549d3d599",
         "docs/specs/voice-transcribe.md": "fd27e2099548db08f47bb8664141a88bf4d0b057d07da9d2e3f32e870684f802",
-        "ai_preferences.py": "a5ec1cc5795aafde15645903a8f11069c50009e8a5c17514c3d34571ee1e8d29",
+        "ai_preferences.py": "943b00e86e87f5936c43d63ced6677181b408270ddde1a6e95a86178874abadc",
         "docs/specs/user-preferences.md": "9f87d7e1967abb578734d3e79f9b37fb7a1696e240c2596d9e6c849a31b32e40",
         "docs/specs/flexible-preferences.md": "7fe2cc280587b116020901b4c339ff4f6a79d1b0c795fa50bcd8d9464f7555e6",
-        "docs/specs/preference-persona.md": "b0961639cfa988bb222dd6ac109a6efae0f178fa6ce03059838ee2be2330a2a1"
+        "docs/specs/preference-persona.md": "b0961639cfa988bb222dd6ac109a6efae0f178fa6ce03059838ee2be2330a2a1",
+        "docs/specs/preference-deletion.md": "929b73bee63f6000a6c7f73d2832f3c2fe58258b99fabfd5d5e215059d5ac694"
       }
     },
     {

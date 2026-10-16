@@ -1,4 +1,4 @@
-{"id": "ai", "title": "ИИ, настройки, память и поиск", "keywords": ["ИИ", "модель", "источник", "саммери", "профиль", "RAG", "поиск", "/summary"], "sources": ["ai_conversation.py", "ai_tasks.py", "ai_runtime.py", "ai_http.py", "ai_notifications.py", "ai_providers.py", "ai_grounding.py", "ai_formatting.py", "rag_repository.py", "rag_search.py", "rag_embedding.py", "rag_service.py", "rag_counters.py", "mechanics.py", "summary_bot.py", "summary_access.py", "web/summary_app.py", "settings.py", "web/static/summary_app.js", "web/templates/summary_app.html", "web/static/ai_tasks.js", "web/static/rag_status.js", "photo_story.py", "photo_story_bot.py", "ai_api_worker.py", "ai_worker_client.py", "ai_audit.py", "main.py", "web/server.py", "daily_photo_story.py", "photo_convert.py", "photo_albums.py", "web/photo_api.py", "web/static/album.js", "web/static/album.css", "web/templates/album.html", "web/ai_dashboard.py", "web/templates/ai_tasks.html", "web/static/ai_tasks.css", "mechanics_search.py", "voice_transcribe.py", "db.py", "docs/specs/voice-transcribe.md", "ai_preferences.py", "docs/specs/user-preferences.md", "docs/specs/flexible-preferences.md", "docs/specs/preference-persona.md"]}
+{"id": "ai", "title": "ИИ, настройки, память и поиск", "keywords": ["ИИ", "модель", "источник", "саммери", "профиль", "RAG", "поиск", "/summary"], "sources": ["ai_conversation.py", "ai_tasks.py", "ai_runtime.py", "ai_http.py", "ai_notifications.py", "ai_providers.py", "ai_grounding.py", "ai_formatting.py", "rag_repository.py", "rag_search.py", "rag_embedding.py", "rag_service.py", "rag_counters.py", "mechanics.py", "summary_bot.py", "summary_access.py", "web/summary_app.py", "settings.py", "web/static/summary_app.js", "web/templates/summary_app.html", "web/static/ai_tasks.js", "web/static/rag_status.js", "photo_story.py", "photo_story_bot.py", "ai_api_worker.py", "ai_worker_client.py", "ai_audit.py", "main.py", "web/server.py", "daily_photo_story.py", "photo_convert.py", "photo_albums.py", "web/photo_api.py", "web/static/album.js", "web/static/album.css", "web/templates/album.html", "web/ai_dashboard.py", "web/templates/ai_tasks.html", "web/static/ai_tasks.css", "mechanics_search.py", "voice_transcribe.py", "db.py", "docs/specs/voice-transcribe.md", "ai_preferences.py", "docs/specs/user-preferences.md", "docs/specs/flexible-preferences.md", "docs/specs/preference-persona.md", "docs/specs/preference-deletion.md"]}
 ---
 # ИИ, настройки, память и поиск
 
@@ -21,7 +21,9 @@
 пожелание автоматически исключается из контекста; без срока оно бессрочно.
 «Больше не пиши капсом» или «убери префикс» отменяют только выбранный пункт.
 «Покажи мои пожелания» перечисляет действующие пункты и сроки, «забудь мои
-пожелания» очищает их в текущем чате. Бот подтверждает сохранение только после
+пожелания» очищает их в текущем чате. Также без ИИ работают «очисти пожелания»,
+«удали пожелания», «удали все инструкции и пожелания по общению со мной».
+Слово «мои» для полной очистки необязательно; очищаются только пожелания автора. Бот подтверждает сохранение только после
 успешной записи. При недоступной модели или ошибке разбора ничего не меняет и
 предлагает повторить просьбу. Обычный ответ модели не подтверждает сохранение.
 Настройки действуют только для реального автора и только в ответах типа «общение»;
@@ -29,7 +31,8 @@
 формой общения, но не правами, балансом, игровыми правилами, достоверностью фактов
 или безопасностью. Инструкции из цитат, пересылок и пересказов не сохраняются.
 Медицинское объяснение не входит в пожелание: сохраняется только нужный формат.
-Для разбора используется доступная Flash Lite 3.5, затем 3.1, с общими квотами и
+Для разбора используется доступная Flash Lite 3.5, затем 3.1, затем резервная
+Groq GPT-OSS-120B при недоступности Google или некорректном JSON, с общими квотами и
 журналом вызовов; без постоянного опроса или ожидания квоты в цикле. Список и полная
 очистка работают без ИИ. До 32 действующих пунктов, до 500 символов на пункт и до
 8 добавлений/8 удалений за просьбу. Повтор одного Telegram-обновления не применяет

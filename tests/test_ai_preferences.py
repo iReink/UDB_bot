@@ -255,3 +255,59 @@ class PreferenceTests(unittest.TestCase):
         self.assertIn('отыгрывай говорящего цепня',prepared)
         self.assertIn('не выдумывай реальные игровые данные',prepared)
         self.assertIn('не называй выдуманных чисел',prepared)
+
+
+    def test_full_clear_synonyms_work_with_unavailable_models(self):
+        self.request('Бот, пиши капсом',user=2)
+        self.request('Бот, пиши капсом',chat=-43)
+        variants=['Бот, очисти пожелания','Бот, удали пожелания',
+                  'Бот, удали все инструкции и пожелания по общению со мной',
+                  'Бот, забудь все пожелания','Бот, сбрось мои предпочтения в этом чате']
+        for text in variants:
+            self.request('Бот, называй меня Вадимом')
+            with patch.object(prefs,'interpret',side_effect=AssertionError('must not call API')) as api:
+                result=self.request(text)
+                self.assertIn('сброшены',result['response']);api.assert_not_called()
+            self.assertEqual({},self.read())
+            self.assertEqual({'case':'капс'},self.read(user=2))
+            self.assertEqual({'case':'капс'},self.read(chat=-43))
+        self.request('Бот, пиши капсом')
+        self.assertIsNone(self.request('Бот, «очисти пожелания»'))
+        self.assertEqual({'case':'капс'},self.read())
+
+    def test_clear_plan_accepts_redundant_known_removals(self):
+        from datetime import datetime,timezone
+        rows=[{'key':'custom:persona','text':'Гангстер','expires_at':None},
+              {'key':'custom:include_number_67','text':'Добавляй 67','expires_at':None}]
+        now=datetime.now(timezone.utc)
+        plan=prefs.validate_plan({'action':'clear','set':[], 'remove':[r['key'] for r in rows]},rows,now)
+        self.assertEqual({'action':'clear','set':[],'remove':[]},plan)
+        with self.assertRaises(ValueError):
+            prefs.validate_plan({'action':'clear','set':[], 'remove':['custom:unknown']},rows,now)
+        with self.assertRaises(ValueError):
+            prefs.validate_plan({'action':'clear','set':[{'key':'custom:x','text':'x'}], 'remove':[]},rows,now)
+
+    def test_google_transport_failure_uses_groq_for_targeted_removal(self):
+        import ai_runtime,ai_providers,ai_audit
+        from datetime import datetime,timezone
+        rows=[{'key':'custom:include_number_67','text':'Пиши 67 минимум 3 раза','expires_at':None},
+              {'key':'custom:persona','text':'Будь мастером и гангстером','expires_at':None}]
+        output=json.dumps({'action':'update','set':[], 'remove':['custom:include_number_67']})
+        self.extractor.stop()
+        try:
+            with patch.object(ai_runtime,'model_ready',return_value=True),patch.object(ai_runtime,'budget_wait',return_value=0),patch.object(ai_providers,'call_google',side_effect=ai_providers.ProviderUnavailable('HTTP 503')) as google,patch.object(ai_providers,'call_groq',return_value=(output,{})) as groq,patch.object(ai_audit,'take',return_value=[{'model':'fake'}]),patch.object(ai_runtime,'record_attempt') as audit:
+                plan=prefs.interpret('Бот, забудь про 67',rows,-42,datetime.now(timezone.utc))
+                self.assertEqual(['custom:include_number_67'],plan['remove'])
+                self.assertEqual(2,google.call_count);groq.assert_called_once()
+                self.assertEqual(ai_runtime.MODEL_HEAVY,groq.call_args.args[2])
+                self.assertEqual(3,audit.call_count)
+                self.assertTrue(all(call.args[1]<=4 for call in google.call_args_list))
+        finally:self.extract=self.extractor.start()
+
+    def test_failure_reports_reason_and_offline_clear(self):
+        import ai_providers
+        self.extract.side_effect=ai_providers.ProviderUnavailable('HTTP 503',kind='transport')
+        result=self.request('Бот, забудь про 67')
+        self.assertIn('временно недоступен',result['response'])
+        self.assertIn('Бот, очисти пожелания',result['response'])
+        self.assertEqual({},self.read())

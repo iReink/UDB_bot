@@ -101,10 +101,10 @@ def parse(text):
     text = text.strip()
     text = re.sub(r'^\s*(?:бот|@[\w]+)[\s,:—-]*','',text,flags=re.I)
     text = re.sub(r'^(?:пожалуйста[, ]+|теперь\s+|с этого момента\s+)+','',text,flags=re.I)
-    low = text.lower().rstrip('.!? ')
+    low = re.sub(r'\s+',' ',text.lower()).rstrip('.!? ')
     if re.fullmatch(r'(?:покажи|перечисли|какие)\s+мои\s+(?:пожелания|предпочтения)',low) or re.fullmatch(r'как я просил (?:тебя )?со мной общаться',low):
         return 'view',{}
-    if re.fullmatch(r'(?:забудь|сбрось|удали)\s+(?:все\s+)?мои\s+(?:пожелания|предпочтения)',low):
+    if re.fullmatch(r'(?:забудь|сбрось|удали|очисти)\s+(?:(?:все|мои|сохран[её]нные)\s+)*(?:(?:инструкции\s+и\s+)?(?:пожелания|предпочтения)(?:\s+и\s+инструкции)?|настройки\s+общения|память\s+пожеланий)(?:\s+(?:по\s+общению\s+со\s+мной|для\s+общения\s+со\s+мной|в\s+(?:этом|текущем)\s+чате))?',low):
         return 'clear',{}
     reset = re.fullmatch(r'(?:сбрось|отмени|забудь)\s+(?:(?:настройку|пожелание)\s+)?(.+)',low)
     if reset and reset[1] in FIELDS:return 'update',{FIELDS[reset[1]]:None}
@@ -218,6 +218,8 @@ def validate_plan(value,rows,now):
         expiry=expiration(item.get('expires_at'))
         if expiry and datetime.fromisoformat(expiry)<=now:raise ValueError('expired')
         seen.add(key);clean.append({'key':key,'text':text,'expires_at':expiry})
+    if value['action']=='clear' and not clean:
+        removes=[]  # Redundant known keys are semantically identical to clearing all.
     if value['action']!='update' and (clean or removes):raise ValueError('unexpected operations')
     if value['action']=='update' and not(clean or removes):raise ValueError('empty update')
     if len((known-set(removes))|seen)>32:raise ValueError('too many preferences')
@@ -234,14 +236,18 @@ def interpret(text,rows,chat,now):
     deadline=time.monotonic()+16
     task={'task_type':'preference_extract','chat_id':chat,'prompt':extraction_prompt(text,rows,now),'payload':{}}
     failure=None
-    for model in (runtime.MODEL_GOOGLE_PRIMARY,runtime.MODEL_GOOGLE_SECONDARY):
-        remaining=min(8,deadline-time.monotonic())
+    for model in (runtime.MODEL_GOOGLE_PRIMARY,runtime.MODEL_GOOGLE_SECONDARY,runtime.MODEL_HEAVY):
+        remaining=min(4 if not model.startswith('openai/') else 8,deadline-time.monotonic())
         if remaining<=0:break
         if not runtime.model_ready(model) or runtime.budget_wait(model):continue
         ai_audit.begin()
         outcome='preference_extract_failed'
         try:
-            output,_=providers.call_google(dict(task,_call_deadline=deadline),remaining,model)
+            if model.startswith('openai/'):
+                from urllib3.util import Timeout
+                output,_=providers.call_groq(task,Timeout(total=remaining,connect=min(2,remaining),read=remaining),model)
+            else:
+                output,_=providers.call_google(dict(task,_call_deadline=time.monotonic()+remaining),remaining,model)
             output=output.strip()
             if output.startswith('```'):output=output.split('\n',1)[1].rsplit('```',1)[0]
             result=validate_plan(json.loads(output),rows,now)
@@ -254,7 +260,8 @@ def interpret(text,rows,chat,now):
             if calls:
                 try:runtime.record_attempt('tasks',-1,uuid.uuid4().hex,{'calls':calls,'purpose':'preference_extract'},outcome)
                 except Exception:logging.warning('Preference audit unavailable',exc_info=True)
-    raise RuntimeError('Preference extraction unavailable') from failure
+    if failure is not None:raise failure
+    raise RuntimeError('No preference model available')
 
 
 def revision(conn,chat,user):
@@ -280,9 +287,14 @@ def handle(message):
         plan={'action':local[0],'set':[],'remove':[]}
     else:
         try:plan=interpret(text,rows,chat,utc_now())
-        except Exception:
-            logging.warning('Preference extraction failed; no preferences changed')
-            return {'response':'Не удалось разобрать и сохранить пожелание. Ничего не изменено; попробуйте ещё раз чуть позже.'}
+        except Exception as exc:
+            kind=getattr(exc,'kind',None)
+            logging.warning('Preference extraction failed; no preferences changed: kind=%s error=%s',kind or 'invalid_response' if isinstance(exc,(ValueError,TypeError)) else kind or 'unavailable',type(exc).__name__)
+            reason={'daily':'У моделей разбора пожеланий закончилась суточная квота.',
+                    'minute':'Модели разбора пожеланий временно заняты.',
+                    'transport':'Сервис ИИ для разбора пожеланий временно недоступен.'}.get(kind,
+                    'Модель вернула некорректный ответ.' if isinstance(exc,(ValueError,TypeError)) else 'Не удалось разобрать и сохранить пожелание.')
+            return {'response':reason+' Ничего не изменено. Полная очистка без ИИ: «Бот, очисти пожелания».'}
     if plan['action']=='none':return None
     with closing(db.get_connection()) as conn,conn:
         conn.execute('BEGIN IMMEDIATE')
