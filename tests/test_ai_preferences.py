@@ -283,6 +283,8 @@ class PreferenceTests(unittest.TestCase):
         plan=prefs.validate_plan({'action':'clear','set':[], 'remove':[r['key'] for r in rows]},rows,now)
         self.assertEqual({'action':'clear','set':[],'remove':[]},plan)
         with self.assertRaises(ValueError):
+            prefs.validate_plan({'action':'clear','set':[], 'remove':['custom:persona']},rows,now)
+        with self.assertRaises(ValueError):
             prefs.validate_plan({'action':'clear','set':[], 'remove':['custom:unknown']},rows,now)
         with self.assertRaises(ValueError):
             prefs.validate_plan({'action':'clear','set':[{'key':'custom:x','text':'x'}], 'remove':[]},rows,now)

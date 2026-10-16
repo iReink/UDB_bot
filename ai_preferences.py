@@ -218,6 +218,8 @@ def validate_plan(value,rows,now):
         expiry=expiration(item.get('expires_at'))
         if expiry and datetime.fromisoformat(expiry)<=now:raise ValueError('expired')
         seen.add(key);clean.append({'key':key,'text':text,'expires_at':expiry})
+    if value['action']=='clear' and removes and set(removes)!=known:
+        raise ValueError('partial clear must use update')
     if value['action']=='clear' and not clean:
         removes=[]  # Redundant known keys are semantically identical to clearing all.
     if value['action']!='update' and (clean or removes):raise ValueError('unexpected operations')
