@@ -536,77 +536,16 @@ def _scratch_counts(
     return int(row["total"] or 0), int(row["personal"] or 0)
 
 
-def scratch(
-    chat_id: int,
-    owner_id: int,
-    scratcher_id: int,
-    callback_query_id: str,
-    *,
-    date_key: str | None = None,
-) -> ScratchResult:
+def scratch(chat_id: int, owner_id: int, scratcher_id: int, callback_query_id: str,
+            *, date_key: str | None = None) -> ScratchResult:
     """Atomically record one rewarded scratch and enforce both daily limits."""
-    day = date_key or datetime.now().date().isoformat()
+    from zoneinfo import ZoneInfo
+    day = date_key or datetime.now(ZoneInfo('Asia/Yekaterinburg')).date().isoformat()
     with closing(db.get_connection()) as conn:
-        try:
+        with conn:
             conn.execute("BEGIN IMMEDIATE")
-            if not db.cepen_enabled(chat_id, conn):
-                conn.rollback()
-                return ScratchResult("disabled", 0, 0)
-            if _status(conn, chat_id, owner_id) <= 0:
-                conn.rollback()
-                return ScratchResult("healthy", 0, 0)
-            if scratcher_id == owner_id:
-                total, personal = _scratch_counts(conn, chat_id, owner_id, scratcher_id, day)
-                conn.rollback()
-                return ScratchResult("self", total, personal)
-
-            duplicate = conn.execute(
-                "SELECT 1 FROM cepen_scratches WHERE callback_query_id=?",
-                (str(callback_query_id),),
-            ).fetchone()
-            total, personal = _scratch_counts(conn, chat_id, owner_id, scratcher_id, day)
-            if duplicate:
-                conn.rollback()
-                return ScratchResult("duplicate", total, personal)
-            if total >= SCRATCH_DAILY_LIMIT:
-                conn.rollback()
-                return ScratchResult("worm_limit", total, personal)
-            if personal >= SCRATCH_USER_DAILY_LIMIT:
-                conn.rollback()
-                return ScratchResult("user_limit", total, personal)
-
-            now = datetime.now().isoformat(timespec="seconds")
-            conn.execute(
-                "INSERT INTO cepen_scratches("
-                "callback_query_id,scratch_date,chat_id,owner_id,scratcher_id,reward,created_at"
-                ") VALUES (?,?,?,?,?,?,?)",
-                (
-                    str(callback_query_id), day, chat_id, owner_id, scratcher_id,
-                    SCRATCH_REWARD, now,
-                ),
-            )
-            balance_before, balance_after = db.apply_sit_change(
-                conn,
-                chat_id,
-                owner_id,
-                SCRATCH_REWARD,
-                action_code="cepen_scratch_reward",
-                action_ru="Награда за чесание цепня",
-                metadata={
-                    "scratcher_id": scratcher_id,
-                    "scratch_date": day,
-                    "callback_query_id": str(callback_query_id),
-                },
-            )
-            conn.execute(
-                "UPDATE cepen_scratches SET reward=? WHERE callback_query_id=?",
-                (round(balance_after - balance_before, 3), str(callback_query_id)),
-            )
-            conn.commit()
-            return ScratchResult("scratched", total + 1, personal + 1)
-        except Exception:
-            conn.rollback()
-            raise
+            return scratch_in_transaction(conn, chat_id, owner_id, scratcher_id,
+                                          callback_query_id, date_key=day)
 
 
 def scratch_summary(
@@ -1523,3 +1462,51 @@ def register_handlers(dp):
             await message.reply("Цепень отключён в этом чате.")
         else:
             await message.reply("У этого участника нет цепня.")
+
+def scratch_in_transaction(conn, chat_id, owner_id, scratcher_id, callback_query_id, *, date_key):
+    """Shared rule implementation; caller owns the transaction and commit."""
+    day = date_key
+    if not db.cepen_enabled(chat_id, conn):
+        return ScratchResult("disabled", 0, 0)
+    if _status(conn, chat_id, owner_id) <= 0:
+        return ScratchResult("healthy", 0, 0)
+    duplicate = conn.execute(
+        "SELECT 1 FROM cepen_scratches WHERE callback_query_id=?",
+        (str(callback_query_id),),
+    ).fetchone()
+    total, personal = _scratch_counts(conn, chat_id, owner_id, scratcher_id, day)
+    if duplicate:
+        return ScratchResult("duplicate", total, personal)
+    if total >= SCRATCH_DAILY_LIMIT:
+        return ScratchResult("worm_limit", total, personal)
+    if personal >= SCRATCH_USER_DAILY_LIMIT:
+        return ScratchResult("user_limit", total, personal)
+
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT INTO cepen_scratches("
+        "callback_query_id,scratch_date,chat_id,owner_id,scratcher_id,reward,created_at"
+        ") VALUES (?,?,?,?,?,?,?)",
+        (
+            str(callback_query_id), day, chat_id, owner_id, scratcher_id,
+            SCRATCH_REWARD, now,
+        ),
+    )
+    balance_before, balance_after = db.apply_sit_change(
+        conn,
+        chat_id,
+        owner_id,
+        SCRATCH_REWARD,
+        action_code="cepen_scratch_reward",
+        action_ru="Награда за чесание цепня",
+        metadata={
+            "scratcher_id": scratcher_id,
+            "scratch_date": day,
+            "callback_query_id": str(callback_query_id),
+        },
+    )
+    conn.execute(
+        "UPDATE cepen_scratches SET reward=? WHERE callback_query_id=?",
+        (round(balance_after - balance_before, 3), str(callback_query_id)),
+    )
+    return ScratchResult("scratched", total + 1, personal + 1)

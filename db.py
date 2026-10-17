@@ -210,6 +210,17 @@ def initialize_db():
             CREATE INDEX IF NOT EXISTS idx_cepen_scratches_scratcher_date
             ON cepen_scratches(chat_id, owner_id, scratcher_id, scratch_date)
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cepen_api_scratch_requests (
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                request_id TEXT NOT NULL,
+                requested_count INTEGER NOT NULL CHECK(requested_count BETWEEN 1 AND 50),
+                response_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (chat_id, user_id, request_id)
+            )
+        """)
         # Таблица для отслеживания гейзеров (обновленная структура)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS geyser_events (

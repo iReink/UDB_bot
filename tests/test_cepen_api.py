@@ -69,7 +69,7 @@ class CepenApiTests(unittest.TestCase):
         response = self.client.post('/api/v1/auth/code', json={'code':issued.code})
         self.assertEqual(200,response.status_code)
         value=response.json()
-        self.assertEqual('cepen:read',value['scope']);self.assertEqual(api.TOKEN_TTL,value['expires_in'])
+        self.assertEqual('cepen:read cepen:scratch',value['scope']);self.assertEqual(api.TOKEN_TTL,value['expires_in'])
         self.assertEqual('no-store',response.headers['cache-control'])
         self.assertEqual(401,self.client.post('/api/v1/auth/code',json={'code':issued.code}).status_code)
         chats=self.client.get('/api/v1/chats',headers={'Authorization':'Bearer '+value['access_token']})

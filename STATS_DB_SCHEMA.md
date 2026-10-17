@@ -569,13 +569,28 @@ FK не объявлен. Повторяемое создание в cepen_messa
 
 | Поле | Тип | Описание |
 |---|---:|---|
-| `callback_query_id` | TEXT | Уникальный ID нажатия Telegram. |
+| `callback_query_id` | TEXT | Уникальный ID нажатия Telegram или синтетический API ID `api:cepen:<chat>:<user>:<UUID>:<index>` (index от нуля). |
 | `scratch_date` | TEXT | Серверная дата чесания `YYYY-MM-DD`. |
 | `chat_id` | INTEGER | Чат цепня. |
 | `owner_id` | INTEGER | Владелец цепня и получатель награды. |
 | `scratcher_id` | INTEGER | Пользователь, который почесал цепня. |
 | `reward` | REAL | Фактически начисленная владельцу сумма после налога и взыскания; исходная награда — `0.1` сита. |
 | `created_at` | TEXT | Серверные дата и время успешного нажатия. |
+
+### `cepen_api_scratch_requests`
+
+Служебные квитанции пакетного почёсывания через API. Создаётся повторяемо в db.initialize_db, существующие строки не изменяются миграцией. Ключ `PRIMARY KEY(chat_id,user_id,request_id)`; внешние ключи и дополнительные индексы не объявлены. Все поля NOT NULL, без DEFAULT.
+
+| Поле | Тип | Описание |
+|---|---|---|
+| chat_id | INTEGER | Групповой чат цепня. |
+| user_id | INTEGER | Хозяин и автор действия из Bearer-токена. |
+| request_id | TEXT | Каноническая строка UUID действия приложения. |
+| requested_count | INTEGER | Запрошенное количество, CHECK BETWEEN 1 AND 50. |
+| response_json | TEXT | Зафиксированный ответ: accepted/rejected_count, reason (null/user_limit/worm_limit), scratch_date, total/owner_count, остатки лимитов, reward_sits в ситах после удержаний, mood. Повтор возвращает этот снимок. |
+| created_at | TEXT | Время фиксации ISO8601 UTC. |
+
+Начисления, строки cepen_scratches и квитанция фиксируются одной транзакцией. Повтор UUID с другим count отклоняется. Квитанции сохраняются без автоматического удаления, включая принятые пачки с нулём успешных действий; токены/коды/профили не хранятся.
 
 ### `daily_stats`
 

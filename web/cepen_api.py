@@ -1,4 +1,4 @@
-"""Read-only, owner-scoped external cepen API; no dependency on web visitor state."""
+"""Owner-scoped external cepen API; no dependency on web visitor state."""
 import base64
 import hashlib
 import hmac
@@ -11,6 +11,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -22,11 +23,21 @@ from auth_code import (AuthCodeInvalidError, AuthCodeExpiredError,
 PREFIX = '/api/v1'
 TOKEN_TTL = 30 * 24 * 60 * 60
 SCOPE = 'cepen:read'
+WRITE_SCOPE = 'cepen:scratch'
 TZ = ZoneInfo('Asia/Yekaterinburg')
 
 
 class Login(BaseModel):
     code: str = Field(min_length=4, max_length=4, pattern=r'^[0-9]{4}$')
+
+    class Config:
+        extra = 'forbid'
+
+
+class ScratchRequest(BaseModel):
+    chat_id: int = Field(strict=True, lt=0, ge=-(2**63))
+    count: int = Field(strict=True, ge=1, le=50)
+    request_id: UUID
 
     class Config:
         extra = 'forbid'
@@ -44,14 +55,14 @@ def signing_key(secret):
 
 def issue_token(user, secret):
     exp = int(time.time()) + TOKEN_TTL
-    payload = {'sub': int(user), 'exp': exp, 'scope': SCOPE, 'v': 1,
+    payload = {'sub': int(user), 'exp': exp, 'scope': f'{SCOPE} {WRITE_SCOPE}', 'v': 1,
                'nonce': secrets.token_urlsafe(12)}
     body = base64.urlsafe_b64encode(json.dumps(payload, separators=(',', ':')).encode()).decode().rstrip('=')
     sig = hmac.new(signing_key(secret), body.encode(), hashlib.sha256).hexdigest()
     return body + '.' + sig, exp
 
 
-def token_user(request, secret):
+def token_user(request, secret, *, required_scope=None):
     header = request.headers.get('authorization', '')
     if not header.lower().startswith('bearer '):
         fail(401, 'invalid_token', 'Bearer token required', {'WWW-Authenticate': 'Bearer'})
@@ -64,10 +75,12 @@ def token_user(request, secret):
         if not hmac.compare_digest(expected, sig):
             raise ValueError('signature')
         payload = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
-        if (payload.get('scope') != SCOPE or payload.get('v') != 1
+        if (SCOPE not in str(payload.get('scope', '')).split() or payload.get('v') != 1
                 or type(payload.get('sub')) is not int or payload['sub'] <= 0
                 or type(payload.get('exp')) is not int or payload['exp'] <= int(time.time())):
             raise ValueError('claims')
+        if required_scope and required_scope not in str(payload.get('scope', '')).split():
+            fail(403, 'insufficient_scope', 'New code login required for scratching')
         return payload['sub']
     except (ValueError, TypeError, KeyError, UnicodeError, AttributeError):
         fail(401, 'invalid_token', 'Token invalid or expired', {'WWW-Authenticate': 'Bearer'})
@@ -142,7 +155,7 @@ def register_cepen_api(app, *, connect, consume_code, secret, chat_label):
         return JSONResponse({'access_token': token, 'token_type': 'Bearer',
                              'expires_in': TOKEN_TTL,
                              'expires_at': datetime.fromtimestamp(exp, timezone.utc).isoformat(),
-                             'scope': SCOPE}, headers={'Cache-Control': 'no-store'})
+                             'scope': f'{SCOPE} {WRITE_SCOPE}'}, headers={'Cache-Control': 'no-store'})
 
     @router.get('/chats')
     def chats(request: Request):
@@ -179,6 +192,52 @@ def register_cepen_api(app, *, connect, consume_code, secret, chat_label):
                       'avatar_url': f'{PREFIX}/cepen/avatar?chat_id={chat_id}&v={version}' if exists else None,
                       'mood': mood_for_scratches(count) if exists else None}
         return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+
+    @router.post('/cepen/scratch')
+    def scratch(data: ScratchRequest, request: Request):
+        import cepen
+        import db
+        from cepen_messages import mood_for_scratches
+        user = token_user(request, secret(), required_scope=WRITE_SCOPE)
+        key = str(data.request_id)
+        with closing(connect()) as conn, conn:
+            conn.execute('BEGIN IMMEDIATE')
+            row = user_row(conn, user, data.chat_id)
+            previous = conn.execute(
+                'SELECT requested_count,response_json FROM cepen_api_scratch_requests '
+                'WHERE chat_id=? AND user_id=? AND request_id=?',
+                (data.chat_id, user, key)).fetchone()
+            if previous:
+                if previous['requested_count'] != data.count:
+                    fail(409, 'idempotency_conflict', 'request_id already used with another count')
+                return JSONResponse(json.loads(previous['response_json']), headers={'Cache-Control': 'no-store'})
+            if not db.cepen_enabled(data.chat_id, conn):
+                fail(409, 'mechanic_disabled', 'Cepen mechanic disabled in this chat')
+            if float(row['cepen'] or 0) <= 0:
+                fail(404, 'no_cepen', 'No cepen for this account')
+            day = datetime.now(TZ).date().isoformat()
+            accepted, reward, reason = 0, 0.0, None
+            total, personal = cepen._scratch_counts(conn, data.chat_id, user, user, day)
+            for index in range(data.count):
+                callback = f'api:cepen:{data.chat_id}:{user}:{key}:{index}'
+                result = cepen.scratch_in_transaction(conn, data.chat_id, user, user, callback, date_key=day)
+                total, personal = result.total_count, result.scratcher_count
+                if result.status != 'scratched':
+                    reason = result.status
+                    break
+                accepted += 1
+                reward += conn.execute('SELECT reward FROM cepen_scratches WHERE callback_query_id=?', (callback,)).fetchone()[0]
+            value = {'request_id': key, 'requested_count': data.count, 'accepted_count': accepted,
+                     'rejected_count': data.count - accepted, 'reason': reason, 'scratch_date': day,
+                     'total_count': total, 'owner_count': personal,
+                     'owner_remaining': max(0, cepen.SCRATCH_USER_DAILY_LIMIT - personal),
+                     'total_remaining': max(0, cepen.SCRATCH_DAILY_LIMIT - total),
+                     'reward_sits': round(reward, 3), 'mood': mood_for_scratches(total)}
+            conn.execute('INSERT INTO cepen_api_scratch_requests '
+                         '(chat_id,user_id,request_id,requested_count,response_json,created_at) VALUES(?,?,?,?,?,?)',
+                         (data.chat_id, user, key, data.count, json.dumps(value, ensure_ascii=False),
+                          datetime.now(timezone.utc).isoformat()))
+        return JSONResponse(value, headers={'Cache-Control': 'no-store'})
 
     @router.get('/cepen/avatar')
     def avatar(request: Request, chat_id: int = Query(..., lt=0, ge=-(2**63))):

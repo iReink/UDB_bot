@@ -1,4 +1,4 @@
-{"id": "cepen", "title": "Цепень: заражение, рост, уход и ИИ-аватарка", "keywords": ["цепень", "рост", "заражение", "чесать", "профессия", "скин", "лечение", "анабиоз", "аватарка", "получить цепня", "заразиться", "/cepen", "голос цепня", "голосовое", "озвучка"], "sources": ["cepen.py", "cepen_shop.py", "cepen_message_events.py", "cepen_avatar.py", "cepen_ai_avatar.py", "docs/cepen-spec.md", "docs/cepen-growth-benefits-spec.md", "docs/specs/cepen-ai-avatar-spec.md", "docs/specs/cepen-always-happy-spec.md", "docs/specs/cepen-message-route-spec.md", "docs/specs/cepen-cure-confirmation-spec.md", "cepen_messages.py", "docs/specs/cepen-messages-spec.md", "docs/specs/cepen-self-scratch-spec.md", "cepen_tts.py", "docs/specs/cepen-tts.md", "docs/specs/cepen-voice-size.md", "web/cepen_api.py", "docs/cepen-api.md", "docs/specs/cepen-read-api.md"]}
+{"id": "cepen", "title": "Цепень: заражение, рост, уход и ИИ-аватарка", "keywords": ["цепень", "рост", "заражение", "чесать", "профессия", "скин", "лечение", "анабиоз", "аватарка", "получить цепня", "заразиться", "/cepen", "голос цепня", "голосовое", "озвучка"], "sources": ["cepen.py", "cepen_shop.py", "cepen_message_events.py", "cepen_avatar.py", "cepen_ai_avatar.py", "docs/cepen-spec.md", "docs/cepen-growth-benefits-spec.md", "docs/specs/cepen-ai-avatar-spec.md", "docs/specs/cepen-always-happy-spec.md", "docs/specs/cepen-message-route-spec.md", "docs/specs/cepen-cure-confirmation-spec.md", "cepen_messages.py", "docs/specs/cepen-messages-spec.md", "docs/specs/cepen-self-scratch-spec.md", "cepen_tts.py", "docs/specs/cepen-tts.md", "docs/specs/cepen-voice-size.md", "web/cepen_api.py", "docs/cepen-api.md", "docs/specs/cepen-read-api.md", "docs/specs/cepen-scratch-api.md", "db.py"]}
 ---
 # Цепень: заражение, рост и уход
 
@@ -34,7 +34,7 @@ cepen_letters хранит расписание, подготовленный т
 ## Чтение своего цепня из приложения {#external-api}
 Стороннее приложение может получить данные только своего цепня через HTTPS API.
 Одноразовый код из личной команды /auth обменивается в /api/v1/auth/code на отдельный
-Bearer-токен чтения сроком 30 суток. /api/v1/chats перечисляет собственные групповые
+Bearer-токен сроком 30 суток. /api/v1/chats перечисляет собственные групповые
 чаты; /api/v1/cepen?chat_id= возвращает имя владельца/чата, наличие цепня, его имя,
 длину, ступень внешнего вида, профессию и признак её выбора, флаг включённой механики,
 mood и защищённый URL текущей аватарки. Mood: 0 почёсываний за дату Екатеринбурга —
@@ -42,7 +42,10 @@ mood и защищённый URL текущей аватарки. Mood: 0 поч
 успешно с has_cepen=false и без аватарки. Выключенная механика не удаляет сохранённого
 питомца. Аватарка — доступная актуальная включённая ИИ-картинка или обычная;
 чтение не запускает генерацию ИИ. Тот же Bearer нужен для загрузки изображения.
-Токен не даёт доступ к чужим данным, операциям изменения питомца или другим веб-API.
+Токен не даёт доступ к чужим данным или другим веб-API.
 Новый вход ограничен пятью попытками с IP в минуту и тридцатью на процесс в минуту.
 Прогнозы роста, банковские данные, профиль, переписка и служебные prompts не передаются.
 Технический контракт приложения — docs/cepen-api.md.
+
+## Почёсывание хозяином из приложения {#external-scratch}
+POST /api/v1/cepen/scratch принимает количество 1–50 и уникальный UUID действия. Новый вход /auth выдаёт право почёсывания; старые токены остаются только для чтения. Приложение может чесать только своего цепня. Общие с Telegram лимиты — 5 от хозяина и 50 всего за дату Екатеринбурга; лишнее количество отклоняется, доступный остаток принимается. Награда за успешное действие 0,1 сита до налогов и взыскания, записывается в общий ledger. Почёсывания влияют на то же настроение; реплика и голосовое сразу не отправляются. Повтор действия с тем же UUID и количеством возвращает прежний результат без второй награды; с другим количеством — ошибка. Нет цепня или механика выключена — почёсываний и награды нет.
