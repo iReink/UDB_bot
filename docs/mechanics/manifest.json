@@ -45,7 +45,7 @@
         "ai_worker_client.py": "9dbb7715cdc671f4c50ec261c601b3cd956708ff122f886542985b9091a17e52",
         "ai_audit.py": "44b38a7d35c1188b045d3efa045bf433aa98c1fbcb46f53155dc938ed4c04e14",
         "main.py": "25d70c58500b70a97aad1d0a9fcb111aa81bad39bdd39f1fcd4d7934a4bdf0a0",
-        "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19",
+        "web/server.py": "46e13938ff1bd493c188bc5dad61a5d992f1997cb06676265d882634aaad06d5",
         "daily_photo_story.py": "8e35c4dedf33859356b6462ae142075b3c514f4ecff08664dea0222539508bd2",
         "photo_convert.py": "b1d4bf0c7753aa63dea36ec810ec75a4f49ded56082fbc025edbcc6c1b1fbfb6",
         "photo_albums.py": "5db85d10f828a4ac40077dec617c0f5854b0477e9d6d458c650054f571065b97",
@@ -110,25 +110,28 @@
         "озвучка"
       ],
       "path": "docs/mechanics/cepen.md",
-      "hash": "b0be865ee3c727862ee02eb103e043c7c78694d775a2ab4025aa4dc465eeaca4",
+      "hash": "255b0a368d2fdb1ab79d3ad598fc100e78e7641e34d1eb0ef7cffa2abfc28e39",
       "dependencies": {
         "cepen.py": "c41633c6f479a949f61f4a0807bc0afdca41c175539783e545f6266342351d7a",
         "cepen_shop.py": "acdd36fe2ff94547dccd43568d9eb6b4fb07da278e135f5097f9aa5b3d9ec44e",
         "cepen_message_events.py": "e968b15a9b32a2698882e450754d681fd3d98c974151e4191e53d25e3bc3e833",
         "cepen_avatar.py": "1e56e83924223bd5d3c854c847c873438a20906f131031df86ebfeca74e9a8f8",
-        "cepen_ai_avatar.py": "3a57df28f5237c0e75a6c036de03bfe697ccee04c007ed260a1dc1e322537cd0",
+        "cepen_ai_avatar.py": "94c6339875eb634783f291f025b8dba3a8a14cb8bdda3370c46404157d085c4a",
         "docs/cepen-spec.md": "f5eeaa0e4f765785f09b6796212d1e8bf122cbfd0ae8fdc26b12af9e56fce462",
         "docs/cepen-growth-benefits-spec.md": "b2025d733281dc0470f6420afb20b5236cc15024baa9b3c1890a1019743e9394",
         "docs/specs/cepen-ai-avatar-spec.md": "0d48f7b591725d85975d4da44368f44678e282ec9fc61476cee6c3e9c1b6ac92",
         "docs/specs/cepen-always-happy-spec.md": "9a1a0394eff536da2e8e652d44a85adf07deb26ee8206c98ce8d46fa17af7e16",
         "docs/specs/cepen-message-route-spec.md": "268e521737e287bfb864095c79852a7ff37787f04a7999c3bd34eaa905acc70f",
         "docs/specs/cepen-cure-confirmation-spec.md": "b8f7fb56b90806c61552e86aba80fe5d731052e334bd3c0cb4ad29981ea57a48",
-        "cepen_messages.py": "b5150eb4b08bcd1e863e3df4d5a4ebeb7a29b7a5e585dcff416aeb6b3efe8087",
+        "cepen_messages.py": "06aadf497a6a368aa89b3c52fdf0669300055b3f943672886eb7563270847e46",
         "docs/specs/cepen-messages-spec.md": "79bc0dbc4680f88a2a31f144b144907aad001b3eb1f2892b39fbacc605db643e",
         "docs/specs/cepen-self-scratch-spec.md": "a1d7b104b80ed3c4470ad93abb4260ac164ea008c400b79979eda19596a07942",
         "cepen_tts.py": "4819566d909471141459c267b3ecfcd4840d5189d97f7545ea026c490ec6eb57",
         "docs/specs/cepen-tts.md": "7307320430aecd156b20554c219c73ed38e1e8aa52c692a403c65eb529349358",
-        "docs/specs/cepen-voice-size.md": "2a0301916bb766883c4c6703365e688843c55a691c877760f60c7c94670c9da3"
+        "docs/specs/cepen-voice-size.md": "2a0301916bb766883c4c6703365e688843c55a691c877760f60c7c94670c9da3",
+        "web/cepen_api.py": "f4f411ef347fcb6509fb59a58b729bb6e598b2b3b4661f2795e7d84f00e5ee4a",
+        "docs/cepen-api.md": "e8e12f5f7362f813532c3f072e3ebdf6b4e23dfa9e60ff6e5ab1fa8011007b60",
+        "docs/specs/cepen-read-api.md": "2719d0fa015dd3fa818053273749b09d02b94d9764a748ffa063b68deb08ebcc"
       }
     },
     {
@@ -268,7 +271,7 @@
         "ai_runtime.py": "e6e4c3a5ed537b99616af215069f879af3a4db1afeb7573dabc0c7c205525394",
         "ai_providers.py": "e5a18fcc604ac7e62ae8d73d45eac5b54c7d6aa684c74b4e2a15c859f80207da",
         "main.py": "25d70c58500b70a97aad1d0a9fcb111aa81bad39bdd39f1fcd4d7934a4bdf0a0",
-        "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19"
+        "web/server.py": "46e13938ff1bd493c188bc5dad61a5d992f1997cb06676265d882634aaad06d5"
       }
     },
     {
@@ -285,7 +288,7 @@
       "path": "docs/mechanics/infrastructure.md",
       "hash": "9c5ad9edc3cc33d12c7b10261b61bc05be858e137caea758296dc1008019e023",
       "dependencies": {
-        "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19",
+        "web/server.py": "46e13938ff1bd493c188bc5dad61a5d992f1997cb06676265d882634aaad06d5",
         "db.py": "e927dce137ac22cf2914fc9e71dc46ed8b7393a04bd9027352df741549d3d599",
         "ai_worker_client.py": "9dbb7715cdc671f4c50ec261c601b3cd956708ff122f886542985b9091a17e52",
         "ai_worker.py": "f1a194a60ab08311b2e598cfe90c6f27b21b89df137463e3e024b66eaffd877d",
@@ -404,7 +407,7 @@
       "path": "docs/mechanics/web.md",
       "hash": "594fb74054fcf993069b162768b75c5c52a5a0ad2af0414c4a7a9a76a06aee56",
       "dependencies": {
-        "web/server.py": "9c5a76d5fc981222eb14f17547d4e39958707abf502648252ac47e714df6af19",
+        "web/server.py": "46e13938ff1bd493c188bc5dad61a5d992f1997cb06676265d882634aaad06d5",
         "dashboard.py": "dc31407dea125ddce3f34b68e4fd7242914683d94902a9a025f576db57434d70"
       }
     }

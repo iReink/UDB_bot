@@ -86,7 +86,11 @@ def set_enabled(chat_id: int, user_id: int, enabled: bool) -> None:
 
 
 def cached(chat_id: int, user_id: int, level: int, skin: str) -> str | None:
-    row = _state(chat_id, user_id)
+    return cached_path(_state(chat_id, user_id), level, skin)
+
+
+def cached_path(row, level: int, skin: str) -> str | None:
+    """Validate an already-read cache row without DDL or generation."""
     if not row or not row["enabled"] or row["level"] != level or row["skin"] != (skin or ""):
         return None
     path = Path(row["path"])

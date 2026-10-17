@@ -17,6 +17,10 @@ import db
 TZ = ZoneInfo('Asia/Yekaterinburg')
 
 
+def mood_for_scratches(count):
+    return 'подавлен' if count == 0 else 'удовлетворён' if count < 10 else 'счастлив'
+
+
 def local(now):
     return now.replace(tzinfo=TZ) if now.tzinfo is None else now.astimezone(TZ)
 
@@ -85,7 +89,7 @@ def context(chat_id, user_id, now):
         user['recent_messages'] = [r[0][:200] for r in conn.execute('SELECT message_text FROM messages_reactions WHERE chat_id=? AND user_id=? AND message_text IS NOT NULL ORDER BY date DESC,message_id DESC LIMIT 50', (chat_id,user_id))]
         count = conn.execute('SELECT COUNT(*) FROM cepen_scratches WHERE chat_id=? AND owner_id=? AND scratch_date=?', (chat_id,user_id,local(now).date().isoformat())).fetchone()[0]
         user['scratches_today'] = count
-        user['mood'] = 'подавлен' if count == 0 else 'удовлетворён' if count < 10 else 'счастлив'
+        user['mood'] = mood_for_scratches(count)
         for table, field in [('bank_deposits','principal_milli'),('bank_loans','remaining_principal_milli')]:
             # Table/column names are constants, never model or user input.
             if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():

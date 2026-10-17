@@ -5036,3 +5036,8 @@ register_summary_app(app, templates, DB_FILE, BOT_TOKEN)
 
 from web.grounding import register as register_grounding
 register_grounding(app)
+
+
+from web.cepen_api import register_cepen_api
+register_cepen_api(app, connect=_get_connection, consume_code=consume_auth_code,
+                   secret=lambda: SESSION_SECRET, chat_label=_resolve_chat_label)
