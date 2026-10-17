@@ -141,6 +141,10 @@ class CepenApiTests(unittest.TestCase):
         chosen=self.state().json()['avatar_url']
         self.assertNotEqual(fallback,chosen)
         self.assertEqual(ai.read_bytes(),self.client.get(chosen,headers=self.headers).content)
+        Image.new('RGB',(8,8),'red').save(ai,format='JPEG')
+        jpeg=self.client.get(chosen,headers=self.headers)
+        self.assertEqual('image/jpeg',jpeg.headers['content-type'])
+        self.assertEqual(ai.read_bytes(),jpeg.content)
         self.assertEqual(401,self.client.get(chosen).status_code)
         self.assertEqual(403,self.client.get('/api/v1/cepen/avatar?chat_id=-44',headers=self.headers).status_code)
         with closing(self.connect()) as c,c:c.execute('UPDATE cepen_ai_avatars SET enabled=0')

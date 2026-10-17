@@ -194,7 +194,11 @@ def register_cepen_api(app, *, connect, consume_code, secret, chat_label):
                 path = cepen_avatar.render_avatar(float(row['cepen']), row['cepen_profession'])
             except (OSError, ValueError):
                 fail(503, 'avatar_unavailable', 'Avatar temporarily unavailable')
-        return FileResponse(path, media_type='image/png', headers={'Cache-Control': 'private, max-age=300',
+        with open(path, 'rb') as source:
+            signature = source.read(12)
+        media_type = ('image/jpeg' if signature.startswith(b'\xff\xd8\xff') else
+                      'image/webp' if signature.startswith(b'RIFF') and signature[8:12] == b'WEBP' else 'image/png')
+        return FileResponse(path, media_type=media_type, headers={'Cache-Control': 'private, max-age=300',
                                                                  'Vary': 'Authorization', 'X-Content-Type-Options': 'nosniff'})
 
     app.include_router(router)

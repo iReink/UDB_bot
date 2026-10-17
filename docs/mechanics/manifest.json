@@ -129,8 +129,8 @@
         "cepen_tts.py": "4819566d909471141459c267b3ecfcd4840d5189d97f7545ea026c490ec6eb57",
         "docs/specs/cepen-tts.md": "7307320430aecd156b20554c219c73ed38e1e8aa52c692a403c65eb529349358",
         "docs/specs/cepen-voice-size.md": "2a0301916bb766883c4c6703365e688843c55a691c877760f60c7c94670c9da3",
-        "web/cepen_api.py": "f4f411ef347fcb6509fb59a58b729bb6e598b2b3b4661f2795e7d84f00e5ee4a",
-        "docs/cepen-api.md": "e8e12f5f7362f813532c3f072e3ebdf6b4e23dfa9e60ff6e5ab1fa8011007b60",
+        "web/cepen_api.py": "63af7b9bd8f57ebf7b16555893454d690e37fb172fb19635dcbbfe47278f4cef",
+        "docs/cepen-api.md": "e545931acb9e5d634d8b0b585b501b0dbdd269f7f11e64d47d65eddc924caf2c",
         "docs/specs/cepen-read-api.md": "2719d0fa015dd3fa818053273749b09d02b94d9764a748ffa063b68deb08ebcc"
       }
     },
